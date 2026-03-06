@@ -3,6 +3,7 @@ package providers;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.extern.slf4j.Slf4j;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -38,9 +39,8 @@ import java.util.logging.Logger;
  * - usage：prompt/completion/total
  * - reasoning_content：若存在则读取，否则 null
  */
+@Slf4j
 public final class CustomProvider extends LLMProvider {
-
-    private static final Logger LOG = Logger.getLogger(CustomProvider.class.getName());
 
     private final String defaultModel;
     private final HttpClient httpClient;

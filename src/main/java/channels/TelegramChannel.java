@@ -197,7 +197,7 @@ public class TelegramChannel extends BaseChannel {
     public CompletionStage<Void> send(OutboundMessage msg) {
         return CompletableFuture.runAsync(() -> {
             if (bot == null) {
-                logWarning("Telegram bot not running");
+                logWarn("Telegram bot not running");
                 return;
             }
 
@@ -251,7 +251,7 @@ public class TelegramChannel extends BaseChannel {
                         bot.execute(sm);
                     } catch (Exception e) {
                         // HTML 解析失败则降级成纯文本（与 Python 一致）
-                        logWarning("HTML parse failed, falling back to plain text: " + e.getMessage());
+                        logWarn("HTML parse failed, falling back to plain text: " + e.getMessage());
                         safeSendText(chatId, chunk, replyToMessageId);
                     }
                 }
@@ -695,7 +695,7 @@ public class TelegramChannel extends BaseChannel {
             bot.execute(cmd);
             logDebug("Telegram bot commands registered");
         } catch (Exception e) {
-            logWarning("Failed to register bot commands: " + e.getMessage());
+            logWarn("Failed to register bot commands: " + e.getMessage());
         }
     }
 
@@ -904,7 +904,7 @@ public class TelegramChannel extends BaseChannel {
                 logInfo("Telegram proxy enabled: HTTP " + host + ":" + port);
             }
         } catch (Exception e) {
-            logWarning("Invalid proxy ignored: " + proxy + " (" + e.getMessage() + ")");
+            logWarn("Invalid proxy ignored: " + proxy + " (" + e.getMessage() + ")");
         }
     }
 
@@ -998,20 +998,5 @@ public class TelegramChannel extends BaseChannel {
         return s == null || s.trim().isEmpty();
     }
 
-    private void logInfo(String msg) {
-        java.util.logging.Logger.getLogger(TelegramChannel.class.getName()).info(msg);
-    }
 
-    private void logWarning(String msg) {
-        java.util.logging.Logger.getLogger(TelegramChannel.class.getName()).warning(msg);
-    }
-
-    private void logSevere(String msg) {
-        java.util.logging.Logger.getLogger(TelegramChannel.class.getName()).severe(msg);
-    }
-
-    private void logDebug(String msg) {
-        // 这里用 info 代替 debug，避免引入额外日志依赖
-        java.util.logging.Logger.getLogger(TelegramChannel.class.getName()).info(msg);
-    }
 }

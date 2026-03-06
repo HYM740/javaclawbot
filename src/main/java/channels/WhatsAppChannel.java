@@ -123,7 +123,7 @@ public class WhatsAppChannel extends BaseChannel {
         return CompletableFuture.runAsync(() -> {
             WebSocket s = this.ws;
             if (s == null || !connected.get()) {
-                logWarning("WhatsApp bridge not connected");
+                logWarn("WhatsApp bridge not connected");
                 return;
             }
 
@@ -155,7 +155,7 @@ public class WhatsAppChannel extends BaseChannel {
             } catch (Exception e) {
                 connected.set(false);
                 this.ws = null;
-                logWarning("WhatsApp bridge connection error: " + e.getMessage());
+                logWarn("WhatsApp bridge connection error: " + e.getMessage());
             }
 
             if (isRunning()) {
@@ -197,7 +197,7 @@ public class WhatsAppChannel extends BaseChannel {
                         auth.put("token", waConfig.getBridgeToken());
                         webSocket.sendText(om.writeValueAsString(auth), true);
                     } catch (Exception e) {
-                        logWarning("Failed to send auth token: " + e.getMessage());
+                        logWarn("Failed to send auth token: " + e.getMessage());
                     }
                 }
 
@@ -216,7 +216,7 @@ public class WhatsAppChannel extends BaseChannel {
                         handleBridgeMessage(frame);
                     }
                 } catch (Exception e) {
-                    logWarning("Error handling bridge message: " + e.getMessage());
+                    logWarn("Error handling bridge message: " + e.getMessage());
                 } finally {
                     webSocket.request(1);
                 }
@@ -227,7 +227,7 @@ public class WhatsAppChannel extends BaseChannel {
             public CompletionStage<?> onClose(WebSocket webSocket, int statusCode, String reason) {
                 connected.set(false);
                 ws = null;
-                logWarning("WhatsApp bridge closed: " + statusCode + " " + reason);
+                logWarn("WhatsApp bridge closed: " + statusCode + " " + reason);
                 closedFuture.complete(null);
                 return CompletableFuture.completedFuture(null);
             }
@@ -236,7 +236,7 @@ public class WhatsAppChannel extends BaseChannel {
             public void onError(WebSocket webSocket, Throwable error) {
                 connected.set(false);
                 ws = null;
-                logWarning("WhatsApp bridge error: " + (error == null ? "unknown" : error.getMessage()));
+                logWarn("WhatsApp bridge error: " + (error == null ? "unknown" : error.getMessage()));
                 closedFuture.complete(null);
             }
         };
@@ -261,7 +261,7 @@ public class WhatsAppChannel extends BaseChannel {
         try {
             data = om.readTree(raw);
         } catch (JsonProcessingException e) {
-            logWarning("Invalid JSON from bridge: " + (raw == null ? "" : raw.substring(0, Math.min(100, raw.length()))));
+            logWarn("Invalid JSON from bridge: " + (raw == null ? "" : raw.substring(0, Math.min(100, raw.length()))));
             return;
         }
 
@@ -362,21 +362,5 @@ public class WhatsAppChannel extends BaseChannel {
         } catch (InterruptedException ie) {
             Thread.currentThread().interrupt();
         }
-    }
-
-    private void logInfo(String msg) {
-        java.util.logging.Logger.getLogger(WhatsAppChannel.class.getName()).info(msg);
-    }
-
-    private void logWarning(String msg) {
-        java.util.logging.Logger.getLogger(WhatsAppChannel.class.getName()).warning(msg);
-    }
-
-    private void logSevere(String msg) {
-        java.util.logging.Logger.getLogger(WhatsAppChannel.class.getName()).severe(msg);
-    }
-
-    private void logDebug(String msg) {
-        java.util.logging.Logger.getLogger(WhatsAppChannel.class.getName()).info(msg);
     }
 }

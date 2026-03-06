@@ -5,7 +5,9 @@ import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
 import channels.ChannelManager;
+import config.AgentRuntimeSettings;
 import config.ConfigIO;
+import config.ConfigReloader;
 import config.ConfigSchema;
 import corn.CronJob;
 import corn.CronSchedule;
@@ -21,9 +23,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 import picocli.CommandLine.*;
-import providers.CustomProvider;
-import providers.LLMProvider;
-import providers.ProviderRegistry;
+import providers.*;
 import session.SessionManager;
 import utils.Helpers;
 
@@ -37,6 +37,8 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+
+import static cli.RuntimeComponents.createRuntimeComponents;
 
 @Command(
         name = "nanobot",
@@ -169,6 +171,21 @@ public class Commands implements Runnable {
                         "Tip: set tools/providers api_base to an OpenAI-compatible endpoint so CustomProvider can be used.");
     }
 
+    /**
+     * 创建“可热更新 + fallback”的 Provider 代理
+     *
+     * 设计说明：
+     * - AgentLoop 依旧只依赖 LLMProvider 抽象
+     * - 实际传入的是 HotSwappableProvider（代理）
+     * - 每次 chat 前自动检查 config.json 是否变化
+     */
+    static LLMProvider makeHotProvider() {
+        Path configPath = ConfigIO.getConfigPath();
+        ConfigReloader reloader = new ConfigReloader(configPath);
+        ProviderFactory factory = new ProviderFactory();
+        return new HotSwappableProvider(reloader, factory);
+    }
+
     @Command(name = "onboard", description = "Initialize nanobot configuration and workspace.")
     static class OnboardCmd implements Runnable {
         @Override
@@ -253,9 +270,14 @@ public class Commands implements Runnable {
         public void run() {
             System.out.println("🐈 Starting nanobot gateway on port " + port + "...");
 
-            ConfigSchema.Config config = ConfigIO.loadConfig(null);
+            // by zcw 改成动态配置读取
+//            ConfigSchema.Config config = ConfigIO.loadConfig(null);
+            RuntimeComponents rt = createRuntimeComponents();
+            ConfigSchema.Config config = rt.config;
             MessageBus bus = new MessageBus();
-            LLMProvider provider = makeProvider(config);
+            // 变成可fallback的
+            // LLMProvider provider = makeProvider(config);
+            LLMProvider provider = makeHotProvider();
             SessionManager sessionManager = new SessionManager(config.getWorkspacePath());
 
             Path cronStorePath = ConfigIO.getDataDir().resolve("cron").resolve("jobs.json");
@@ -277,7 +299,8 @@ public class Commands implements Runnable {
                     config.getTools().isRestrictToWorkspace(),
                     sessionManager,
                     config.getTools().getMcpServers(),
-                    config.getChannels()
+                    config.getChannels(),
+                    rt.runtimeSettings
             );
 
             cron.setOnJob(job -> agent.processDirect(
@@ -398,9 +421,16 @@ public class Commands implements Runnable {
 
         @Override
         public void run() {
-            ConfigSchema.Config config = ConfigIO.loadConfig(null);
+
+            // by zcw 改成动态配置读取
+//            ConfigSchema.Config config = ConfigIO.loadConfig(null);
+            RuntimeComponents rt = createRuntimeComponents();
+            ConfigSchema.Config config = rt.config;
             MessageBus bus = new MessageBus();
-            LLMProvider provider = makeProvider(config);
+
+            // 变成可fallback的
+            // LLMProvider provider = makeProvider(config);
+            LLMProvider provider = makeHotProvider();
 
             Path cronStorePath = ConfigIO.getDataDir().resolve("cron").resolve("jobs.json");
             CronService cron = new CronService(cronStorePath, null);
@@ -421,7 +451,8 @@ public class Commands implements Runnable {
                     config.getTools().isRestrictToWorkspace(),
                     null,
                     config.getTools().getMcpServers(),
-                    config.getChannels()
+                    config.getChannels(),
+                    rt.runtimeSettings
             );
 
             BiProgress progress = new BiProgress(agentLoop);
@@ -827,8 +858,15 @@ public class Commands implements Runnable {
 
             @Override
             public void run() {
-                ConfigSchema.Config config = ConfigIO.loadConfig(null);
-                LLMProvider provider = makeProvider(config);
+
+                // by zcw 改成动态配置读取
+//            ConfigSchema.Config config = ConfigIO.loadConfig(null);
+                RuntimeComponents rt = createRuntimeComponents();
+                ConfigSchema.Config config = rt.config;
+
+                // 变成可fallback的
+                // LLMProvider provider = makeProvider(config);
+                LLMProvider provider = makeHotProvider();
                 MessageBus bus = new MessageBus();
 
                 AgentLoop agentLoop = new AgentLoop(
@@ -847,7 +885,8 @@ public class Commands implements Runnable {
                         config.getTools().isRestrictToWorkspace(),
                         null,
                         config.getTools().getMcpServers(),
-                        config.getChannels()
+                        config.getChannels(),
+                        rt.runtimeSettings
                 );
 
                 Path storePath = ConfigIO.getDataDir().resolve("cron").resolve("jobs.json");

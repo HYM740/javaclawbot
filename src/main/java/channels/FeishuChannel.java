@@ -19,6 +19,7 @@ import config.ConfigIO;
 import config.ConfigSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import utils.Retryer;
 
 
 import java.io.IOException;
@@ -440,7 +441,7 @@ public class FeishuChannel extends BaseChannel {
         }
     }
 
-    private void sendMessage(String token, String receiveIdType, String receiveId, String msgType, String contentJsonString) {
+    /*private void sendMessage(String token, String receiveIdType, String receiveId, String msgType, String contentJsonString) {
         try {
             String url = OPENAPI_BASE + "/im/v1/messages?receive_id_type=" +
                     URLEncoder.encode(receiveIdType, StandardCharsets.UTF_8);
@@ -473,6 +474,114 @@ public class FeishuChannel extends BaseChannel {
 
         } catch (Exception e) {
             logWarn("Feishu send exception: " + e.getMessage());
+        }
+    }*/
+    private static final class FeishuHttpException extends RuntimeException {
+        final int statusCode;
+        final String bodyPreview;
+
+        FeishuHttpException(int statusCode, String bodyPreview) {
+            super("http status=" + statusCode);
+            this.statusCode = statusCode;
+            this.bodyPreview = bodyPreview;
+        }
+    }
+
+    private static final class FeishuApiException extends RuntimeException {
+        final int code;
+        final String msg;
+
+        FeishuApiException(int code, String msg) {
+            super("api code=" + code + " msg=" + msg);
+            this.code = code;
+            this.msg = msg;
+        }
+    }
+    private Retryer.RetryDecision decideFeishuRetry(Throwable t) {
+
+        // 超时/IO：通常可重试
+        if (t instanceof java.net.http.HttpTimeoutException) {
+            return Retryer.RetryDecision.retry("timeout");
+        }
+        if (t instanceof java.io.IOException) {
+            return Retryer.RetryDecision.retry("io");
+        }
+
+        // HTTP 状态码判定
+        if (t instanceof FeishuHttpException he) {
+            int sc = he.statusCode;
+
+            // 429 限流、408 超时、5xx 服务端错误：重试
+            if (sc == 429 || sc == 408 || (sc >= 500 && sc <= 599)) {
+                return Retryer.RetryDecision.retry("http_" + sc);
+            }
+            // 其他 4xx：通常是参数/权限问题，不重试
+            return Retryer.RetryDecision.stop("http_" + sc);
+        }
+
+        // API code：建议先保守，只对白名单重试（你以后拿到常见 code 再补）
+        if (t instanceof FeishuApiException ae) {
+            if (isRetryableFeishuCode(ae.code)) {
+                return Retryer.RetryDecision.retry("api_code_" + ae.code);
+            }
+            return Retryer.RetryDecision.stop("api_code_" + ae.code);
+        }
+
+        return Retryer.RetryDecision.stop("unknown");
+    }
+
+    private boolean isRetryableFeishuCode(int code) {
+        // 先保守：默认不重试
+        // 你拿到飞书实际“服务繁忙/限流”等 code 后再加白名单
+        return false;
+    }
+
+    private void sendMessage(String token, String receiveIdType, String receiveId, String msgType, String contentJsonString) {
+        String opName = "Feishu sendMessage(" + msgType + ", receiveIdType=" + receiveIdType + ")";
+
+        try {
+            // 使用 BaseChannel.withRetry：重试日志由框架统一输出
+            withRetry(opName, () -> {
+                doSendOnce(token, receiveIdType, receiveId, msgType, contentJsonString);
+                return null;
+            }, this::decideFeishuRetry);
+
+        } catch (Exception finalEx) {
+            // 三次后记录最终异常
+            logWarn("Feishu send exception: " + finalEx.getMessage());
+        }
+    }
+
+    private void doSendOnce(String token, String receiveIdType, String receiveId, String msgType, String contentJsonString) throws Exception {
+
+        String url = OPENAPI_BASE + "/im/v1/messages?receive_id_type=" +
+                URLEncoder.encode(receiveIdType, StandardCharsets.UTF_8);
+
+        String body = Jsons.DEFAULT.toJson(Map.of(
+                "receive_id", receiveId,
+                "msg_type", msgType,
+                "content", contentJsonString
+        ));
+
+        HttpRequest req = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(java.time.Duration.ofSeconds(20))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "application/json; charset=utf-8")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+
+        HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+        if (resp.statusCode() / 100 != 2) {
+            // 让 retry 框架负责记录重试次数日志
+            throw new FeishuHttpException(resp.statusCode(), trim500(resp.body()));
+        }
+
+        JsonNode r = om.readTree(resp.body());
+        int code = r.has("code") ? r.get("code").asInt(-1) : -1;
+        if (code != 0) {
+            throw new FeishuApiException(code, r.path("msg").asText(""));
         }
     }
 
@@ -840,13 +949,5 @@ public class FeishuChannel extends BaseChannel {
     private static String trim500(String s) {
         if (s == null) return "";
         return s.length() <= 500 ? s : s.substring(0, 500);
-    }
-
-    private static void logInfo(String msg) {
-        java.util.logging.Logger.getLogger(FeishuChannel.class.getName()).info(msg);
-    }
-
-    private static void logWarn(String msg) {
-        java.util.logging.Logger.getLogger(FeishuChannel.class.getName()).warning(msg);
     }
 }

@@ -1,7 +1,5 @@
 package agent.tool;
 
-
-
 import corn.CronJob;
 import corn.CronSchedule;
 import corn.CronService;
@@ -14,9 +12,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
 /**
- * Cron tool for scheduling reminders and tasks.
+ * Cron tool for scheduling reminders and recurring tasks.
  *
- * Java port of nanobot/agent/tools/cron.py
+ * 说明：
+ * 1. in_seconds：推荐用于“一次性延时任务”，例如 10 秒后提醒
+ * 2. every_seconds：用于“循环任务”，例如每 60 秒执行一次
+ * 3. cron_expr：用于“固定时刻周期任务”，例如每天 7:30 执行
+ * 4. at：用于“绝对时间的一次性任务”，例如 2026-03-06T18:00:00
  */
 public class CronTool extends Tool {
 
@@ -28,7 +30,7 @@ public class CronTool extends Tool {
         this.cron = Objects.requireNonNull(cronService, "cronService");
     }
 
-    /** Set the current session context for delivery. */
+    /** 设置当前会话上下文，用于任务执行后消息投递 */
     public void setContext(String channel, String chatId) {
         this.channel = channel == null ? "" : channel;
         this.chatId = chatId == null ? "" : chatId;
@@ -41,7 +43,7 @@ public class CronTool extends Tool {
 
     @Override
     public String description() {
-        return "Schedule reminders and recurring tasks. Actions: add, list, remove.";
+        return "Schedule reminders and recurring tasks. For one-time short delays, prefer in_seconds. For recurring intervals, use every_seconds. For fixed schedules, use cron_expr with optional tz. Actions: add, list, remove.";
     }
 
     @Override
@@ -53,29 +55,40 @@ public class CronTool extends Tool {
                 "enum", List.of("add", "list", "remove"),
                 "description", "Action to perform"
         ));
+
         props.put("message", Map.of(
                 "type", "string",
-                "description", "Reminder message (for add)"
+                "description", "Reminder/task message for add"
         ));
+
+        props.put("in_seconds", Map.of(
+                "type", "integer",
+                "description", "Run once after N seconds from now. Recommended for one-time short delays, e.g. 10"
+        ));
+
         props.put("every_seconds", Map.of(
                 "type", "integer",
-                "description", "Interval in seconds (for recurring tasks)"
+                "description", "Run repeatedly every N seconds"
         ));
+
         props.put("cron_expr", Map.of(
                 "type", "string",
-                "description", "Cron expression like '0 9 * * *' (for scheduled tasks)"
+                "description", "Cron expression, supports 5-field ('30 7 * * *') or 6-field with seconds ('0 30 7 * * *')"
         ));
+
         props.put("tz", Map.of(
                 "type", "string",
-                "description", "IANA timezone for cron expressions (e.g. 'America/Vancouver')"
+                "description", "IANA timezone for cron expressions, e.g. 'Asia/Shanghai'"
         ));
+
         props.put("at", Map.of(
                 "type", "string",
-                "description", "ISO datetime for one-time execution (e.g. '2026-02-12T10:30:00')"
+                "description", "Absolute ISO datetime for one-time execution, e.g. '2026-02-12T10:30:00'. Prefer in_seconds for short delays."
         ));
+
         props.put("job_id", Map.of(
                 "type", "string",
-                "description", "Job ID (for remove)"
+                "description", "Job ID for remove"
         ));
 
         Map<String, Object> schema = new LinkedHashMap<>();
@@ -91,11 +104,15 @@ public class CronTool extends Tool {
 
         if ("add".equals(action)) {
             String message = str(args.get("message"));
+            Integer inSeconds = asIntOrNull(args.get("in_seconds"));
             Integer everySeconds = asIntOrNull(args.get("every_seconds"));
             String cronExpr = strOrNull(args.get("cron_expr"));
             String tz = strOrNull(args.get("tz"));
             String at = strOrNull(args.get("at"));
-            return CompletableFuture.completedFuture(addJob(message, everySeconds, cronExpr, tz, at));
+
+            return CompletableFuture.completedFuture(
+                    addJob(message, inSeconds, everySeconds, cronExpr, tz, at)
+            );
         }
 
         if ("list".equals(action)) {
@@ -110,16 +127,32 @@ public class CronTool extends Tool {
         return CompletableFuture.completedFuture("Unknown action: " + action);
     }
 
-    private String addJob(String message, Integer everySeconds, String cronExpr, String tz, String at) {
+    /**
+     * 添加任务：
+     * - in_seconds：一次性延时任务（推荐）
+     * - every_seconds：循环任务
+     * - cron_expr：cron任务
+     * - at：绝对时间一次性任务
+     */
+    private String addJob(String message,
+                          Integer inSeconds,
+                          Integer everySeconds,
+                          String cronExpr,
+                          String tz,
+                          String at) {
+
         if (message == null || message.isBlank()) {
             return "Error: message is required for add";
         }
+
         if (channel.isBlank() || chatId.isBlank()) {
             return "Error: no session context (channel/chat_id)";
         }
+
         if (tz != null && (cronExpr == null || cronExpr.isBlank())) {
             return "Error: tz can only be used with cron_expr";
         }
+
         if (tz != null) {
             try {
                 ZoneId.of(tz);
@@ -128,44 +161,82 @@ public class CronTool extends Tool {
             }
         }
 
+        // 限制只能指定一种时间方式，避免歧义
+        int modeCount = 0;
+        if (inSeconds != null) modeCount++;
+        if (everySeconds != null) modeCount++;
+        if (cronExpr != null && !cronExpr.isBlank()) modeCount++;
+        if (at != null && !at.isBlank()) modeCount++;
+
+        if (modeCount == 0) {
+            return "Error: one of in_seconds, every_seconds, cron_expr, or at is required";
+        }
+        if (modeCount > 1) {
+            return "Error: only one of in_seconds, every_seconds, cron_expr, or at may be provided";
+        }
+
         boolean deleteAfter = false;
         CronSchedule schedule;
 
-        if (everySeconds != null) {
-            schedule = new CronSchedule(CronSchedule.Kind.every);
-            schedule.setEveryMs(Long.valueOf(Math.multiplyExact(everySeconds, 1000)));
-        } else if (cronExpr != null && !cronExpr.isBlank()) {
-            schedule = new CronSchedule(CronSchedule.Kind.cron);
-            schedule.setExpr(cronExpr);
-            schedule.setTz(tz);
-        } else if (at != null && !at.isBlank()) {
-            long atMs;
-            try {
-                // Python datetime.fromisoformat(at) is "naive" (no tz) -> interpret in system default zone
-                LocalDateTime ldt = LocalDateTime.parse(at);
-                ZonedDateTime zdt = ldt.atZone(ZoneId.systemDefault());
-                atMs = zdt.toInstant().toEpochMilli();
-            } catch (Exception e) {
-                return "Error: invalid ISO datetime for at: " + at;
+        try {
+            if (inSeconds != null) {
+                if (inSeconds <= 0) {
+                    return "Error: in_seconds must be > 0";
+                }
+
+                long atMs = System.currentTimeMillis() + Math.multiplyExact(inSeconds.longValue(), 1000L);
+
+                schedule = new CronSchedule(CronSchedule.Kind.at);
+                schedule.setAtMs(atMs);
+                deleteAfter = true;
+
+            } else if (everySeconds != null) {
+                if (everySeconds <= 0) {
+                    return "Error: every_seconds must be > 0";
+                }
+
+                schedule = new CronSchedule(CronSchedule.Kind.every);
+                schedule.setEveryMs(Math.multiplyExact(everySeconds.longValue(), 1000L));
+
+            } else if (cronExpr != null && !cronExpr.isBlank()) {
+                schedule = new CronSchedule(CronSchedule.Kind.cron);
+                schedule.setExpr(cronExpr);
+                schedule.setTz(tz);
+
+            } else {
+                long atMs;
+                try {
+                    // 绝对时间 at：如果不带时区，则按系统默认时区解释
+                    LocalDateTime ldt = LocalDateTime.parse(at);
+                    ZonedDateTime zdt = ldt.atZone(ZoneId.systemDefault());
+                    atMs = zdt.toInstant().toEpochMilli();
+                } catch (Exception e) {
+                    return "Error: invalid ISO datetime for at: " + at;
+                }
+
+                if (atMs <= System.currentTimeMillis()) {
+                    return "Error: at must be in the future";
+                }
+
+                schedule = new CronSchedule(CronSchedule.Kind.at);
+                schedule.setAtMs(atMs);
+                deleteAfter = true;
             }
-            schedule = new CronSchedule(CronSchedule.Kind.at);
-            schedule.setAtMs(atMs);
-            deleteAfter = true;
-        } else {
-            return "Error: either every_seconds, cron_expr, or at is required";
+
+            CronJob job = cron.addJob(
+                    safeJobName(message),
+                    schedule,
+                    message,
+                    true,
+                    channel,
+                    chatId,
+                    deleteAfter
+            );
+
+            return "Created job '" + job.getName() + "' (id: " + job.getId() + ")";
+        } catch (Exception e) {
+            return "Error: failed to create cron job: " + e.getMessage();
         }
-
-        CronJob job = cron.addJob(
-                safeJobName(message),
-                schedule,
-                message,
-                true,
-                channel,
-                chatId,
-                deleteAfter
-        );
-
-        return "Created job '" + job.getName() + "' (id: " + job.getId() + ")";
     }
 
     private String listJobs() {
@@ -173,9 +244,14 @@ public class CronTool extends Tool {
         if (jobs == null || jobs.isEmpty()) {
             return "No scheduled jobs.";
         }
+
         List<String> lines = new ArrayList<>();
         for (CronJob j : jobs) {
-            lines.add("- " + j.getName() + " (id: " + j.getId() + ", " + j.getSchedule().getKind() + ")");
+            Long nextRun = j.getState() != null ? j.getState().getNextRunAtMs() : null;
+            lines.add("- " + j.getName()
+                    + " (id: " + j.getId()
+                    + ", kind: " + (j.getSchedule() != null ? j.getSchedule().getKind() : "unknown")
+                    + ", nextRunAtMs: " + nextRun + ")");
         }
         return "Scheduled jobs:\n" + String.join("\n", lines);
     }
@@ -190,6 +266,7 @@ public class CronTool extends Tool {
         return "Job " + jobId + " not found";
     }
 
+    /** 任务名截断，避免过长 */
     private String safeJobName(String message) {
         String s = message.trim();
         return s.length() <= 30 ? s : s.substring(0, 30);

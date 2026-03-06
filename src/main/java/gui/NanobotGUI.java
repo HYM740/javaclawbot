@@ -2,6 +2,8 @@ package gui;
 
 import agent.AgentLoop;
 import bus.MessageBus;
+import cli.Commands;
+import cli.RuntimeComponents;
 import config.ConfigIO;
 import config.ConfigSchema;
 import corn.CronService;
@@ -25,6 +27,8 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static cli.RuntimeComponents.createRuntimeComponents;
 
 /**
  * Nanobot Swing GUI 客户端
@@ -231,7 +235,11 @@ public class NanobotGUI extends JFrame {
     private void initializeCore() {
         try {
             // 加载配置
-            config = ConfigIO.loadConfig(null);
+
+            // by zcw 改成动态配置读取
+//            ConfigSchema.Config config = ConfigIO.loadConfig(null);
+            RuntimeComponents rt = createRuntimeComponents();
+            ConfigSchema.Config config = rt.getConfig();
             
             // 初始化组件
             provider = makeProvider(config);
@@ -259,7 +267,8 @@ public class NanobotGUI extends JFrame {
                 config.getTools().isRestrictToWorkspace(),
                 sessionManager,
                 config.getTools().getMcpServers(),
-                config.getChannels()
+                config.getChannels(),
+                rt.getRuntimeSettings()
             );
             
             running.set(true);

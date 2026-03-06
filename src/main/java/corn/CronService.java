@@ -7,6 +7,7 @@ import com.cronutils.model.time.ExecutionTime;
 import com.cronutils.parser.CronParser;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,6 +18,7 @@ import java.time.ZonedDateTime;
 import java.util.*;
 import java.util.concurrent.*;
 
+@Slf4j
 public class CronService {
 
     /** onJob 回调：执行任务并返回响应文本（可为 null） */
@@ -41,9 +43,11 @@ public class CronService {
     private volatile ScheduledFuture<?> timerFuture;
     private volatile boolean running = false;
 
-    // cron-utils parser (5-field UNIX cron: min hour dom mon dow)
-    private final CronParser cronParser =
-            new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.UNIX));
+    private final CronParser unixCronParser =
+            new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.UNIX));   // 5段
+
+    private final CronParser springCronParser =
+            new CronParser(CronDefinitionBuilder.instanceDefinitionFor(CronType.SPRING)); // 6段，含秒
 
     public CronService(Path storePath, CronJobHandler onJob) {
         this.storePath = Objects.requireNonNull(storePath, "storePath");
@@ -62,17 +66,74 @@ public class CronService {
         return System.currentTimeMillis();
     }
 
-    private static void validateScheduleForAdd(CronSchedule schedule) {
+    /**
+     * 校验表达式是否合法
+     * @param schedule
+     */
+    private void validateScheduleForAdd(CronSchedule schedule) {
+        if (schedule == null || schedule.getKind() == null) {
+            throw new IllegalArgumentException("schedule.kind is required");
+        }
+
         if (schedule.getTz() != null && schedule.getKind() != CronSchedule.Kind.cron) {
             throw new IllegalArgumentException("tz can only be used with cron schedules");
         }
-        if (schedule.getKind() == CronSchedule.Kind.cron && schedule.getTz() != null) {
+
+        if (schedule.getKind() == CronSchedule.Kind.cron) {
+            String expr = schedule.getExpr();
+            if (expr == null || expr.isBlank()) {
+                throw new IllegalArgumentException("cron expr is required");
+            }
+
+            if (schedule.getTz() != null && !schedule.getTz().isBlank()) {
+                try {
+                    ZoneId.of(schedule.getTz());
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("unknown timezone '" + schedule.getTz() + "'");
+                }
+            }
+
             try {
-                ZoneId.of(schedule.getTz());
+                parseCronExpr(expr);
             } catch (Exception e) {
-                throw new IllegalArgumentException("unknown timezone '" + schedule.getTz() + "'");
+                throw new IllegalArgumentException("invalid cron expr '" + expr + "': " + e.getMessage(), e);
             }
         }
+
+        if (schedule.getKind() == CronSchedule.Kind.every) {
+            Long every = schedule.getEveryMs();
+            if (every == null || every <= 0) {
+                throw new IllegalArgumentException("everyMs must be > 0");
+            }
+        }
+
+        if (schedule.getKind() == CronSchedule.Kind.at) {
+            Long at = schedule.getAtMs();
+            if (at == null) {
+                throw new IllegalArgumentException("atMs is required");
+            }
+        }
+    }
+
+    private Cron parseCronExpr(String expr) {
+        String normalized = expr == null ? "" : expr.trim();
+        if (normalized.isEmpty()) {
+            throw new IllegalArgumentException("cron expr is blank");
+        }
+
+        String[] parts = normalized.split("\\s+");
+        if (parts.length == 5) {
+            log.info("五段 cron 表达式解析: {}", normalized);
+            return unixCronParser.parse(normalized);
+        }
+        if (parts.length == 6) {
+            log.info("六段 cron 表达式解析: {}", normalized);
+            return springCronParser.parse(normalized);
+        }
+
+        throw new IllegalArgumentException(
+                "invalid cron expr '" + expr + "', expected 5 or 6 fields"
+        );
     }
 
     private Long computeNextRun(CronSchedule schedule, long nowMs) {
@@ -99,12 +160,13 @@ public class CronService {
 
                 ZonedDateTime base = Instant.ofEpochMilli(nowMs).atZone(zone);
 
-                Cron cron = cronParser.parse(expr);
+                Cron cron = parseCronExpr(expr);
                 ExecutionTime et = ExecutionTime.forCron(cron);
 
                 Optional<ZonedDateTime> next = et.nextExecution(base);
                 return next.map(z -> z.toInstant().toEpochMilli()).orElse(null);
             } catch (Exception e) {
+                log.error("计算下次执行时间时出错", e);
                 return null; // 对齐 python：异常则 None
             }
         }
@@ -161,8 +223,20 @@ public class CronService {
         CronStore s = loadStore();
         long now = nowMs();
         for (CronJob job : s.getJobs()) {
-            if (job.isEnabled()) {
-                job.getState().setNextRunAtMs(computeNextRun(job.getSchedule(), now));
+            if (!job.isEnabled()) {
+                job.getState().setNextRunAtMs(null);
+                continue;
+            }
+
+            Long next = computeNextRun(job.getSchedule(), now);
+            job.getState().setNextRunAtMs(next);
+
+            if (next == null) {
+                log.warn("Cron job has no next run time, id={}, name={}, kind={}, expr={}",
+                        job.getId(),
+                        job.getName(),
+                        job.getSchedule() != null ? job.getSchedule().getKind() : null,
+                        job.getSchedule() != null ? job.getSchedule().getExpr() : null);
             }
         }
     }
@@ -206,9 +280,14 @@ public class CronService {
             for (CronJob j : s.getJobs()) {
                 if (!j.isEnabled()) continue;
                 Long next = j.getState().getNextRunAtMs();
-                if (next != null && now >= next) due.add(j);
+
+                // 检查是否执行, 只有 nextRunAtMs 不为 null 且 now >= nextRunAtMs 才执行
+                if (next != null && now >= next) {
+                    due.add(j);
+                }
             }
 
+            // 遍历执行
             for (CronJob job : due) {
                 executeJob(job).join();
             }
@@ -219,6 +298,7 @@ public class CronService {
     }
 
     private CompletableFuture<Void> executeJob(CronJob job) {
+        log.info("job正在执行, name:{}, id:{}", job.getName(), job.getId());
         long start = nowMs();
 
         CompletionStage<String> cs;
@@ -226,6 +306,7 @@ public class CronService {
             if (onJob != null) {
                 cs = onJob.handle(job);
             } else {
+                log.info("onJob is null, 不执行onJob");
                 cs = CompletableFuture.completedFuture(null);
             }
         } catch (Exception e) {

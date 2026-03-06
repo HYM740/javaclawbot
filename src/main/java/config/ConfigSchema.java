@@ -573,8 +573,12 @@ public final class ConfigSchema {
         private int maxToolIterations = 40;
         private int memoryWindow = 100;
 
-        // ✅ Python: reasoning_effort: str | None = None
         private String reasoningEffort = null;
+
+        /**
+         * fallback 调用策略配置
+         */
+        private FallbackConfig fallback = new FallbackConfig();
 
         public String getWorkspace() { return workspace; }
         public void setWorkspace(String workspace) { this.workspace = workspace; }
@@ -599,6 +603,108 @@ public final class ConfigSchema {
 
         public String getReasoningEffort() { return reasoningEffort; }
         public void setReasoningEffort(String reasoningEffort) { this.reasoningEffort = reasoningEffort; }
+
+        public FallbackConfig getFallback() { return fallback; }
+        public void setFallback(FallbackConfig fallback) { this.fallback = (fallback != null) ? fallback : new FallbackConfig(); }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class FallbackTarget {
+        /**
+         * 是否启用该 fallback 节点
+         */
+        private boolean enabled = true;
+
+        /**
+         * provider 名
+         * 例如：openrouter / deepseek / custom / siliconflow
+         */
+        private String provider = "";
+
+        /**
+         * 该 provider 下的多个候选模型
+         * 例如：
+         * ["gpt-4.1", "claude-3.7-sonnet", "gemini-2.5-pro"]
+         */
+        private List<String> models = new ArrayList<>();
+
+        /**
+         * 可选：覆盖 apiBase
+         * 适合 custom 或同 provider 多网关场景
+         */
+        private String apiBase = null;
+
+        /**
+         * 可选：覆盖 apiKey
+         * 一般不建议写在 fallback 节点里，但保留能力
+         */
+        private String apiKey = null;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getProvider() { return provider; }
+        public void setProvider(String provider) { this.provider = provider; }
+
+        public List<String> getModels() { return models; }
+        public void setModels(List<String> models) { this.models = (models != null) ? models : new ArrayList<>(); }
+
+        public String getApiBase() { return apiBase; }
+        public void setApiBase(String apiBase) { this.apiBase = apiBase; }
+
+        public String getApiKey() { return apiKey; }
+        public void setApiKey(String apiKey) { this.apiKey = apiKey; }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    public static class FallbackConfig {
+        /**
+         * 是否启用 fallback
+         */
+        private boolean enabled = true;
+
+        /**
+         * 模式：
+         * - off
+         * - on_error
+         * - on_empty
+         * - on_invalid
+         * - always_try_next
+         */
+        private String mode = "on_error";
+
+        /**
+         * 旧版兼容：仅指定 provider 顺序
+         * 若配置了 targets，则优先使用 targets
+         */
+       /* private List<String> providers = new ArrayList<>();*/
+
+        /**
+         * 新版 fallback 目标：
+         * 每个 target 可以指定 provider + 多个 models + apiBase/apiKey 覆盖
+         */
+        private List<FallbackTarget> targets = new ArrayList<>();
+
+        /**
+         * 最大尝试次数（包含 primary）
+         */
+        private int maxAttempts = 3;
+
+        public boolean isEnabled() { return enabled; }
+        public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+        public String getMode() { return mode; }
+        public void setMode(String mode) { this.mode = mode; }
+
+       /* public List<String> getProviders() { return providers; }
+        public void setProviders(List<String> providers) { this.providers = (providers != null) ? providers : new ArrayList<>(); }*/
+        public List<FallbackTarget> getTargets() { return targets; }
+        public void setTargets(List<FallbackTarget> targets) { this.targets = (targets != null) ? targets : new ArrayList<>(); }
+
+        public int getMaxAttempts() { return maxAttempts; }
+        public void setMaxAttempts(int maxAttempts) { this.maxAttempts = maxAttempts; }
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

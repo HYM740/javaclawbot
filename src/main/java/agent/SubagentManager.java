@@ -441,7 +441,7 @@ public class SubagentManager {
                 return (CompletableFuture<LLMResponse>) f;
             }
         } catch (NoSuchMethodException ignored) {
-            // 没有 6 参版本则走回退
+            // 没有6参版本则走回退
         } catch (Exception e) {
             // 反射调用失败也回退到 5 参版本
             log.debug("chat 6参调用失败，回退到 5参：{}", e.toString());

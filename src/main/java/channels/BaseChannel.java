@@ -3,6 +3,7 @@ package channels;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
+import utils.Retryer;
 
 import java.lang.reflect.Array;
 import java.lang.reflect.Field;
@@ -85,12 +86,70 @@ public abstract class BaseChannel {
     public abstract CompletionStage<Void> stop();
 
     /**
+     * 默认重试配置
+     * @return
+     */
+    protected Retryer.RetryPolicy defaultRetryPolicy() {
+        return new Retryer.RetryPolicy(
+                3,                       // 最多 3 次（含首次）
+                java.time.Duration.ofMillis(200),
+                java.time.Duration.ofSeconds(3),
+                0.2                      // jitter ±20%
+        );
+    }
+
+    /**
+     * 通用重试执行框架：负责
+     * - 记录每次重试次数
+     * - 指数退避 + jitter
+     * - 只在最终失败时抛出异常（由上层或子类决定最终怎么 log）
+     */
+    protected <T> T withRetry(
+            String opName,
+            Retryer.CheckedSupplier<T> work,
+            java.util.function.Function<Throwable, Retryer.RetryDecision> decider
+    ) throws Exception {
+        return Retryer.executeWithRetry(
+                opName,
+                defaultRetryPolicy(),
+                work,
+                decider,
+                msg -> java.util.logging.Logger.getLogger(getClass().getName()).warning(msg)
+        );
+    }
+
+    /**
      * 通过本渠道发送消息。
      *
      * @param msg 出站消息
      */
     public abstract CompletionStage<Void> send(OutboundMessage msg);
 
+
+    /**
+     * BaseChannel 默认 warning 日志。
+     * 子类可覆盖。
+     */
+    protected void logWarn(String msg) {
+        java.util.logging.Logger.getLogger(getClass().getName()).warning(msg);
+    }
+
+    /**
+     * BaseChannel 默认 info 日志。
+     * 子类可覆盖。
+     */
+    protected void logInfo(String msg) {
+        java.util.logging.Logger.getLogger(getClass().getName()).info(msg);
+    }
+
+    protected void logSevere(String msg) {
+        java.util.logging.Logger.getLogger(TelegramChannel.class.getName()).severe(msg);
+    }
+
+    protected void logDebug(String msg) {
+        // 这里用 info 代替 debug，避免引入额外日志依赖
+        java.util.logging.Logger.getLogger(TelegramChannel.class.getName()).info(msg);
+    }
     /**
      * 判断 sender 是否允许使用机器人。
      *
