@@ -182,6 +182,10 @@ public class SubagentManager {
         tools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
         tools.register(new FileSystemTools.EditFileTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
 
         // shell 工具：默认 working_dir=workspace，并支持 restrict_to_workspace
         tools.register(new ExecTool(

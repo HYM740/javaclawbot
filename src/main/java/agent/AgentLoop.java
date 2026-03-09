@@ -250,6 +250,10 @@ public class AgentLoop {
         tools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
         tools.register(new FileSystemTools.EditFileTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
 
         tools.register(new ExecTool(
                 execConfig.getTimeout(),
