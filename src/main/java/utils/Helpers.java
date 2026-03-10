@@ -135,4 +135,14 @@ public final class Helpers {
         }
         return Path.of(p);
     }
+
+
+    public static String safeTruncate(String s, int maxCodePoints) {
+        if (s == null || s.isEmpty()) return s;
+        int total = s.codePointCount(0, s.length());
+        if (total <= maxCodePoints) return s;
+
+        int end = s.offsetByCodePoints(0, maxCodePoints);
+        return s.substring(0, end);
+    }
 }

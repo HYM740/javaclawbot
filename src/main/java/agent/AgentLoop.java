@@ -21,6 +21,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
+import static utils.Helpers.safeTruncate;
+
 /**
  * AgentLoop：核心处理引擎（Agent Loop）。
  *
@@ -817,7 +819,7 @@ public class AgentLoop {
 
                 try {
                     String argsStr = JsonUtil.toJson(tc.getArguments());
-                    String preview = argsStr.length() > 200 ? argsStr.substring(0, 200) : argsStr;
+                    String preview = safeTruncate(argsStr, 200);
                     log.info("Tool call: {}({})", tc.getName(), preview);
                 } catch (Exception ignored) {
                 }

@@ -10,17 +10,19 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * 会话管理器
+ * 会话管理器（增强稳健版）
  *
- * 功能：
- * - 会话以 JSONL 保存：第一行 metadata，其余行是消息
- * - 优先从当前工作区 sessions 目录读取
- * - 如果当前不存在但旧目录 ~/.nanobot/sessions 存在，则迁移到当前目录
- * - 提供缓存、保存、失效、列表功能
+ * 改进点：
+ * 1. 保存前递归清洗非法 Unicode，避免 UTF-8 写文件时报 MalformedInputException
+ * 2. 使用 tmp 文件 + 原子替换，避免写一半把正式文件写坏
+ * 3. 对同一 session key 做串行化保存，避免并发写乱文件
+ * 4. 加载时尽量容错：坏行跳过，严重损坏时备份文件
  */
 public final class SessionManager {
 
@@ -30,7 +32,12 @@ public final class SessionManager {
     private final Path sessionsDir;
     private final Path legacySessionsDir;
 
-    private final Map<String, Session> cache = new HashMap<>();
+    /** 会话缓存：线程安全 */
+    private final Map<String, Session> cache = new ConcurrentHashMap<>();
+
+    /** 每个 session key 一把锁，避免同一个文件被并发写 */
+    private final Map<String, ReentrantLock> sessionLocks = new ConcurrentHashMap<>();
+
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public SessionManager(Path workspace) {
@@ -43,49 +50,75 @@ public final class SessionManager {
      * 获取或创建会话
      */
     public Session getOrCreate(String key) {
-        Session s = cache.get(key);
-        if (s != null) return s;
-
-        Session loaded = load(key);
-        if (loaded == null) loaded = new Session(key);
-
-        cache.put(key, loaded);
-        return loaded;
+        return cache.computeIfAbsent(key, k -> {
+            Session loaded = load(k);
+            return loaded != null ? loaded : new Session(k);
+        });
     }
 
     /**
-     * 保存会话（覆盖写入）
+     * 保存会话（原子写入 + 清洗非法字符 + 同 key 加锁）
      */
     public void save(Session session) {
-        Path path = getSessionPath(session.getKey());
+        String key = session.getKey();
+        ReentrantLock lock = sessionLocks.computeIfAbsent(key, k -> new ReentrantLock());
 
-        try (BufferedWriter w = Files.newBufferedWriter(
-                path,
-                StandardCharsets.UTF_8,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-        )) {
+        lock.lock();
+        try {
+            Path target = getSessionPath(key);
+            Helpers.ensureDir(target.getParent());
 
-            Map<String, Object> metaLine = new LinkedHashMap<>();
-            metaLine.put("_type", "metadata");
-            metaLine.put("key", session.getKey());
-            metaLine.put("created_at", session.getCreatedAt().toString());
-            metaLine.put("updated_at", session.getUpdatedAt().toString());
-            metaLine.put("metadata", session.getMetadata());
-            metaLine.put("last_consolidated", session.getLastConsolidated());
+            // 临时文件：与目标文件放同目录，保证 move 更稳
+            Path tmp = target.resolveSibling(target.getFileName().toString() + ".tmp");
 
-            w.write(objectMapper.writeValueAsString(metaLine));
-            w.write("\n");
+            // 先清洗，避免坏字符在写文件阶段炸掉
+            Map<String, Object> safeMetadata = castMap(deepSanitize(session.getMetadata()));
+            List<Map<String, Object>> safeMessages = castListOfMap(deepSanitize(session.getMessages()));
 
-            for (Map<String, Object> msg : session.getMessages()) {
-                w.write(objectMapper.writeValueAsString(msg));
+            try (BufferedWriter w = Files.newBufferedWriter(
+                    tmp,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING,
+                    StandardOpenOption.WRITE
+            )) {
+                Map<String, Object> metaLine = new LinkedHashMap<>();
+                metaLine.put("_type", "metadata");
+                metaLine.put("key", sanitizeString(session.getKey()));
+                metaLine.put("created_at", session.getCreatedAt().toString());
+                metaLine.put("updated_at", session.getUpdatedAt().toString());
+                metaLine.put("metadata", safeMetadata);
+                metaLine.put("last_consolidated", session.getLastConsolidated());
+
+                w.write(objectMapper.writeValueAsString(metaLine));
                 w.write("\n");
+
+                for (Map<String, Object> msg : safeMessages) {
+                    w.write(objectMapper.writeValueAsString(msg));
+                    w.write("\n");
+                }
+
+                w.flush();
             }
 
-            cache.put(session.getKey(), session);
+            // 原子替换：避免正式文件写一半损坏
+            atomicReplace(tmp, target);
+
+            // 缓存里也放“已清洗版本”，避免下次 save 继续炸
+            Session safeSession = new Session(
+                    key,
+                    safeMessages,
+                    session.getCreatedAt(),
+                    session.getUpdatedAt(),
+                    safeMetadata,
+                    session.getLastConsolidated()
+            );
+            cache.put(key, safeSession);
 
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "保存会话失败：" + session.getKey() + "，原因：" + e.getMessage(), e);
+            LOG.log(Level.WARNING, "保存会话失败：" + key + "，原因：" + e.getMessage(), e);
+        } finally {
+            lock.unlock();
         }
     }
 
@@ -110,7 +143,10 @@ public final class SessionManager {
                     firstLine = firstLine.trim();
                     if (firstLine.isEmpty()) continue;
 
-                    Map<String, Object> data = objectMapper.readValue(firstLine, new TypeReference<Map<String, Object>>() {});
+                    Map<String, Object> data = objectMapper.readValue(
+                            firstLine,
+                            new TypeReference<Map<String, Object>>() {}
+                    );
                     if (!"metadata".equals(data.get("_type"))) continue;
 
                     String key = (String) data.get("key");
@@ -126,7 +162,7 @@ public final class SessionManager {
                     sessions.add(item);
 
                 } catch (Exception ignore) {
-                    // 与 Python 一致：错误就跳过该文件
+                    // 与原逻辑一致：坏文件直接跳过
                 }
             }
         } catch (Exception e) {
@@ -142,7 +178,9 @@ public final class SessionManager {
         return sessions;
     }
 
-    // ----------------- 内部方法 -----------------
+    // =========================
+    // 内部方法
+    // =========================
 
     private Path getSessionPath(String key) {
         String safeKey = Helpers.safeFilename(key.replace(":", "_"));
@@ -154,6 +192,12 @@ public final class SessionManager {
         return legacySessionsDir.resolve(safeKey + ".jsonl");
     }
 
+    /**
+     * 加载会话：
+     * - 支持旧目录迁移
+     * - 坏行跳过
+     * - 若文件严重损坏，记录警告并尽量恢复可读部分
+     */
     private Session load(String key) {
         Path path = getSessionPath(key);
 
@@ -178,36 +222,59 @@ public final class SessionManager {
         LocalDateTime createdAt = null;
         int lastConsolidated = 0;
 
+        int lineNo = 0;
+        int badLines = 0;
+
         try (BufferedReader r = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             String line;
             while ((line = r.readLine()) != null) {
+                lineNo++;
                 line = line.trim();
                 if (line.isEmpty()) continue;
 
-                Map<String, Object> data = objectMapper.readValue(line, new TypeReference<Map<String, Object>>() {});
-                if ("metadata".equals(data.get("_type"))) {
-                    Object md = data.get("metadata");
-                    if (md instanceof Map<?, ?> m) {
-                        metadata = (Map<String, Object>) m;
+                try {
+                    Map<String, Object> data = objectMapper.readValue(
+                            line,
+                            new TypeReference<Map<String, Object>>() {}
+                    );
+
+                    if ("metadata".equals(data.get("_type"))) {
+                        Object md = data.get("metadata");
+                        if (md instanceof Map<?, ?> m) {
+                            metadata = castMap(deepSanitize(m));
+                        } else {
+                            metadata = new HashMap<>();
+                        }
+
+                        Object ca = data.get("created_at");
+                        if (ca instanceof String s && !s.isBlank()) {
+                            try {
+                                createdAt = LocalDateTime.parse(s);
+                            } catch (Exception ignore) {
+                                createdAt = null;
+                            }
+                        }
+
+                        Object lc = data.get("last_consolidated");
+                        if (lc instanceof Number n) {
+                            lastConsolidated = n.intValue();
+                        } else {
+                            lastConsolidated = 0;
+                        }
+
                     } else {
-                        metadata = new HashMap<>();
+                        messages.add(castMap(deepSanitize(data)));
                     }
 
-                    Object ca = data.get("created_at");
-                    if (ca instanceof String s && !s.isBlank()) {
-                        createdAt = LocalDateTime.parse(s);
-                    }
-
-                    Object lc = data.get("last_consolidated");
-                    if (lc instanceof Number n) {
-                        lastConsolidated = n.intValue();
-                    } else {
-                        lastConsolidated = 0;
-                    }
-
-                } else {
-                    messages.add(data);
+                } catch (Exception ex) {
+                    badLines++;
+                    LOG.log(Level.WARNING,
+                            "会话文件存在坏行，已跳过。key=" + key + ", line=" + lineNo + ", reason=" + ex.getMessage());
                 }
+            }
+
+            if (badLines > 0) {
+                LOG.log(Level.WARNING, "加载会话完成，但发现坏行：key={0}, badLines={1}", new Object[]{key, badLines});
             }
 
             return new Session(
@@ -221,12 +288,142 @@ public final class SessionManager {
 
         } catch (Exception e) {
             LOG.log(Level.WARNING, "加载会话失败：" + key + "，原因：" + e.getMessage(), e);
+            backupCorruptedFile(path);
             return null;
+        }
+    }
+
+    /**
+     * 原子替换文件
+     */
+    private void atomicReplace(Path tmp, Path target) throws Exception {
+        try {
+            Files.move(
+                    tmp,
+                    target,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE
+            );
+        } catch (AtomicMoveNotSupportedException e) {
+            // 某些文件系统不支持 ATOMIC_MOVE，则退化为普通 replace
+            Files.move(
+                    tmp,
+                    target,
+                    StandardCopyOption.REPLACE_EXISTING
+            );
+        }
+    }
+
+    /**
+     * 备份损坏文件，避免后续继续覆盖
+     */
+    private void backupCorruptedFile(Path path) {
+        try {
+            if (!Files.exists(path)) return;
+            String name = path.getFileName().toString();
+            Path backup = path.resolveSibling(name + ".corrupted." + System.currentTimeMillis() + ".bak");
+            Files.copy(path, backup, StandardCopyOption.REPLACE_EXISTING);
+            LOG.log(Level.WARNING, "已备份损坏会话文件：{0}", backup);
+        } catch (Exception ex) {
+            LOG.log(Level.WARNING, "备份损坏会话文件失败：" + path, ex);
         }
     }
 
     private static String stripExtension(String filename) {
         int idx = filename.lastIndexOf('.');
         return (idx > 0) ? filename.substring(0, idx) : filename;
+    }
+
+    // =========================
+    // 数据清洗：递归处理 Map/List/String
+    // =========================
+
+    /**
+     * 深度清洗：
+     * - String：清洗非法 surrogate
+     * - Map：递归清洗 key/value
+     * - List：递归清洗元素
+     * - 其它类型原样返回
+     */
+    @SuppressWarnings("unchecked")
+    private Object deepSanitize(Object value) {
+        if (value == null) return null;
+
+        if (value instanceof String s) {
+            return sanitizeString(s);
+        }
+
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> cleaned = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : map.entrySet()) {
+                String k = sanitizeString(String.valueOf(e.getKey()));
+                Object v = deepSanitize(e.getValue());
+                cleaned.put(k, v);
+            }
+            return cleaned;
+        }
+
+        if (value instanceof List<?> list) {
+            List<Object> cleaned = new ArrayList<>(list.size());
+            for (Object item : list) {
+                cleaned.add(deepSanitize(item));
+            }
+            return cleaned;
+        }
+
+        return value;
+    }
+
+    /**
+     * 清洗字符串中的非法 Unicode 代理项，避免 UTF-8 编码失败
+     */
+    private String sanitizeString(String input) {
+        if (input == null || input.isEmpty()) return input;
+
+        StringBuilder sb = new StringBuilder(input.length());
+
+        for (int i = 0; i < input.length(); i++) {
+            char ch = input.charAt(i);
+
+            if (Character.isHighSurrogate(ch)) {
+                // 高代理项后面必须紧跟低代理项
+                if (i + 1 < input.length() && Character.isLowSurrogate(input.charAt(i + 1))) {
+                    sb.append(ch).append(input.charAt(i + 1));
+                    i++; // 跳过已配对的低代理项
+                } else {
+                    sb.append('\uFFFD');
+                }
+            } else if (Character.isLowSurrogate(ch)) {
+                // 单独出现的低代理项非法
+                sb.append('\uFFFD');
+            } else {
+                sb.append(ch);
+            }
+        }
+
+        return sb.toString();
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> castMap(Object obj) {
+        if (obj instanceof Map<?, ?> m) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> e : m.entrySet()) {
+                result.put(String.valueOf(e.getKey()), e.getValue());
+            }
+            return result;
+        }
+        return new LinkedHashMap<>();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> castListOfMap(Object obj) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (obj instanceof List<?> list) {
+            for (Object item : list) {
+                result.add(castMap(item));
+            }
+        }
+        return result;
     }
 }
