@@ -33,6 +33,7 @@ public class CronService {
     private final ObjectMapper mapper;
 
     private volatile CronStore store; // lazy load
+    private volatile long lastModifiedTime = 0;  // 用于检测外部文件变更
     private final ScheduledExecutorService scheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "nanobot-cron");
@@ -177,11 +178,22 @@ public class CronService {
     // ---------- store load/save ----------
 
     private synchronized CronStore loadStore() {
+        // 检测外部文件变更
+        if (store != null && Files.exists(storePath)) {
+            try {
+                long mtime = Files.getLastModifiedTime(storePath).toMillis();
+                if (mtime != lastModifiedTime) {
+                    log.info("Cron: jobs.json modified externally, reloading");
+                    store = null;
+                }
+            } catch (IOException ignored) {}
+        }
         if (store != null) return store;
 
         if (Files.exists(storePath)) {
             try {
                 store = mapper.readValue(storePath.toFile(), CronStore.class);
+                lastModifiedTime = Files.getLastModifiedTime(storePath).toMillis();
             } catch (Exception e) {
                 store = new CronStore();
             }
@@ -196,6 +208,8 @@ public class CronService {
         try {
             Files.createDirectories(storePath.getParent());
             mapper.writeValue(storePath.toFile(), store);
+            // 更新最后修改时间
+            lastModifiedTime = Files.getLastModifiedTime(storePath).toMillis();
         } catch (IOException ignored) {
         }
     }

@@ -63,6 +63,47 @@ public class FeishuChannel extends BaseChannel {
             Map.entry(".pptx", "ppt")
     );
 
+    // ---- Smart format detection patterns ----
+    // Complex markdown patterns (code blocks, tables, headings)
+    private static final Pattern COMPLEX_MD_RE = Pattern.compile(
+        "```" +                                    // fenced code block
+        "|^\\|.+\\|.*\\n\\s*\\|[-:\\s|]+\\|" +    // markdown table
+        "|^#{1,6}\\s+",                            // headings
+        Pattern.MULTILINE
+    );
+
+    // Simple markdown patterns (bold, italic, strikethrough)
+    private static final Pattern SIMPLE_MD_RE = Pattern.compile(
+        "\\*\\*.+?\\*\\*" +                        // **bold**
+        "|__.+?__" +                               // __bold__
+        "|(?<!\\*)\\*(?!\\*)(.+?)(?<!\\*)\\*(?!\\*)" +  // *italic*
+        "|~~.+?~~",                                // ~~strikethrough~~
+        Pattern.DOTALL
+    );
+
+    // Markdown link: [text](url)
+    private static final Pattern MD_LINK_RE = Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\)]+)\\)");
+
+    // List items
+    private static final Pattern LIST_RE = Pattern.compile("^[\\s]*[-*+]\\s+", Pattern.MULTILINE);
+    private static final Pattern OLIST_RE = Pattern.compile("^[\\s]*\\d+\\.\\s+", Pattern.MULTILINE);
+
+    // Markdown table pattern
+    private static final Pattern TABLE_RE = Pattern.compile(
+        "((?:^[ \\t]*\\|.+\\|[ \\t]*\\n)(?:^[ \\t]*\\|[-:\\s|]+\\|[ \\t]*\\n)(?:^[ \\t]*\\|.+\\|[ \\t]*\\n?)+)",
+        Pattern.MULTILINE
+    );
+
+    // Heading pattern
+    private static final Pattern HEADING_RE = Pattern.compile("^(#{1,6})\\s+(.+)$", Pattern.MULTILINE);
+
+    // Code block pattern
+    private static final Pattern CODE_BLOCK_RE = Pattern.compile("(```[\\s\\S]*?```)", Pattern.MULTILINE);
+
+    // Format thresholds
+    private static final int TEXT_MAX_LEN = 200;
+    private static final int POST_MAX_LEN = 2000;
+
     // ---- OpenAPI domain (CN default) ----
     private static final String OPENAPI_BASE = "https://open.feishu.cn/open-apis";
     private static final Logger log = LoggerFactory.getLogger(FeishuChannel.class);
@@ -274,11 +315,24 @@ public class FeishuChannel extends BaseChannel {
                     }
                 }
 
-                // 2) then send content as interactive card (match python)
+                // 2) send content with smart format detection
                 if (msg.getContent() != null && !msg.getContent().trim().isEmpty()) {
-                    Map<String, Object> card = buildCard(msg.getContent().trim());
-                    sendMessage(token, receiveIdType, msg.getChatId(),
-                            "interactive", Jsons.DEFAULT.toJson(card));
+                    String content = msg.getContent().trim();
+                    String fmt = detectMsgFormat(content);
+                    
+                    if ("text".equals(fmt)) {
+                        // Short plain text – send as simple text message
+                        String textBody = "{\"text\":\"" + escapeJson(content) + "\"}";
+                        sendMessage(token, receiveIdType, msg.getChatId(), "text", textBody);
+                    } else if ("post".equals(fmt)) {
+                        // Medium content with links – send as rich-text post
+                        String postBody = markdownToPost(content);
+                        sendMessage(token, receiveIdType, msg.getChatId(), "post", postBody);
+                    } else {
+                        // Complex / long content – send as interactive card
+                        Map<String, Object> card = buildCard(content);
+                        sendMessage(token, receiveIdType, msg.getChatId(), "interactive", Jsons.DEFAULT.toJson(card));
+                    }
                 }
             } catch (Exception e) {
                 logWarn("Feishu send error: " + e.getMessage());
@@ -532,7 +586,7 @@ public class FeishuChannel extends BaseChannel {
 
     private boolean isRetryableFeishuCode(int code) {
         // 先保守：默认不重试
-        // 你拿到飞书实际“服务繁忙/限流”等 code 后再加白名单
+        // 你拿到飞书实际"服务繁忙/限流"等 code 后再加白名单
         return false;
     }
 
@@ -762,6 +816,102 @@ public class FeishuChannel extends BaseChannel {
     }
 
     // =========================
+    // Smart format detection
+    // =========================
+
+    /**
+     * Determine the optimal Feishu message format for content.
+     * @return "text", "post", or "interactive"
+     */
+    private String detectMsgFormat(String content) {
+        String stripped = content.trim();
+        
+        // Complex markdown (code blocks, tables, headings) → always card
+        if (COMPLEX_MD_RE.matcher(stripped).find()) {
+            return "interactive";
+        }
+        
+        // Long content → card
+        if (stripped.length() > POST_MAX_LEN) {
+            return "interactive";
+        }
+        
+        // Has bold/italic/strikethrough → card
+        if (SIMPLE_MD_RE.matcher(stripped).find()) {
+            return "interactive";
+        }
+        
+        // Has list items → card
+        if (LIST_RE.matcher(stripped).find() || OLIST_RE.matcher(stripped).find()) {
+            return "interactive";
+        }
+        
+        // Has links → post format
+        if (MD_LINK_RE.matcher(stripped).find()) {
+            return "post";
+        }
+        
+        // Short plain text → text format
+        if (stripped.length() <= TEXT_MAX_LEN) {
+            return "text";
+        }
+        
+        // Medium plain text → post format
+        return "post";
+    }
+
+    /**
+     * Convert markdown content to Feishu post message JSON.
+     * Handles links [text](url) as a tags.
+     */
+    private String markdownToPost(String content) {
+        List<List<Map<String, Object>>> paragraphs = new ArrayList<>();
+        
+        for (String line : content.trim().split("\n")) {
+            List<Map<String, Object>> elements = new ArrayList<>();
+            int lastEnd = 0;
+            java.util.regex.Matcher m = MD_LINK_RE.matcher(line);
+            
+            while (m.find()) {
+                // Text before this link
+                if (m.start() > lastEnd) {
+                    String before = line.substring(lastEnd, m.start());
+                    elements.add(Map.of("tag", "text", "text", before));
+                }
+                // The link
+                elements.add(Map.of(
+                    "tag", "a",
+                    "text", m.group(1),
+                    "href", m.group(2)
+                ));
+                lastEnd = m.end();
+            }
+            
+            // Remaining text after last link
+            if (lastEnd < line.length()) {
+                elements.add(Map.of("tag", "text", "text", line.substring(lastEnd)));
+            }
+            
+            // Empty line → empty paragraph for spacing
+            if (elements.isEmpty()) {
+                elements.add(Map.of("tag", "text", "text", ""));
+            }
+            
+            paragraphs.add(elements);
+        }
+        
+        Map<String, Object> postBody = Map.of(
+            "zh_cn", Map.of("content", paragraphs)
+        );
+        
+        try {
+            return om.writeValueAsString(postBody);
+        } catch (Exception e) {
+            return "{\"zh_cn\":{\"content\":[]}}";
+        }
+    }
+
+    // =========================
     // Card building (interactive)
     // =========================
 
@@ -855,10 +1005,48 @@ public class FeishuChannel extends BaseChannel {
     // =========================
 
     private void bestEffortReaction(String messageId) {
-        // If you later decide to implement reaction via OpenAPI:
-        // POST /im/v1/messages/{message_id}/reactions  (depends on Feishu permission scopes)
-        // For now: no-op (keeps behavior safe even if scopes missing).
-        // You can gate this by config.
+        // Add reaction emoji to message (best-effort, non-blocking)
+        String emojiType = this.reactEmoji;
+        if (emojiType == null || emojiType.isBlank()) {
+            emojiType = "THUMBSUP";  // default
+        }
+        
+        try {
+            String token = getTenantAccessToken();
+            if (token == null) {
+                logWarn("Feishu reaction skipped: tenant token unavailable.");
+                return;
+            }
+            
+            // Use HTTP API to add reaction
+            String url = OPENAPI_BASE + "/im/v1/messages/" + messageId + "/reactions";
+            String body = om.writeValueAsString(Map.of(
+                "reaction_type", Map.of("emoji_type", emojiType)
+            ));
+            
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(10))
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("Authorization", "Bearer " + token)
+                    .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                    .build();
+            
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() / 100 != 2) {
+                logWarn("Failed to add reaction: status=" + resp.statusCode() + " body=" + trim500(resp.body()));
+            } else {
+                JsonNode r = om.readTree(resp.body());
+                int code = r.has("code") ? r.get("code").asInt(-1) : -1;
+                if (code != 0) {
+                    logWarn("Failed to add reaction: code=" + code + " msg=" + r.path("msg").asText(""));
+                } else {
+                    logDebug("Added " + emojiType + " reaction to message " + messageId);
+                }
+            }
+        } catch (Exception e) {
+            logWarn("Error adding reaction: " + e.getMessage());
+        }
     }
 
     // =========================
@@ -954,5 +1142,14 @@ public class FeishuChannel extends BaseChannel {
     private static String trim500(String s) {
         if (s == null) return "";
         return s.length() <= 500 ? s : s.substring(0, 500);
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) return "";
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t");
     }
 }

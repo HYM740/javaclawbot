@@ -308,7 +308,7 @@ public final class HeartbeatService {
 
         // Python：provider.chat(messages=[...], tools=_HEARTBEAT_TOOL, model=self.model)
         // Java：按你工程现有签名调用（这里不额外引入 max_tokens / temperature 的语义差异）
-        return provider.chat(messages, HEARTBEAT_TOOL, model, 4096, 0.7)
+        return provider.chatWithRetry(messages, HEARTBEAT_TOOL, model, 8192, 0.7)
                 .thenApply(resp -> {
                     if (resp == null || !resp.hasToolCalls()) {
                         return new HeartbeatDecision("skip", "");

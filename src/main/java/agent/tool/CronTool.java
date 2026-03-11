@@ -15,16 +15,17 @@ import java.util.concurrent.CompletionStage;
  * Cron tool for scheduling reminders and recurring tasks.
  *
  * 说明：
- * 1. in_seconds：推荐用于“一次性延时任务”，例如 10 秒后提醒
- * 2. every_seconds：用于“循环任务”，例如每 60 秒执行一次
- * 3. cron_expr：用于“固定时刻周期任务”，例如每天 7:30 执行
- * 4. at：用于“绝对时间的一次性任务”，例如 2026-03-06T18:00:00
+ * 1. in_seconds：推荐用于"一次性延时任务"，例如 10 秒后提醒
+ * 2. every_seconds：用于"循环任务"，例如每 60 秒执行一次
+ * 3. cron_expr：用于"固定时刻周期任务"，例如每天 7:30 执行
+ * 4. at：用于"绝对时间的一次性任务"，例如 2026-03-06T18:00:00
  */
 public class CronTool extends Tool {
 
     private final CronService cron;
     private String channel = "";
     private String chatId = "";
+    private final ThreadLocal<Boolean> inCronContext = ThreadLocal.withInitial(() -> false);
 
     public CronTool(CronService cronService) {
         this.cron = Objects.requireNonNull(cronService, "cronService");
@@ -34,6 +35,16 @@ public class CronTool extends Tool {
     public void setContext(String channel, String chatId) {
         this.channel = channel == null ? "" : channel;
         this.chatId = chatId == null ? "" : chatId;
+    }
+
+    /** 标记是否在 cron 作业回调中执行 */
+    public void setCronContext(boolean active) {
+        inCronContext.set(active);
+    }
+
+    /** 检查是否在 cron 作业回调中执行 */
+    public boolean isInCronContext() {
+        return inCronContext.get();
     }
 
     @Override
@@ -140,6 +151,11 @@ public class CronTool extends Tool {
                           String cronExpr,
                           String tz,
                           String at) {
+
+        // 防止 cron 作业内部递归调度新作业
+        if (inCronContext.get()) {
+            return "Error: cannot schedule new jobs from within a cron job execution";
+        }
 
         if (message == null || message.isBlank()) {
             return "Error: message is required for add";

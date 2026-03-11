@@ -263,6 +263,12 @@ public class Commands implements Runnable {
         @Option(names = {"-p", "--port"}, description = "Gateway port")
         int port = 18790;
 
+        @Option(names = {"-w", "--workspace"}, description = "Workspace directory")
+        String workspace;
+
+        @Option(names = {"-c", "--config"}, description = "Path to config file")
+        String config;
+
         @Option(names = {"-v", "--verbose"}, description = "Verbose output")
         boolean verbose = false;
 
@@ -270,9 +276,10 @@ public class Commands implements Runnable {
         public void run() {
             System.out.println("🐈 Starting nanobot gateway on port " + port + "...");
 
-            // by zcw 改成动态配置读取
-//            ConfigSchema.Config config = ConfigIO.loadConfig(null);
-            RuntimeComponents rt = createRuntimeComponents();
+            // 支持自定义配置路径和 workspace 路径（对齐 Python 的 --config/--workspace）
+            Path configPath = (config != null) ? Paths.get(config).toAbsolutePath() : null;
+            Path workspacePath = (workspace != null) ? Paths.get(workspace).toAbsolutePath() : null;
+            RuntimeComponents rt = createRuntimeComponents(configPath, workspacePath);
             ConfigSchema.Config config = rt.config;
             MessageBus bus = new MessageBus();
             // 变成可fallback的
@@ -303,7 +310,12 @@ public class Commands implements Runnable {
                     rt.runtimeSettings
             );
 
-            cron.setOnJob(job -> agent.processDirect(
+            cron.setOnJob(job -> {
+                // 防止 cron 作业内部递归调度新作业
+                var cronTool = agent.getCronTool();
+                if (cronTool != null) cronTool.setCronContext(true);
+                try {
+                    return agent.processDirect(
                     job.getPayload().getMessage(),
                     "cron:" + job.getId(),
                     job.getPayload().getChannel() != null ? job.getPayload().getChannel() : "cli",
@@ -320,7 +332,11 @@ public class Commands implements Runnable {
                     )).thenApply(x -> resp);
                 }
                 return CompletableFuture.completedFuture(resp);
-            }));
+            });
+                } finally {
+                    if (cronTool != null) cronTool.setCronContext(false);
+                }
+            });
 
             ChannelManager channels = new ChannelManager(config, bus);
 
@@ -413,6 +429,12 @@ public class Commands implements Runnable {
         @Option(names = {"-s", "--session"}, description = "Session ID")
         String sessionId = "cli:direct";
 
+        @Option(names = {"-w", "--workspace"}, description = "Workspace directory")
+        String workspace;
+
+        @Option(names = {"-c", "--config"}, description = "Path to config file")
+        String config;
+
         @Option(names = {"--markdown"}, negatable = true, description = "Render assistant output as Markdown")
         boolean markdown = true;
 
@@ -422,9 +444,10 @@ public class Commands implements Runnable {
         @Override
         public void run() {
 
-            // by zcw 改成动态配置读取
-//            ConfigSchema.Config config = ConfigIO.loadConfig(null);
-            RuntimeComponents rt = createRuntimeComponents();
+            // 支持自定义配置路径和 workspace 路径（对齐 Python 的 --config/--workspace）
+            Path configPath = (config != null) ? Paths.get(config).toAbsolutePath() : null;
+            Path workspacePath = (workspace != null) ? Paths.get(workspace).toAbsolutePath() : null;
+            RuntimeComponents rt = createRuntimeComponents(configPath, workspacePath);
             ConfigSchema.Config config = rt.config;
             MessageBus bus = new MessageBus();
 

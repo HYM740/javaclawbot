@@ -320,25 +320,7 @@ public class MemoryStore {
             double temperature,
             String reasoningEffort
     ) {
-        try {
-            // 尝试：chat(messages, tools, model, maxTokens, temperature, reasoningEffort)
-            Method m = provider.getClass().getMethod(
-                    "chat",
-                    List.class, List.class, String.class, int.class, double.class, String.class
-            );
-            Object r = m.invoke(provider, messages, tools, model, maxTokens, temperature, reasoningEffort);
-            if (r instanceof CompletableFuture<?> f) {
-                return (CompletableFuture<LLMResponse>) f;
-            }
-        } catch (NoSuchMethodException ignored) {
-            // 没有 6 参版本则走回退
-        } catch (Exception e) {
-            // 反射调用失败也回退到 5 参版本
-            log.debug("chat 6参调用失败，回退到 5参：{}", e.toString());
-        }
-
-        // 回退：chat(messages, tools, model, maxTokens, temperature)
-        return provider.chat(messages, tools, model, maxTokens, temperature);
+        return provider.chatWithRetry(messages, tools, model, maxTokens, temperature, reasoningEffort);
     }
 
     /**

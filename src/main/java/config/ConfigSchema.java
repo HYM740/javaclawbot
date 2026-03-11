@@ -936,12 +936,16 @@ public final class ConfigSchema {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class MCPServerConfig {
+        private String type = "";
         private String command = "";
         private List<String> args = new ArrayList<>();
         private Map<String, String> env = new HashMap<>();
         private String url = "";
         private Map<String, String> headers = new HashMap<>();
         private int toolTimeout = 30;
+
+        public String getType() { return type; }
+        public void setType(String type) { this.type = (type != null) ? type : ""; }
 
         public String getCommand() { return command; }
         public void setCommand(String command) { this.command = command; }
@@ -1016,7 +1020,11 @@ public final class ConfigSchema {
             String raw = getAgents().getDefaults().getWorkspace();
             return expandUser(raw);
         }
-
+        public void setWorkspacePath(Path workspacePath) {
+            if (workspacePath != null) {
+                getAgents().getDefaults().setWorkspace(workspacePath.toString());
+            }
+        }
         public ProviderConfig getProvider(String model) {
             MatchResult r = matchProvider(model);
             return r.config;

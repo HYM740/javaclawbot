@@ -3,6 +3,8 @@ package agent.tool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
@@ -20,9 +22,9 @@ import java.util.concurrent.CompletionStage;
 /**
  * Java port of nanobot/agent/tools/web.py -> WebSearchTool
  *
- * Brave Search API:
- * - Endpoint: https://api.search.brave.com/res/v1/web/search?q=...&count=...
- * - Auth header: X-Subscription-Token: <API_KEY>
+ * 对齐 Python:
+ * - proxy 支持
+ * - Brave Search API
  */
 public class WebSearchTool extends Tool {
 
@@ -34,14 +36,48 @@ public class WebSearchTool extends Tool {
     private final HttpClient http;
     private final String initApiKey;
     private final int maxResults;
+    private final String proxy;
 
     public WebSearchTool(String apiKey, Integer maxResults) {
+        this(apiKey, maxResults, null);
+    }
+
+    public WebSearchTool(String apiKey, Integer maxResults, String proxy) {
         this.initApiKey = apiKey;
         this.maxResults = (maxResults == null || maxResults <= 0) ? DEFAULT_MAX_RESULTS : Math.min(maxResults, 10);
-        this.http = HttpClient.newBuilder()
+        this.proxy = proxy;
+
+        HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
-                .followRedirects(HttpClient.Redirect.NEVER)
-                .build();
+                .followRedirects(HttpClient.Redirect.NEVER);
+
+        if (proxy != null && !proxy.isBlank()) {
+            builder.proxy(createProxySelector(proxy));
+        }
+
+        this.http = builder.build();
+    }
+
+    private static ProxySelector createProxySelector(String proxyUrl) {
+        try {
+            URI uri = URI.create(proxyUrl);
+            String host = uri.getHost();
+            int port = uri.getPort();
+            if (host == null || port <= 0) {
+                // 尝试解析 host:port 格式
+                String[] parts = proxyUrl.split(":");
+                if (parts.length == 2) {
+                    host = parts[0];
+                    port = Integer.parseInt(parts[1]);
+                } else {
+                    throw new IllegalArgumentException("Invalid proxy URL: " + proxyUrl);
+                }
+            }
+            InetSocketAddress addr = new InetSocketAddress(host, port);
+            return ProxySelector.of(addr);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse proxy URL: " + proxyUrl, e);
+        }
     }
 
     private String resolveApiKey() {
@@ -144,7 +180,13 @@ public class WebSearchTool extends Tool {
                         return "Error: " + e.getMessage();
                     }
                 })
-                .exceptionally(ex -> "Error: " + rootMessage(ex));
+                .exceptionally(ex -> {
+                    String msg = rootMessage(ex);
+                    if (msg != null && (msg.contains("proxy") || msg.contains("Proxy"))) {
+                        return "Proxy error: " + msg;
+                    }
+                    return "Error: " + msg;
+                });
     }
 
     private static String safeTrim(String s, int max) {

@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import net.dankito.readability4j.extended.Readability4JExtended;
 import org.jsoup.Jsoup;
 
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.http.HttpClient;
@@ -19,6 +21,14 @@ import java.util.concurrent.CompletionStage;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * Java port of nanobot/agent/tools/web.py -> WebFetchTool
+ *
+ * 对齐 Python:
+ * - proxy 支持
+ * - Readability 内容提取
+ * - 重定向限制
+ */
 public class WebFetchTool extends Tool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -30,13 +40,47 @@ public class WebFetchTool extends Tool {
 
     private final HttpClient http;
     private final int defaultMaxChars;
+    private final String proxy;
 
     public WebFetchTool(Integer maxChars) {
+        this(maxChars, null);
+    }
+
+    public WebFetchTool(Integer maxChars, String proxy) {
         this.defaultMaxChars = (maxChars == null || maxChars < 100) ? DEFAULT_MAX_CHARS : maxChars;
-        this.http = HttpClient.newBuilder()
+        this.proxy = proxy;
+
+        HttpClient.Builder builder = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
-                .followRedirects(HttpClient.Redirect.NEVER) // manual redirect to enforce MAX_REDIRECTS
-                .build();
+                .followRedirects(HttpClient.Redirect.NEVER); // manual redirect to enforce MAX_REDIRECTS
+
+        if (proxy != null && !proxy.isBlank()) {
+            builder.proxy(createProxySelector(proxy));
+        }
+
+        this.http = builder.build();
+    }
+
+    private static ProxySelector createProxySelector(String proxyUrl) {
+        try {
+            URI uri = URI.create(proxyUrl);
+            String host = uri.getHost();
+            int port = uri.getPort();
+            if (host == null || port <= 0) {
+                // 尝试解析 host:port 格式
+                String[] parts = proxyUrl.split(":");
+                if (parts.length == 2) {
+                    host = parts[0];
+                    port = Integer.parseInt(parts[1]);
+                } else {
+                    throw new IllegalArgumentException("Invalid proxy URL: " + proxyUrl);
+                }
+            }
+            InetSocketAddress addr = new InetSocketAddress(host, port);
+            return ProxySelector.of(addr);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse proxy URL: " + proxyUrl, e);
+        }
     }
 
     @Override
@@ -142,7 +186,12 @@ public class WebFetchTool extends Tool {
                 })
                 .exceptionally(ex -> {
                     ObjectNode out = MAPPER.createObjectNode();
-                    out.put("error", rootMessage(ex));
+                    String msg = rootMessage(ex);
+                    if (msg != null && (msg.contains("proxy") || msg.contains("Proxy"))) {
+                        out.put("error", "Proxy error: " + msg);
+                    } else {
+                        out.put("error", msg);
+                    }
                     out.put("url", url);
                     return out.toString();
                 });

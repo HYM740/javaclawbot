@@ -371,7 +371,14 @@ public class SubagentManager {
         // 技能摘要：提示子代理需要时用 read_file 读取 SKILL.md
         String skillsSummary = new SkillsLoader(workspace).buildSkillsSummary();
         if (skillsSummary != null && !skillsSummary.isBlank()) {
-            parts.add("## Skills\n\nRead SKILL.md with read_file to use a skill.\n\n" + skillsSummary);
+            parts.add("""
+                    "## Skills\n\n"
+                      Use skills via their SKILL.md entrypoints.\n
+                      When a task matches a skill, read SKILL.md first, then follow it strictly.\n
+                      If SKILL.md requires additional files, examples, templates, or schemas, you MUST read them before continuing.\n
+                      Do not treat reading SKILL.md alone as complete skill usage.\n
+                      Respect gradual disclosure: load only the needed supporting files, but do not skip required follow-up reads.\n\n
+                    """ + skillsSummary);
         }
 
         return String.join("\n\n", parts);

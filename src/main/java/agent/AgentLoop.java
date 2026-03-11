@@ -21,54 +21,16 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
-import static utils.Helpers.safeTruncate;
-
-/**
- * AgentLoop：核心处理引擎（Agent Loop）。
- *
- * 主要职责：
- * 1) 从 MessageBus 接收入站消息
- * 2) 基于会话历史/记忆/技能构建上下文 messages
- * 3) 调用大模型（LLMProvider.chat）
- * 4) 执行模型返回的工具调用（Tool Calls）
- * 5) 将最终回复发送回 bus
- *
- * 关键说明：
- * - MCP：这里采用“懒连接”（lazy connect），仅在需要时 connectMcp()，提供 closeMcp() 与 Python close_mcp() 对齐。
- * - /stop：取消当前 session 下的活跃任务（包含子代理 subagents）。
- * - 全局 processingLock：保证“同一时刻只处理一条消息”，与 Python 的 _processing_lock 行为一致，避免并发导致上下文串线。
- *
- * 本版本新增：
- * - 通过 AgentRuntimeSettings 对部分运行参数做“可演进最小改”的动态读取
- * - 保持主控结构不推翻
- */
 public class AgentLoop {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLoop.class);
-
-    /**
-     * 工具返回内容写入 session 时的最大字符数，避免 tool message 太大导致 session 爆炸。
-     */
-    private static final int TOOL_RESULT_MAX_CHARS = 500;
-
-    /**
-     * 用于剥离 <think>...</think> 块（如果你的模型会输出这种思考标签）。
-     */
-    private static final Pattern THINK_BLOCK = Pattern.compile("<think>[\\s\\S]*?</think>");
-
-    // =========================
-    // 依赖组件
-    // =========================
+    private static final Pattern THINK_BLOCK = Pattern.compile("\\<think\\>.*?\\<\\/think\\>", Pattern.DOTALL);
+    private static final int TOOL_RESULT_MAX_CHARS = 100_000;
 
     private final MessageBus bus;
     private final ConfigSchema.ChannelsConfig channelsConfig;
     private final LLMProvider provider;
     private final java.nio.file.Path workspace;
-
-    // =========================
-    // 模型与运行参数（保留原字段做默认/回退）
-    // =========================
-
     private final String model;
     private final int maxIterations;
     private final double temperature;
@@ -76,60 +38,24 @@ public class AgentLoop {
     private final int memoryWindow;
     private final String reasoningEffort;
     private final String braveApiKey;
-
-    // =========================
-    // 工具/调度/安全
-    // =========================
-
     private final ConfigSchema.ExecToolConfig execConfig;
     private final CronService cronService;
     private final boolean restrictToWorkspace;
-
-    // =========================
-    // 内部组件
-    // =========================
-
     private final ContextBuilder context;
     private final SessionManager sessions;
     private final ToolRegistry tools;
     private final SubagentManager subagents;
-
-    /**
-     * 运行时配置桥接器
-     *
-     * - 若不为 null，则关键运行参数优先从这里动态读取
-     * - 若为 null，则回退到构造时快照字段
-     */
     private final AgentRuntimeSettings runtimeSettings;
-
-    // =========================
-    // 并发控制与线程池
-    // =========================
-
     private final ExecutorService executor;
     private final Semaphore processingLock = new Semaphore(1);
     private volatile boolean running = false;
-
-    // =========================
-    // MCP（懒连接）
-    // =========================
-
     private final Map<String, ConfigSchema.MCPServerConfig> mcpServers;
     private volatile boolean mcpConnected = false;
     private volatile boolean mcpConnecting = false;
-
-    // =========================
-    // 记忆压缩/归档
-    // =========================
-
+    private final List<MCPClient> mcpClients = new CopyOnWriteArrayList<>();
     private final Set<String> consolidating = ConcurrentHashMap.newKeySet();
     private final Set<CompletableFuture<?>> consolidationTasks = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, ReentrantLock> consolidationLocks = new ConcurrentHashMap<>();
-
-    // =========================
-    // /stop：每个 session 的活跃任务列表
-    // =========================
-
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<CompletableFuture<?>>> activeTasks = new ConcurrentHashMap<>();
 
     public AgentLoop(
@@ -155,103 +81,50 @@ public class AgentLoop {
         this.channelsConfig = channelsConfig;
         this.provider = provider;
         this.workspace = workspace;
-
         this.model = (model != null && !model.isBlank()) ? model : provider.getDefaultModel();
         this.maxIterations = (maxIterations != null) ? maxIterations : 100;
         this.temperature = (temperature != null) ? temperature : 0.1;
         this.maxTokens = (maxTokens != null) ? maxTokens : 4096;
         this.memoryWindow = (memoryWindow != null) ? memoryWindow : 100;
-
         this.reasoningEffort = reasoningEffort;
         this.braveApiKey = braveApiKey;
         this.execConfig = (execConfig != null) ? execConfig : new ConfigSchema.ExecToolConfig();
         this.cronService = cronService;
         this.restrictToWorkspace = restrictToWorkspace;
         this.runtimeSettings = runtimeSettings;
-
         this.context = new ContextBuilder(workspace);
         this.sessions = (sessionManager != null) ? sessionManager : new SessionManager(workspace);
         this.tools = new ToolRegistry();
-
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
             t.setDaemon(true);
             t.setName("nanobot-agent-" + t.getId());
             return t;
         });
-
         this.subagents = new SubagentManager(
-                provider,
-                workspace,
-                bus,
-                this.model,
-                this.temperature,
-                this.maxTokens,
-                this.reasoningEffort,
-                braveApiKey,
-                this.execConfig,
-                restrictToWorkspace,
-                null
+                provider, workspace, bus, this.model, this.temperature, this.maxTokens,
+                this.reasoningEffort, braveApiKey, this.execConfig, restrictToWorkspace, null
         );
-
         this.mcpServers = (mcpServers != null) ? mcpServers : Map.of();
         registerDefaultTools();
     }
 
-    // ---------------------------------------------------------------------
-    // Runtime snapshot helpers
-    // ---------------------------------------------------------------------
-
-    /**
-     * 获取当前运行时快照
-     *
-     * 若 runtimeSettings 不存在，则返回基于构造参数的静态回退快照。
-     */
     private AgentRuntimeSettings.Snapshot runtimeSnapshot() {
         if (runtimeSettings != null) {
             return runtimeSettings.snapshot();
         }
         return new AgentRuntimeSettings.Snapshot(
-                workspace,
-                model,
-                maxIterations,
-                temperature,
-                maxTokens,
-                memoryWindow,
-                reasoningEffort,
-                braveApiKey,
-                execConfig,
-                restrictToWorkspace,
-                mcpServers,
-                channelsConfig
+                workspace, model, maxIterations, temperature, maxTokens, memoryWindow,
+                reasoningEffort, braveApiKey, execConfig, restrictToWorkspace, mcpServers, channelsConfig
         );
     }
 
-    /**
-     * 当前 memoryWindow（动态）
-     */
-    private int currentMemoryWindow() {
-        return runtimeSnapshot().memoryWindow();
-    }
-
-    private int currentMaxTokens() {
-        return runtimeSnapshot().maxTokens();
-    }
-
-    /**
-     * 当前 channelsConfig（动态）
-     */
-    private ConfigSchema.ChannelsConfig currentChannelsConfig() {
-        return runtimeSnapshot().channelsConfig();
-    }
-
-    // ---------------------------------------------------------------------
-    // Tools
-    // ---------------------------------------------------------------------
+    private int currentMemoryWindow() { return runtimeSnapshot().memoryWindow(); }
+    private int currentMaxTokens() { return runtimeSnapshot().maxTokens(); }
+    private ConfigSchema.ChannelsConfig currentChannelsConfig() { return runtimeSnapshot().channelsConfig(); }
 
     private void registerDefaultTools() {
         java.nio.file.Path allowedDir = restrictToWorkspace ? workspace : null;
-
         tools.register(new FileSystemTools.ReadFileTool(workspace, allowedDir));
         tools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
         tools.register(new FileSystemTools.EditFileTool(workspace, allowedDir));
@@ -260,56 +133,47 @@ public class AgentLoop {
         tools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
-
-        tools.register(new ExecTool(
-                execConfig.getTimeout(),
-                workspace.toString(),
-                null,
-                null,
-                restrictToWorkspace,
-                execConfig.getPathAppend()
-        ));
-
+        tools.register(new ExecTool(execConfig.getTimeout(), workspace.toString(), null, null, restrictToWorkspace, execConfig.getPathAppend()));
         tools.register(new WebSearchTool(braveApiKey, null));
         tools.register(new WebFetchTool(null));
         tools.register(new MessageTool(bus::publishOutbound, "", "", null));
         tools.register(new SpawnTool(subagents));
-
-        if (cronService != null) {
-            tools.register(new CronTool(cronService));
-        }
+        if (cronService != null) tools.register(new CronTool(cronService));
     }
 
     private void setToolContext(String channel, String chatId, String messageId) {
         var mt = tools.get("message");
-        if (mt instanceof MessageTool m) {
-            m.setContext(channel, chatId, messageId);
-        }
+        if (mt instanceof MessageTool m) m.setContext(channel, chatId, messageId);
         var st = tools.get("spawn");
-        if (st instanceof SpawnTool s) {
-            s.setContext(channel, chatId);
-        }
+        if (st instanceof SpawnTool s) s.setContext(channel, chatId);
         var ct = tools.get("cron");
-        if (ct instanceof CronTool c) {
-            c.setContext(channel, chatId);
-        }
+        if (ct instanceof CronTool c) c.setContext(channel, chatId);
     }
 
-    // ---------------------------------------------------------------------
-    // MCP
-    // ---------------------------------------------------------------------
+    /** 获取 CronTool 实例（用于设置 cron 上下文） */
+    public CronTool getCronTool() {
+        var t = tools.get("cron");
+        return (t instanceof CronTool ct) ? ct : null;
+    }
 
     private CompletionStage<Void> connectMcp() {
         if (mcpConnected || mcpConnecting || mcpServers.isEmpty()) {
             return CompletableFuture.completedFuture(null);
         }
         mcpConnecting = true;
-
         return CompletableFuture.runAsync(() -> {
             try {
+                for (var entry : mcpServers.entrySet()) {
+                    String name = entry.getKey();
+                    ConfigSchema.MCPServerConfig cfg = entry.getValue();
+                    MCPClient client = new MCPClient(name, cfg, tools);
+                    client.connect().toCompletableFuture().join();
+                    mcpClients.add(client);
+                }
                 mcpConnected = true;
+                log.info("MCP servers connected: {}", mcpClients.size());
             } catch (Exception e) {
-                log.warn("Failed to connect MCP servers (will retry next message): {}", e.toString());
+                log.warn("Failed to connect MCP servers: {}", e.toString());
                 mcpConnected = false;
             } finally {
                 mcpConnecting = false;
@@ -319,17 +183,14 @@ public class AgentLoop {
 
     public CompletionStage<Void> closeMcp() {
         return CompletableFuture.runAsync(() -> {
-            try {
-                mcpConnected = false;
-                mcpConnecting = false;
-            } catch (Exception ignored) {
+            for (MCPClient client : mcpClients) {
+                try { client.close(); } catch (Exception e) { log.warn("Failed to close MCP client: {}", e.toString()); }
             }
+            mcpClients.clear();
+            mcpConnected = false;
+            mcpConnecting = false;
         }, executor);
     }
-
-    // ---------------------------------------------------------------------
-    // Text helpers
-    // ---------------------------------------------------------------------
 
     private static String stripThink(String text) {
         if (text == null || text.isBlank()) return null;
@@ -341,671 +202,290 @@ public class AgentLoop {
         if (toolCalls == null || toolCalls.isEmpty()) return "";
         List<String> parts = new ArrayList<>();
         for (var tc : toolCalls) {
-            Object val = null;
-            if (tc.getArguments() != null && !tc.getArguments().isEmpty()) {
-                val = tc.getArguments().values().iterator().next();
-            }
-            if (!(val instanceof String s)) {
-                parts.add(tc.getName());
-            } else {
-                parts.add(s.length() > 40
-                        ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")"
-                        : tc.getName() + "(\"" + s + "\")");
-            }
+            Object val = (tc.getArguments() != null && !tc.getArguments().isEmpty()) ? tc.getArguments().values().iterator().next() : null;
+            if (!(val instanceof String s)) parts.add(tc.getName());
+            else parts.add(s.length() > 40 ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")" : tc.getName() + "(\"" + s + "\")");
         }
         return String.join(", ", parts);
     }
-
-    // ---------------------------------------------------------------------
-    // Run loop
-    // ---------------------------------------------------------------------
 
     public CompletableFuture<Void> run() {
         running = true;
         connectMcp();
         log.info("Agent loop started");
-
         while (running) {
             InboundMessage msg = null;
-            try {
-                msg = bus.consumeInbound(1, TimeUnit.SECONDS);
-            } catch (Exception ignored) {
-            }
+            try { msg = bus.consumeInbound(1, TimeUnit.SECONDS); } catch (Exception ignored) {}
             if (msg == null) continue;
-
             String content = msg.getContent() == null ? "" : msg.getContent().trim();
-            if ("/stop".equalsIgnoreCase(content)) {
-                handleStop(msg).toCompletableFuture().join();
-                continue;
-            }
-
+            if ("/stop".equalsIgnoreCase(content)) { handleStop(msg).toCompletableFuture().join(); continue; }
             InboundMessage finalMsg = msg;
             CompletableFuture<Void> task = CompletableFuture.runAsync(() -> dispatch(finalMsg), executor);
-
             activeTasks.computeIfAbsent(msg.getSessionKey(), k -> new CopyOnWriteArrayList<>()).add(task);
-
-            task.whenComplete((v, ex) -> activeTasks
-                    .getOrDefault(finalMsg.getSessionKey(), new CopyOnWriteArrayList<>())
-                    .remove(task));
+            task.whenComplete((v, ex) -> activeTasks.getOrDefault(finalMsg.getSessionKey(), new CopyOnWriteArrayList<>()).remove(task));
         }
-
         log.info("Agent loop stopped");
         return CompletableFuture.completedFuture(null);
     }
 
-    public void stop() {
-        running = false;
-        log.info("Agent loop stopping");
-    }
-
-    // ---------------------------------------------------------------------
-    // /stop
-    // ---------------------------------------------------------------------
+    public void stop() { running = false; log.info("Agent loop stopping"); }
 
     private CompletionStage<Void> handleStop(InboundMessage msg) {
         String sessionKey = msg.getSessionKey();
         List<CompletableFuture<?>> tasks = activeTasks.remove(sessionKey);
         int cancelled = 0;
-
         if (tasks != null) {
-            for (CompletableFuture<?> f : tasks) {
-                if (f != null && !f.isDone()) {
-                    if (f.cancel(true)) cancelled++;
-                }
-            }
-            for (CompletableFuture<?> f : tasks) {
-                try {
-                    f.get(2, TimeUnit.SECONDS);
-                } catch (CancellationException ignored) {
-                } catch (Exception ignored) {
-                }
-            }
+            for (CompletableFuture<?> f : tasks) if (f != null && !f.isDone() && f.cancel(true)) cancelled++;
+            for (CompletableFuture<?> f : tasks) try { f.get(2, TimeUnit.SECONDS); } catch (Exception ignored) {}
         }
-
         int finalCancelled = cancelled;
-
-        return subagents.cancelBySession(sessionKey)
-                .thenCompose(subCancelled -> {
-                    int total = finalCancelled + subCancelled;
-                    String text = total > 0 ? ("⏹ Stopped " + total + " task(s).") : "No active task to stop.";
-                    return bus.publishOutbound(new OutboundMessage(
-                            msg.getChannel(),
-                            msg.getChatId(),
-                            text,
-                            List.of(),
-                            Map.of()
-                    ));
-                });
+        return subagents.cancelBySession(sessionKey).thenCompose(subCancelled -> {
+            int total = finalCancelled + subCancelled;
+            return bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), total > 0 ? "⏹ Stopped " + total + " task(s)." : "No active task to stop.", List.of(), Map.of()));
+        });
     }
-
-    // ---------------------------------------------------------------------
-    // Dispatch
-    // ---------------------------------------------------------------------
 
     private void dispatch(InboundMessage msg) {
         try {
             processingLock.acquire();
             try {
                 OutboundMessage resp = processMessage(msg, null, null).toCompletableFuture().get();
-
-                if (resp != null) {
-                    bus.publishOutbound(resp).toCompletableFuture().join();
-                } else if ("cli".equals(msg.getChannel())) {
-                    bus.publishOutbound(new OutboundMessage(
-                            msg.getChannel(),
-                            msg.getChatId(),
-                            "",
-                            List.of(),
-                            msg.getMetadata()
-                    )).toCompletableFuture().join();
-                }
-            } finally {
-                processingLock.release();
-            }
-        } catch (CancellationException ce) {
-            throw ce;
-        } catch (Exception e) {
+                if (resp != null) bus.publishOutbound(resp).toCompletableFuture().join();
+                else if ("cli".equals(msg.getChannel())) bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "", List.of(), msg.getMetadata())).toCompletableFuture().join();
+            } finally { processingLock.release(); }
+        } catch (CancellationException ce) { throw ce; }
+        catch (Exception e) {
             log.warn("Error processing message for session {}: {}", msg.getSessionKey(), e.toString());
-            bus.publishOutbound(new OutboundMessage(
-                            msg.getChannel(),
-                            msg.getChatId(),
-                            "Sorry, I encountered an error.",
-                            List.of(),
-                            Map.of()
-                    ))
-                    .toCompletableFuture()
-                    .join();
+            bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Sorry, I encountered an error.", List.of(), Map.of())).toCompletableFuture().join();
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Core message processing
-    // ---------------------------------------------------------------------
-
-    private CompletionStage<OutboundMessage> processMessage(
-            InboundMessage msg,
-            String sessionKeyOverride,
-            ProgressCallback onProgress
-    ) {
+    private CompletionStage<OutboundMessage> processMessage(InboundMessage msg, String sessionKeyOverride, ProgressCallback onProgress) {
         if ("system".equals(msg.getChannel())) {
             String chat = msg.getChatId();
-            String channel;
-            String chatId;
-
-            if (chat != null && chat.contains(":")) {
-                String[] parts = chat.split(":", 2);
-                channel = parts[0];
-                chatId = parts[1];
-            } else {
-                channel = "cli";
-                chatId = chat;
-            }
-
+            String channel = (chat != null && chat.contains(":")) ? chat.split(":", 2)[0] : "cli";
+            String chatId = (chat != null && chat.contains(":")) ? chat.split(":", 2)[1] : chat;
             String key = channel + ":" + chatId;
             Session session = sessions.getOrCreate(key);
-
-            String messageId = extractMessageId(msg.getMetadata());
-            setToolContext(channel, chatId, messageId);
-
-            int useMemoryWindow = currentMemoryWindow();
-
-            List<Map<String, Object>> history = session.getHistory(useMemoryWindow);
-            List<Map<String, Object>> initial = context.buildMessages(
-                    history,
-                    msg.getContent(),
-                    null,
-                    null,
-                    channel,
-                    chatId
-            );
-
-            return runAgentLoop(initial, null)
-                    .thenApply(rr -> {
-                        saveTurn(session, rr.messages, 1 + history.size());
-                        sessions.save(session);
-                        String finalContent = rr.finalContent != null ? rr.finalContent : "Background task completed.";
-                        return new OutboundMessage(channel, chatId, finalContent, List.of(), Map.of());
-                    });
+            setToolContext(channel, chatId, extractMessageId(msg.getMetadata()));
+            List<Map<String, Object>> history = session.getHistory(currentMemoryWindow());
+            List<Map<String, Object>> initial = context.buildMessages(history, msg.getContent(), null, null, channel, chatId);
+            return runAgentLoop(initial, null).thenApply(rr -> {
+                saveTurn(session, rr.messages, 1 + history.size());
+                sessions.save(session);
+                return new OutboundMessage(channel, chatId, rr.finalContent != null ? rr.finalContent : "Background task completed.", List.of(), Map.of());
+            });
         }
-
         String key = (sessionKeyOverride != null) ? sessionKeyOverride : msg.getSessionKey();
         Session session = sessions.getOrCreate(key);
-
         String cmd = msg.getContent() == null ? "" : msg.getContent().trim().toLowerCase(Locale.ROOT);
-
-        if ("/new".equals(cmd)) {
-            return handleNewCommand(msg, session);
-        }
-
-        if ("/help".equals(cmd)) {
-            return CompletableFuture.completedFuture(new OutboundMessage(
-                    msg.getChannel(),
-                    msg.getChatId(),
-                    "🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands",
-                    List.of(),
-                    Map.of()
-            ));
-        }
-
+        if ("/new".equals(cmd)) return handleNewCommand(msg, session);
+        if ("/help".equals(cmd)) return CompletableFuture.completedFuture(new OutboundMessage(msg.getChannel(), msg.getChatId(), "🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands", List.of(), Map.of()));
         int useMemoryWindow = currentMemoryWindow();
         int unconsolidated = session.getMessages().size() - session.getLastConsolidated();
-
         if (unconsolidated >= useMemoryWindow && !consolidating.contains(session.getKey())) {
             consolidating.add(session.getKey());
             ReentrantLock lock = getConsolidationLock(session.getKey());
-
-            CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
-                try {
-                    lock.lock();
-                    consolidateMemory(session, false).toCompletableFuture().join();
-                } finally {
-                    consolidating.remove(session.getKey());
-                    if (lock.isHeldByCurrentThread()) lock.unlock();
-                    pruneConsolidationLock(session.getKey(), lock);
-                }
-            }, executor);
-
+            CompletableFuture<Void> f = CompletableFuture.runAsync(() -> { try { lock.lock(); consolidateMemory(session, false).toCompletableFuture().join(); } finally { consolidating.remove(session.getKey()); if (lock.isHeldByCurrentThread()) lock.unlock(); pruneConsolidationLock(session.getKey(), lock); } }, executor);
             consolidationTasks.add(f);
             f.whenComplete((v, ex) -> consolidationTasks.remove(f));
         }
-
-        String messageId = extractMessageId(msg.getMetadata());
-        setToolContext(msg.getChannel(), msg.getChatId(), messageId);
-
+        setToolContext(msg.getChannel(), msg.getChatId(), extractMessageId(msg.getMetadata()));
         var mt = tools.get("message");
-        if (mt instanceof MessageTool m) {
-            m.startTurn();
-        }
-
+        if (mt instanceof MessageTool m) m.startTurn();
         List<Map<String, Object>> history = session.getHistory(useMemoryWindow);
-        List<Map<String, Object>> initialMessages = context.buildMessages(
-                history,
-                msg.getContent(),
-                null,
-                msg.getMedia(),
-                msg.getChannel(),
-                msg.getChatId()
-        );
-
+        List<Map<String, Object>> initialMessages = context.buildMessages(history, msg.getContent(), null, msg.getMedia(), msg.getChannel(), msg.getChatId());
         ProgressCallback busProgress = (content1, toolHint) -> {
             Map<String, Object> meta = new LinkedHashMap<>();
             if (msg.getMetadata() != null) meta.putAll(msg.getMetadata());
             meta.put("_progress", true);
             meta.put("_tool_hint", toolHint);
-
-            bus.publishOutbound(new OutboundMessage(
-                    msg.getChannel(),
-                    msg.getChatId(),
-                    content1,
-                    List.of(),
-                    meta
-            ));
+            bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), content1, List.of(), meta));
         };
-
         ProgressCallback progress = (onProgress != null) ? onProgress : busProgress;
-
-        return runAgentLoop(initialMessages, progress)
-                .thenApply(rr -> {
-                    String finalContent = rr.finalContent;
-                    if (finalContent == null) {
-                        finalContent = "I've completed processing but have no response to give.";
-                    }
-
-                    saveTurn(session, rr.messages, 1 + history.size());
-                    sessions.save(session);
-
-                    var mtool = tools.get("message");
-                    if (mtool instanceof MessageTool m && m.isSentInTurn()) {
-                        return null;
-                    }
-
-                    Map<String, Object> meta = msg.getMetadata() != null ? msg.getMetadata() : Map.of();
-                    return new OutboundMessage(msg.getChannel(), msg.getChatId(), finalContent, List.of(), meta);
-                });
+        return runAgentLoop(initialMessages, progress).thenApply(rr -> {
+            String finalContent = rr.finalContent != null ? rr.finalContent : "I've completed processing but have no response to give.";
+            saveTurn(session, rr.messages, 1 + history.size());
+            sessions.save(session);
+            var mtool = tools.get("message");
+            if (mtool instanceof MessageTool m && m.isSentInTurn()) return null;
+            return new OutboundMessage(msg.getChannel(), msg.getChatId(), finalContent, List.of(), msg.getMetadata() != null ? msg.getMetadata() : Map.of());
+        });
     }
 
     private CompletionStage<OutboundMessage> handleNewCommand(InboundMessage msg, Session session) {
         ReentrantLock lock = getConsolidationLock(session.getKey());
         consolidating.add(session.getKey());
-
         CompletableFuture<OutboundMessage> out = new CompletableFuture<>();
         executor.execute(() -> {
             try {
                 lock.lock();
-
-                List<Map<String, Object>> snapshot = session.getMessages()
-                        .subList(session.getLastConsolidated(), session.getMessages().size());
-
+                List<Map<String, Object>> snapshot = session.getMessages().subList(session.getLastConsolidated(), session.getMessages().size());
                 if (!snapshot.isEmpty()) {
                     Session temp = new Session(session.getKey());
                     temp.setMessages(new ArrayList<>(snapshot));
-                    boolean ok = consolidateMemory(temp, true).toCompletableFuture().join();
-                    if (!ok) {
-                        out.complete(new OutboundMessage(
-                                msg.getChannel(),
-                                msg.getChatId(),
-                                "Memory archival failed, session not cleared. Please try again.",
-                                List.of(),
-                                Map.of()
-                        ));
-                        return;
-                    }
+                    if (!consolidateMemory(temp, true).toCompletableFuture().join()) { out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Memory archival failed, session not cleared. Please try again.", List.of(), Map.of())); return; }
                 }
-
                 session.clear();
                 sessions.save(session);
                 sessions.invalidate(session.getKey());
-
-                out.complete(new OutboundMessage(
-                        msg.getChannel(),
-                        msg.getChatId(),
-                        "New session started.",
-                        List.of(),
-                        Map.of()
-                ));
-            } catch (Exception e) {
-                out.complete(new OutboundMessage(
-                        msg.getChannel(),
-                        msg.getChatId(),
-                        "Memory archival failed, session not cleared. Please try again.",
-                        List.of(),
-                        Map.of()
-                ));
-            } finally {
-                consolidating.remove(session.getKey());
-                if (lock.isHeldByCurrentThread()) lock.unlock();
-                pruneConsolidationLock(session.getKey(), lock);
-            }
+                out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "New session started.", List.of(), Map.of()));
+            } catch (Exception e) { out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Memory archival failed, session not cleared. Please try again.", List.of(), Map.of())); }
+            finally { consolidating.remove(session.getKey()); if (lock.isHeldByCurrentThread()) lock.unlock(); pruneConsolidationLock(session.getKey(), lock); }
         });
         return out;
     }
 
-    private static String extractMessageId(Map<String, Object> meta) {
-        if (meta == null) return null;
-        Object mid = meta.get("message_id");
-        return mid == null ? null : String.valueOf(mid);
-    }
+    private static String extractMessageId(Map<String, Object> meta) { return (meta == null) ? null : (meta.get("message_id") == null) ? null : String.valueOf(meta.get("message_id")); }
 
-    // ---------------------------------------------------------------------
-    // Agent iteration loop
-    // ---------------------------------------------------------------------
-
-    private CompletionStage<RunResult> runAgentLoop(
-            List<Map<String, Object>> initialMessages,
-            ProgressCallback onProgress
-    ) {
+    private CompletionStage<RunResult> runAgentLoop(List<Map<String, Object>> initialMessages, ProgressCallback onProgress) {
         CompletableFuture<RunResult> out = new CompletableFuture<>();
         List<Map<String, Object>> messages = new ArrayList<>(initialMessages);
         List<String> toolsUsed = new ArrayList<>();
-
-        class State {
-            int iteration = 0;
-            String finalContent = null;
-            final AtomicBoolean done = new AtomicBoolean(false);
-        }
+        class State { int iteration = 0; String finalContent = null; final AtomicBoolean done = new AtomicBoolean(false); }
         State st = new State();
-
         Runnable step = new Runnable() {
-            @Override
-            public void run() {
-                if (st.done.get()) return;
-
+            @Override public void run() {
+                if (st.done.get()) {
+                    return;
+                }
                 AgentRuntimeSettings.Snapshot rs = runtimeSnapshot();
-
-                String useModel = rs.model();
-                int useMaxIterations = rs.maxIterations();
-                double useTemperature = rs.temperature();
-                int useMaxTokens = rs.maxTokens();
-                String useReasoningEffort = rs.reasoningEffort();
-
                 st.iteration++;
-                if (st.iteration > useMaxIterations) {
-                    st.finalContent = "I reached the maximum number of tool call iterations (" + useMaxIterations + ") "
-                            + "without completing the task. You can try breaking the task into smaller steps.";
+                if (st.iteration > rs.maxIterations()) {
+                    st.finalContent = "I reached the maximum number of tool call iterations (" + rs.maxIterations() + ") without completing the task. You can try breaking the task into smaller steps.";
                     st.done.set(true);
                     out.complete(new RunResult(st.finalContent, toolsUsed, messages));
                     return;
                 }
+                provider.chatWithRetry(messages, tools.getDefinitions(), rs.model(), rs.maxTokens(), rs.temperature(), rs.reasoningEffort()).whenComplete((resp, ex) -> {
+                    if (st.done.get()) return;
+                    if (ex != null) { st.done.set(true); out.completeExceptionally(ex); return; }
+                    if (resp.hasToolCalls()) {
+                        if (onProgress != null) { String clean = stripThink(resp.getContent()); if (clean != null) onProgress.onProgress(clean, false); onProgress.onProgress(toolHint(resp.getToolCalls()), true); }
+                        List<Map<String, Object>> toolCallDicts = new ArrayList<>();
+                        for (var tc : resp.getToolCalls()) {
+                            Map<String, Object> fn = new LinkedHashMap<>(); fn.put("name", tc.getName()); fn.put("arguments", JsonUtil.toJson(tc.getArguments()));
+                            Map<String, Object> call = new LinkedHashMap<>(); call.put("id", tc.getId()); call.put("type", "function"); call.put("function", fn);
+                            toolCallDicts.add(call);
+                        }
+                        List<Map<String, Object>> updated = context.addAssistantMessage(messages, resp.getContent(), toolCallDicts, resp.getReasoningContent(), resp.getThinkingBlocks());
+                        messages.clear(); messages.addAll(updated);
 
-                provider.chat(
-                                messages,
-                                tools.getDefinitions(),
-                                useModel,
-                                useMaxTokens,
-                                useTemperature,
-                                useReasoningEffort
-                        )
-                        .whenComplete((resp, ex) -> {
-                            if (st.done.get()) return;
-
-                            if (ex != null) {
-                                st.done.set(true);
-                                out.completeExceptionally(ex);
-                                return;
-                            }
-
-                            if (resp.hasToolCalls()) {
-                                if (onProgress != null) {
-                                    String clean = stripThink(resp.getContent());
-                                    if (clean != null) onProgress.onProgress(clean, false);
-                                    onProgress.onProgress(toolHint(resp.getToolCalls()), true);
-                                }
-
-                                List<Map<String, Object>> toolCallDicts = new ArrayList<>();
-                                for (var tc : resp.getToolCalls()) {
-                                    Map<String, Object> fn = new LinkedHashMap<>();
-                                    fn.put("name", tc.getName());
-                                    fn.put("arguments", JsonUtil.toJson(tc.getArguments()));
-
-                                    Map<String, Object> call = new LinkedHashMap<>();
-                                    call.put("id", tc.getId());
-                                    call.put("type", "function");
-                                    call.put("function", fn);
-                                    toolCallDicts.add(call);
-                                }
-
-                                List<Map<String, Object>> updated = context.addAssistantMessage(
-                                        messages,
-                                        resp.getContent(),
-                                        toolCallDicts,
-                                        resp.getReasoningContent()
-                                );
-                                messages.clear();
-                                messages.addAll(updated);
-
-                                executeToolCallsSequential(resp.getToolCalls(), toolsUsed, messages)
-                                        .whenComplete((v, ex2) -> {
-                                            if (st.done.get()) return;
-
-                                            if (ex2 != null) {
-                                                st.done.set(true);
-                                                out.completeExceptionally(ex2);
-                                            } else {
-                                                executor.execute(this);
-                                            }
-                                        });
-                                return;
-                            }
-
-                            String reasoningContent = resp.getReasoningContent();
-                            log.info("思考: \n" + reasoningContent);
-                            String clean = stripThink(resp.getContent());
-
-                            log.info("llm回复:\n" + clean);
-
-                            List<Map<String, Object>> updated = context.addAssistantMessage(
-                                    messages, clean, null, resp.getReasoningContent()
-                            );
-                            messages.clear();
-                            messages.addAll(updated);
-
-                            st.finalContent = clean;
-                            st.done.set(true);
-                            out.complete(new RunResult(st.finalContent, toolsUsed, messages));
-                        });
+                        // 执行工具
+                        executeToolCallsSequential(resp.getToolCalls(), toolsUsed, messages)
+                                .whenComplete((v, ex2) -> {
+                                    if (st.done.get()) {
+                                        return;
+                                    }
+                                    if (ex2 != null) {
+                                        st.done.set(true);
+                                        out.completeExceptionally(ex2);
+                                    } else {
+                                        executor.execute(this);
+                                    }
+                                });
+                        return;
+                    }
+                    log.info("思考: \n" + resp.getReasoningContent());
+                    String clean = stripThink(resp.getContent());
+                    log.info("LLM 回复:\n" + clean);
+                    List<Map<String, Object>> updated = context.addAssistantMessage(messages, clean, null, resp.getReasoningContent(), resp.getThinkingBlocks());
+                    messages.clear(); messages.addAll(updated);
+                    st.finalContent = clean;
+                    st.done.set(true);
+                    out.complete(new RunResult(st.finalContent, toolsUsed, messages));
+                });
             }
         };
-
         executor.execute(step);
         return out;
     }
 
-    private CompletionStage<Void> executeToolCallsSequential(
-            List<ToolCallRequest> toolCalls,
-            List<String> toolsUsed,
-            List<Map<String, Object>> messages
-    ) {
+    private CompletionStage<Void> executeToolCallsSequential(List<ToolCallRequest> toolCalls, List<String> toolsUsed, List<Map<String, Object>> messages) {
         CompletionStage<Void> chain = CompletableFuture.completedFuture(null);
-
         for (var tc : toolCalls) {
             chain = chain.thenCompose(v -> {
                 toolsUsed.add(tc.getName());
-
-                try {
-                    String argsStr = JsonUtil.toJson(tc.getArguments());
-                    String preview = safeTruncate(argsStr, 200);
-                    log.info("Tool call: {}({})", tc.getName(), preview);
-                } catch (Exception ignored) {
-                }
-
-                return tools.execute(tc.getName(), tc.getArguments())
-                        .thenAccept(result -> {
-                            List<Map<String, Object>> updated = context.addToolResult(
-                                    messages, tc.getId(), tc.getName(), result
-                            );
-                            messages.clear();
-                            messages.addAll(updated);
-                        })
-                        .exceptionally(ex -> {
-                            String err = formatToolError(tc.getName(), ex);
-                            List<Map<String, Object>> updated = context.addToolResult(
-                                    messages, tc.getId(), tc.getName(), err
-                            );
-                            messages.clear();
-                            messages.addAll(updated);
-                            return null;
-                        });
+                try { log.info("Tool call: {}({})", tc.getName(), safeTruncate(JsonUtil.toJson(tc.getArguments()), 200)); } catch (Exception ignored) {}
+                return tools.execute(tc.getName(), tc.getArguments()).thenAccept(result -> {
+                    List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), result);
+                    messages.clear(); messages.addAll(updated);
+                }).exceptionally(ex -> {
+                    String err = formatToolError(tc.getName(), ex);
+                    List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), err);
+                    messages.clear(); messages.addAll(updated);
+                    return null;
+                });
             });
         }
         return chain;
     }
 
     private static String formatToolError(String toolName, Throwable ex) {
-        Throwable root = (ex instanceof CompletionException || ex instanceof ExecutionException)
-                ? ex.getCause()
-                : ex;
-
-        if (root instanceof TimeoutException) {
-            return "{\"error\":\"tool_timeout\",\"tool\":\"" + toolName + "\"}";
-        }
-        return "{\"error\":\"tool_failed\",\"tool\":\"" + toolName + "\",\"message\":\"" +
-                safeOneLine(root.toString()) + "\"}";
+        Throwable root = (ex instanceof CompletionException || ex instanceof ExecutionException) ? ex.getCause() : ex;
+        if (root instanceof TimeoutException) return "{\"error\":\"tool_timeout\",\"tool\":\"" + toolName + "\"}";
+        return "{\"error\":\"tool_failed\",\"tool\":\"" + toolName + "\",\"message\":\"" + safeOneLine(root.toString()) + "\"}";
     }
 
-    private static String safeOneLine(String s) {
-        if (s == null) return "";
-        return s.replace("\n", " ").replace("\r", " ");
-    }
-
-    // ---------------------------------------------------------------------
-    // Session persistence
-    // ---------------------------------------------------------------------
+    private static String safeOneLine(String s) { return (s == null) ? "" : s.replace("\n", " ").replace("\r", " "); }
+    private static String safeTruncate(String s, int maxLen) { return (s == null) ? "" : (s.length() > maxLen ? s.substring(0, maxLen) : s); }
 
     private void saveTurn(Session session, List<Map<String, Object>> messages, int skip) {
         for (int i = skip; i < messages.size(); i++) {
             Map<String, Object> m = messages.get(i);
-
             Map<String, Object> entry = new LinkedHashMap<>();
-            for (var e : m.entrySet()) {
-                if (!"reasoning_content".equals(e.getKey())) {
-                    entry.put(e.getKey(), e.getValue());
-                }
-            }
-
+            for (var e : m.entrySet()) if (!"reasoning_content".equals(e.getKey())) entry.put(e.getKey(), e.getValue());
             Object role = entry.get("role");
             Object content = entry.get("content");
-
             if ("assistant".equals(String.valueOf(role))) {
                 Object toolCalls = entry.get("tool_calls");
                 boolean emptyContent = (content == null) || (content instanceof String s && s.isBlank());
                 boolean noToolCalls = (toolCalls == null) || (toolCalls instanceof List<?> l && l.isEmpty());
-                if (emptyContent && noToolCalls) {
-                    continue;
-                }
+                if (emptyContent && noToolCalls) continue;
             }
-
-            if ("tool".equals(String.valueOf(role)) && content instanceof String s) {
-                if (s.length() > TOOL_RESULT_MAX_CHARS) {
-                    entry.put("content", s.substring(0, TOOL_RESULT_MAX_CHARS) + "\n... (truncated)");
-                }
-            }
-
+            if ("tool".equals(String.valueOf(role)) && content instanceof String s && s.length() > TOOL_RESULT_MAX_CHARS) entry.put("content", s.substring(0, TOOL_RESULT_MAX_CHARS) + "\n... (truncated)");
             if ("user".equals(String.valueOf(role)) && content instanceof List<?> list) {
                 List<Object> replaced = new ArrayList<>();
                 for (Object c : list) {
-                    if (c instanceof Map<?, ?> cm) {
-                        Object type = cm.get("type");
-                        Object imageUrl = cm.get("image_url");
-                        if ("image_url".equals(String.valueOf(type)) && imageUrl instanceof Map<?, ?> im) {
-                            Object url = im.get("url");
-                            if (url instanceof String u && u.startsWith("data:image/")) {
-                                replaced.add(Map.of("type", "text", "text", "[image]"));
-                                continue;
-                            }
-                        }
-                    }
+                    if (c instanceof Map<?, ?> cm && "image_url".equals(String.valueOf(cm.get("type"))) && cm.get("image_url") instanceof Map<?, ?> im && im.get("url") instanceof String u && u.startsWith("data:image/")) { replaced.add(Map.of("type", "text", "text", "[image]")); continue; }
                     replaced.add(c);
                 }
                 entry.put("content", replaced);
             }
-
             entry.putIfAbsent("timestamp", LocalDateTime.now().toString());
             session.getMessages().add(entry);
         }
-
         session.setUpdatedAt(LocalDateTime.now());
     }
 
     private CompletionStage<Boolean> consolidateMemory(Session session, boolean archiveAll) {
-        int useMemoryWindow = currentMemoryWindow();
-        return new MemoryStore(workspace).consolidate(session, provider, model, currentMaxTokens(), 0.5, archiveAll, useMemoryWindow);
+        return new MemoryStore(workspace).consolidate(session, provider, model, currentMaxTokens(), 0.5, archiveAll, currentMemoryWindow());
     }
 
-    private ReentrantLock getConsolidationLock(String sessionKey) {
-        return consolidationLocks.computeIfAbsent(sessionKey, k -> new ReentrantLock());
+    private ReentrantLock getConsolidationLock(String sessionKey) { return consolidationLocks.computeIfAbsent(sessionKey, k -> new ReentrantLock()); }
+    private void pruneConsolidationLock(String sessionKey, ReentrantLock lock) { if (lock != null && !lock.isLocked()) consolidationLocks.remove(sessionKey, lock); }
+
+    public CompletionStage<String> processDirect(String content, String sessionKey, String channel, String chatId, ProgressCallback onProgress) {
+        return connectMcp().thenCompose(v -> {
+            InboundMessage msg = new InboundMessage(channel != null ? channel : "cli", "user", chatId != null ? chatId : "direct", content, null, null);
+            return processMessage(msg, (sessionKey != null && !sessionKey.isBlank()) ? sessionKey : "cli:direct", onProgress).thenApply(resp -> resp != null ? resp.getContent() : "");
+        });
     }
 
-    private void pruneConsolidationLock(String sessionKey, ReentrantLock lock) {
-        if (lock != null && !lock.isLocked()) {
-            consolidationLocks.remove(sessionKey, lock);
-        }
-    }
+    public ConfigSchema.ChannelsConfig getChannelsConfig() { return currentChannelsConfig(); }
+    public String getModel() { return runtimeSnapshot().model(); }
 
-    // ---------------------------------------------------------------------
-    // Public direct entry
-    // ---------------------------------------------------------------------
-
-    public CompletionStage<String> processDirect(
-            String content,
-            String sessionKey,
-            String channel,
-            String chatId,
-            ProgressCallback onProgress
-    ) {
-        return connectMcp()
-                .thenCompose(v -> {
-                    InboundMessage msg = new InboundMessage(
-                            channel != null ? channel : "cli",
-                            "user",
-                            chatId != null ? chatId : "direct",
-                            content,
-                            null,
-                            null
-                    );
-                    String key = (sessionKey != null && !sessionKey.isBlank()) ? sessionKey : "cli:direct";
-
-                    return processMessage(msg, key, onProgress)
-                            .thenApply(resp -> resp != null ? resp.getContent() : "");
-                });
-    }
-
-    public ConfigSchema.ChannelsConfig getChannelsConfig() {
-        return currentChannelsConfig();
-    }
-
-    public String getModel() {
-        return runtimeSnapshot().model();
-    }
-
-    // ---------------------------------------------------------------------
-    // Types
-    // ---------------------------------------------------------------------
-
-    public interface ProgressCallback {
-        void onProgress(String content, boolean toolHint);
-    }
+    public interface ProgressCallback { void onProgress(String content, boolean toolHint); }
 
     public static class RunResult {
         public final String finalContent;
         public final List<String> toolsUsed;
         public final List<Map<String, Object>> messages;
-
-        public RunResult(String finalContent, List<String> toolsUsed, List<Map<String, Object>> messages) {
-            this.finalContent = finalContent;
-            this.toolsUsed = toolsUsed;
-            this.messages = messages;
-        }
+        public RunResult(String finalContent, List<String> toolsUsed, List<Map<String, Object>> messages) { this.finalContent = finalContent; this.toolsUsed = toolsUsed; this.messages = messages; }
     }
 
     static class JsonUtil {
         private static final com.fasterxml.jackson.databind.ObjectMapper M = new com.fasterxml.jackson.databind.ObjectMapper();
-
-        static String toJson(Object o) {
-            try {
-                return M.writeValueAsString(o);
-            } catch (Exception e) {
-                return String.valueOf(o);
-            }
-        }
+        static String toJson(Object o) { try { return M.writeValueAsString(o); } catch (Exception e) { return String.valueOf(o); } }
     }
 }

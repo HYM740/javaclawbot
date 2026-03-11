@@ -78,9 +78,19 @@ public class ContextBuilder {
             parts.add(
                     """
                             # Skills
-                            The following skills extend your capabilities. To use a skill, read its SKILL.md file using the read_file tool.
-                            Skills with available=\"false\" need dependencies installed first - you can try installing them with apt/brew.
-                            """ +
+                                The following skills extend your capabilities.
+                
+                                Skill usage protocol:
+                                1. Treat each skill's SKILL.md as an entrypoint, not as the complete skill.
+                                2. When a task matches a skill, first read that skill's SKILL.md using the read_file tool.
+                                3. Then follow the instructions inside SKILL.md exactly.
+                                4. If SKILL.md tells you to read additional files, examples, templates, schemas, or supporting documents, you MUST read them before proceeding.
+                                5. Do not assume the skill is fully loaded after reading only SKILL.md.
+                                6. Respect gradual disclosure: only load the additional skill files that are required for the current task, but do not stop at SKILL.md if it explicitly points to more required context.
+                                7. Do not summarize or approximate a skill from the index alone when the task requires actually using it.
+                
+                                Skills with available=\\"false\\" need dependencies installed first - you can try installing them with apt/brew.
+                                           """ +
                             skillsSummary
             );
         }
@@ -120,13 +130,17 @@ public class ContextBuilder {
                 "- Long-term memory: " + workspacePath + "/memory/MEMORY.md (write important facts here)\n" +
                 "- History log: " + workspacePath + "/memory/HISTORY.md (grep-searchable). Each entry starts with [YYYY-MM-DD HH:MM].\n" +
                 "- Custom skills: " + workspacePath + "/skills/{skill-name}/SKILL.md\n\n" +
-                "## nanobot Guidelines\n" +
-                "- State intent before tool calls, but NEVER predict or claim results before receiving them.\n" +
-                "- Before modifying a file, read it first. Do not assume files or directories exist.\n" +
-                "- After writing or editing a file, re-read it if accuracy matters.\n" +
-                "- If a tool call fails, analyze the error before retrying with a different approach.\n" +
-                "- Ask for clarification when the request is ambiguous.\n\n" +
-                "Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.";
+                """
+                ## nanobot Guidelines\n
+                - State intent before tool calls, but NEVER predict or claim results before receiving them.\n
+                - Before modifying a file, read it first. Do not assume files or directories exist.\n
+                - After writing or editing a file, re-read it if accuracy matters.\n
+                - If a tool call fails, analyze the error before retrying with a different approach.\n
+                - Ask for clarification when the request is ambiguous.\n\n
+                - When using a skill, treat SKILL.md as the entrypoint only; follow its instructions and read any additional referenced files before acting.\n\n
+                - Do not assume a skill is fully understood from its summary or SKILL.md alone if it explicitly requires additional context files.\\n\\n
+                "Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.
+                """;
     }
 
     /**

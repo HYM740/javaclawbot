@@ -9,9 +9,9 @@ import java.util.*;
 /**
  * 提供者注册表：LLM 提供者元数据的唯一来源
  *
- * 作用：
- * - 定义所有提供者的识别信息、关键字、默认网关地址等
- * - 提供按模型名匹配、按网关特征匹配、按名称查找等能力
+ * 作用�?
+ * - 定义所有提供者的识别信息、关键字、默认网关地址�?
+ * - 提供按模型名匹配、按网关特征匹配、按名称查找等能�?
  *
  * 顺序很重要：决定匹配优先级与兜底顺序（网关在前）
  */
@@ -26,46 +26,46 @@ public final class ProviderRegistry {
     public record EnvKV(String key, String value) {}
 
     /**
-     * 按模型覆盖参数（保留结构；具体参数内容用 Map 表示）
+     * 按模型覆盖参数（保留结构；具体参数内容用 Map 表示�?
      */
     public record ModelOverride(String modelName, Map<String, Object> params) {}
 
     /**
-     * 单个提供者的元数据
+     * 单个提供者的元数�?
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static final class ProviderSpec {
 
         // 身份信息
-        private final String name;                 // 配置字段名，如 "dashscope"
-        private final List<String> keywords;       // 模型关键字（小写）
-        private final String envKey;               // 环境变量名（如 "DASHSCOPE_API_KEY"）
-        private final String displayName;          // 展示名
+        private final String name;                 // 配置字段名，�?"dashscope"
+        private final List<String> keywords;       // 模型关键字（小写�?
+        private final String envKey;               // 环境变量名（�?"DASHSCOPE_API_KEY"�?
+        private final String displayName;          // 展示�?
 
         // 模型前缀
         private final String litellmPrefix;        // 前缀，如 "dashscope" => "dashscope/{model}"
-        private final List<String> skipPrefixes;   // 如果模型已包含这些前缀，则不重复添加
+        private final List<String> skipPrefixes;   // 如果模型已包含这些前缀，则不重复添�?
 
         // 额外环境变量
         private final List<EnvKV> envExtras;
 
-        // 网关 / 本地检测
-        private final boolean gateway;             // 是否网关（可路由任意模型）
+        // 网关 / 本地检�?
+        private final boolean gateway;             // 是否网关（可路由任意模型�?
         private final boolean local;               // 是否本地部署
         private final String detectByKeyPrefix;    // 通过 api_key 前缀识别
-        private final String detectByBaseKeyword;  // 通过 api_base 包含关键字识别
+        private final String detectByBaseKeyword;  // 通过 api_base 包含关键字识�?
         private final String defaultApiBase;       // 默认 api_base
 
         // 网关行为
         private final boolean stripModelPrefix;    // 是否剥离 "provider/" 再重新加前缀
 
-        // 按模型覆盖参数
+        // 按模型覆盖参�?
         private final List<ModelOverride> modelOverrides;
 
         // OAuth / 直连
-        private final boolean oauth;               // OAuth 提供者（不使用 api_key）
-        private final boolean direct;              // 直连提供者（绕过 LiteLLM）
+        private final boolean oauth;               // OAuth 提供者（不使�?api_key�?
+        private final boolean direct;              // 直连提供者（绕过 LiteLLM�?
 
         // 是否支持提示缓存
         private final boolean supportsPromptCaching;
@@ -120,7 +120,7 @@ public final class ProviderRegistry {
 
         public boolean isSupportsPromptCaching() { return supportsPromptCaching; }
 
-        /** 展示标签：优先 displayName，否则 name 首字母大写 */
+        /** 展示标签：优�?displayName，否�?name 首字母大�?*/
         public String getLabel() {
             if (displayName != null && !displayName.isBlank()) return displayName;
             return title(name);
@@ -252,12 +252,12 @@ public final class ProviderRegistry {
     }
 
     // ---------------------------------------------------------------------------
-    // PROVIDERS：注册表（顺序 = 优先级）
+    // PROVIDERS：注册表（顺�?= 优先级）
     // ---------------------------------------------------------------------------
 
     public static final List<ProviderSpec> PROVIDERS = List.of(
 
-            // Custom（直连 OpenAI 兼容端点，绕过 LiteLLM）
+            // Custom（直�?OpenAI 兼容端点，绕�?LiteLLM�?
             ProviderSpec.builder("custom")
                     .keywords()
                     .envKey("")
@@ -266,7 +266,7 @@ public final class ProviderRegistry {
                     .direct(true)
                     .build(),
 
-            // Gateways（通过 api_key / api_base 识别，不靠模型名）
+            // Gateways（通过 api_key / api_base 识别，不靠模型名�?
 
             // OpenRouter
             ProviderSpec.builder("openrouter")
@@ -332,7 +332,16 @@ public final class ProviderRegistry {
                     .displayName("OpenAI")
                     .build(),
 
-            // OpenAI Codex（OAuth）
+            // Azure OpenAI
+            ProviderSpec.builder("azure_openai")
+                    .keywords("azure", "azure_openai")
+                    .envKey("AZURE_OPENAI_API_KEY")
+                    .displayName("Azure OpenAI")
+                    .detectByBaseKeyword("openai.azure.com")
+                    .direct(true)
+                    .build(),
+
+            // OpenAI Codex（OAuth�?
             ProviderSpec.builder("openai_codex")
                     .keywords("openai-codex", "codex")
                     .envKey("")
@@ -342,7 +351,7 @@ public final class ProviderRegistry {
                     .oauth(true)
                     .build(),
 
-            // Github Copilot（OAuth）
+            // Github Copilot（OAuth�?
             ProviderSpec.builder("github_copilot")
                     .keywords("github_copilot", "copilot")
                     .envKey("")
@@ -435,7 +444,7 @@ public final class ProviderRegistry {
     // ---------------------------------------------------------------------------
 
     /**
-     * 按模型名关键字匹配标准提供者（不含网关/本地）
+     * 按模型名关键字匹配标准提供者（不含网关/本地�?
      */
     public static ProviderSpec findByModel(String model) {
         if (model == null) return null;
@@ -474,7 +483,7 @@ public final class ProviderRegistry {
     }
 
     /**
-     * 识别网关/本地提供者
+     * 识别网关/本地提供�?
      */
     public static ProviderSpec findGateway(String providerName, String apiKey, String apiBase) {
         // 1) 直接按配置名
@@ -499,7 +508,7 @@ public final class ProviderRegistry {
     }
 
     /**
-     * 按名称查找提供者
+     * 按名称查找提供�?
      */
     public static ProviderSpec findByName(String name) {
         if (name == null) return null;
