@@ -547,8 +547,13 @@ public class FeishuChannel extends BaseChannel {
             }, this::decideFeishuRetry);
 
         } catch (Exception finalEx) {
-            // 三次后记录最终异常
-            logWarn("Feishu send exception: " + finalEx.getMessage());
+            // 三次后, 再次冗余一次,还是失败,记录最终异常
+            String accessToken = getTenantAccessToken();
+            try {
+                doSendOnce(accessToken, receiveIdType, receiveId, msgType, contentJsonString);
+            } catch (Exception e) {
+                logWarn("Feishu send exception: " + finalEx.getMessage());
+            }
         }
     }
 

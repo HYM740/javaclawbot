@@ -234,6 +234,10 @@ public class AgentLoop {
         return runtimeSnapshot().memoryWindow();
     }
 
+    private int currentMaxTokens() {
+        return runtimeSnapshot().maxTokens();
+    }
+
     /**
      * 当前 channelsConfig（动态）
      */
@@ -924,7 +928,7 @@ public class AgentLoop {
 
     private CompletionStage<Boolean> consolidateMemory(Session session, boolean archiveAll) {
         int useMemoryWindow = currentMemoryWindow();
-        return new MemoryStore(workspace).consolidate(session, provider, model, archiveAll, useMemoryWindow);
+        return new MemoryStore(workspace).consolidate(session, provider, model, currentMaxTokens(), 0.5, archiveAll, useMemoryWindow);
     }
 
     private ReentrantLock getConsolidationLock(String sessionKey) {

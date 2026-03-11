@@ -43,26 +43,6 @@
             <name>aliyun</name>
             <url>https://maven.aliyun.com/repository/public</url>
         </repository>
-        <!--<repository>
-            <id>zjky-releases</id>
-            <url>http://192.168.20.125:28081/repository/zjky-releases/</url>
-            <releases>
-                <enabled>true</enabled> &lt;!&ndash; 是否开启发布版构件下载 &ndash;&gt;
-                &lt;!&ndash; 关键：禁用安全策略 &ndash;&gt;
-                <checksumPolicy>ignore</checksumPolicy>
-            </releases>
-
-        </repository>
-        <repository>
-            <id>zjky-snapshots</id>
-            <url>http://192.168.20.125:28081/repository/zjky-snapshots/</url>
-            <snapshots>
-                <enabled>true</enabled> &lt;!&ndash; 是否开启快照版构件下载 &ndash;&gt;
-                &lt;!&ndash; 关键：禁用安全策略 &ndash;&gt;
-                <checksumPolicy>ignore</checksumPolicy>
-            </snapshots>
-        </repository>-->
-
     </repositories>
 
     <properties>
@@ -76,6 +56,7 @@
         <lombok.version>1.18.42</lombok.version>
         <jackson.version>2.16.1</jackson.version>
         <logback.version>1.2.11</logback.version>
+        <playwright.version>1.49.0</playwright.version>
     </properties>
 
     <dependencies>
@@ -140,7 +121,6 @@
             <version>5.7.12</version>
         </dependency>
 
-
         <dependency>
             <groupId>com.sun.mail</groupId>
             <artifactId>jakarta.mail</artifactId>
@@ -170,18 +150,6 @@
             <version>3.4.1</version>
         </dependency>
 
-        <!-- Tika：统一文本提取 -->
-        <!--<dependency>
-            <groupId>org.apache.tika</groupId>
-            <artifactId>tika-core</artifactId>
-            <version>3.0.0</version>
-        </dependency>
-        <dependency>
-            <groupId>org.apache.tika</groupId>
-            <artifactId>tika-parsers-standard-package</artifactId>
-            <version>3.0.0</version>
-        </dependency>-->
-
         <!-- POI：PPT 结构化读取 -->
         <dependency>
             <groupId>org.apache.poi</groupId>
@@ -199,6 +167,13 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>2.17.2</version>
+        </dependency>
+
+        <!-- Playwright：浏览器自动化 -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>${playwright.version}</version>
         </dependency>
     </dependencies>
 
@@ -229,44 +204,6 @@
                     </execution>
                 </executions>
             </plugin>
-            <!--<plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>NanobotShell</mainClass>  &lt;!&ndash; 替换为您的实际主类 &ndash;&gt;
-                            <addClasspath>true</addClasspath>
-                            <classpathPrefix>lib/</classpathPrefix>
-                        </manifest>
-                    </archive>
-                </configuration>
-            </plugin>-->
-            <!--<plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-assembly-plugin</artifactId>
-                <version>3.6.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>NanobotShell</mainClass>  &lt;!&ndash; 替换为您的实际主类 &ndash;&gt;
-                        </manifest>
-                    </archive>
-                    <descriptorRefs>
-                        <descriptorRef>jar-with-dependencies</descriptorRef>
-                    </descriptorRefs>
-                </configuration>
-                <executions>
-                    <execution>
-                        <id>make-assembly</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>single</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>-->
         </plugins>
     </build>
 </project>

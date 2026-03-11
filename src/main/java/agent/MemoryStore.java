@@ -130,6 +130,8 @@ public class MemoryStore {
             Session session,
             LLMProvider provider,
             String model,
+            int maxTokens,
+            double temperature,
             boolean archiveAll,
             int memoryWindow
     ) {
@@ -222,7 +224,7 @@ public class MemoryStore {
         );
 
         // 这里保持默认 max_tokens/temperature，与 provider 默认一致（但显式传入更稳定）
-        return chatCompat(provider, messages, SAVE_MEMORY_TOOL, model, 4096, 0.7, null)
+        return chatCompat(provider, messages, SAVE_MEMORY_TOOL, model, maxTokens, temperature, null)
                 .handle((resp, ex) -> {
                     if (ex != null) {
                         log.error("记忆压缩失败", ex);
