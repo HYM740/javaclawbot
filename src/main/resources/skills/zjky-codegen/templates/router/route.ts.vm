@@ -1,0 +1,109 @@
+/**
+ * ${table.tableComment}路由配置
+ * 生成时间：${.now?string('yyyy-MM-dd HH:mm:ss')}
+ * 作者：${author}
+ * 
+ * 使用说明：
+ * 1. 将此配置合并到项目的路由文件中
+ * 2. 确保父路由已存在
+ * 3. 检查 component 路径是否正确
+ */
+
+#if ($parentRoute)
+// 父路由已存在，添加子路由
+{
+  path: '${table.businessName}',
+  name: '${className}',
+  component: () => import('@/views/${vueComponentPath}/index.vue'),
+  meta: {
+    title: '${table.tableComment}',
+    icon: 'ep:document',
+    hidden: false,
+    keepAlive: true,
+    alwaysShow: true
+  },
+  children: [
+    {
+      path: 'list',
+      name: '${className}List',
+      component: () => import('@/views/${vueComponentPath}/index.vue'),
+      meta: {
+        title: '${table.tableComment}列表',
+        icon: 'ep:list',
+        hidden: false,
+        keepAlive: true
+      }
+    },
+    {
+      path: 'detail/:id?',
+      name: '${className}Detail',
+      component: () => import('@/views/${vueComponentPath}/${className}Detail.vue'),
+      meta: {
+        title: '${table.tableComment}详情',
+        icon: 'ep:view',
+        hidden: true,
+        activeMenu: '/${parentPath}/${table.businessName}/list'
+      }
+    }
+  ]
+}
+#else
+// 完整路由配置（包含父路由）
+{
+  path: '/${table.businessName}',
+  name: '${className}Root',
+  component: Layout,
+  meta: {
+    title: '${table.tableComment}',
+    icon: 'ep:document',
+    hidden: false,
+    alwaysShow: true
+  },
+  children: [
+    {
+      path: 'list',
+      name: '${className}List',
+      component: () => import('@/views/${vueComponentPath}/index.vue'),
+      meta: {
+        title: '${table.tableComment}列表',
+        icon: 'ep:list',
+        hidden: false,
+        keepAlive: true
+      }
+    },
+    {
+      path: 'detail/:id?',
+      name: '${className}Detail',
+      component: () => import('@/views/${vueComponentPath}/${className}Detail.vue'),
+      meta: {
+        title: '${table.tableComment}详情',
+        icon: 'ep:view',
+        hidden: true,
+        activeMenu: '/${table.businessName}/list'
+      }
+    }
+  ]
+}
+#end
+
+// =============================================
+// 权限配置说明
+// =============================================
+// 在页面中使用权限指令：
+// 
+// <el-button v-hasPermi="['${permissionPrefix}:${table.businessName}:create']">新增</el-button>
+// <el-button v-hasPermi="['${permissionPrefix}:${table.businessName}:update']">修改</el-button>
+// <el-button v-hasPermi="['${permissionPrefix}:${table.businessName}:delete']">删除</el-button>
+// <el-button v-hasPermi="['${permissionPrefix}:${table.businessName}:export']">导出</el-button>
+
+// =============================================
+// 变量说明
+// =============================================
+// ${table.businessName}     : 业务名称（路由路径）
+// ${table.tableComment}     : 表注释（菜单标题）
+// ${className}        : 类名（组件名称）
+// ${vueComponentPath}       : Vue 组件路径
+// ${permissionPrefix}       : 权限前缀
+// ${parentPath}       : 父路由路径
+// ${parentRoute}      : 是否有父路由（true/false）
+// ${author}           : 作者名
