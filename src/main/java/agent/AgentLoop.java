@@ -13,6 +13,7 @@ import providers.LLMProvider;
 import providers.ToolCallRequest;
 import session.Session;
 import session.SessionManager;
+import skills.SkillsLoader;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -119,9 +120,17 @@ public class AgentLoop {
         );
     }
 
-    private int currentMemoryWindow() { return runtimeSnapshot().memoryWindow(); }
-    private int currentMaxTokens() { return runtimeSnapshot().maxTokens(); }
-    private ConfigSchema.ChannelsConfig currentChannelsConfig() { return runtimeSnapshot().channelsConfig(); }
+    private int currentMemoryWindow() {
+        return runtimeSnapshot().memoryWindow();
+    }
+
+    private int currentMaxTokens() {
+        return runtimeSnapshot().maxTokens();
+    }
+
+    private ConfigSchema.ChannelsConfig currentChannelsConfig() {
+        return runtimeSnapshot().channelsConfig();
+    }
 
     private void registerDefaultTools() {
         java.nio.file.Path allowedDir = restrictToWorkspace ? workspace : null;
@@ -138,19 +147,30 @@ public class AgentLoop {
         tools.register(new WebFetchTool(null));
         tools.register(new MessageTool(bus::publishOutbound, "", "", null));
         tools.register(new SpawnTool(subagents));
+        SkillsLoader skillsLoader = new SkillsLoader(workspace);
+        tools.register(new LoadSkillTool(skillsLoader));
+        tools.register(new UninstallSkillTool(skillsLoader));
         if (cronService != null) tools.register(new CronTool(cronService));
     }
 
     private void setToolContext(String channel, String chatId, String messageId) {
         var mt = tools.get("message");
-        if (mt instanceof MessageTool m) m.setContext(channel, chatId, messageId);
+        if (mt instanceof MessageTool m) {
+            m.setContext(channel, chatId, messageId);
+        }
         var st = tools.get("spawn");
-        if (st instanceof SpawnTool s) s.setContext(channel, chatId);
+        if (st instanceof SpawnTool s) {
+            s.setContext(channel, chatId);
+        }
         var ct = tools.get("cron");
-        if (ct instanceof CronTool c) c.setContext(channel, chatId);
+        if (ct instanceof CronTool c) {
+            c.setContext(channel, chatId);
+        }
     }
 
-    /** 获取 CronTool 实例（用于设置 cron 上下文） */
+    /**
+     * 获取 CronTool 实例（用于设置 cron 上下文）
+     */
     public CronTool getCronTool() {
         var t = tools.get("cron");
         return (t instanceof CronTool ct) ? ct : null;
@@ -184,7 +204,11 @@ public class AgentLoop {
     public CompletionStage<Void> closeMcp() {
         return CompletableFuture.runAsync(() -> {
             for (MCPClient client : mcpClients) {
-                try { client.close(); } catch (Exception e) { log.warn("Failed to close MCP client: {}", e.toString()); }
+                try {
+                    client.close();
+                } catch (Exception e) {
+                    log.warn("Failed to close MCP client: {}", e.toString());
+                }
             }
             mcpClients.clear();
             mcpConnected = false;
@@ -204,7 +228,8 @@ public class AgentLoop {
         for (var tc : toolCalls) {
             Object val = (tc.getArguments() != null && !tc.getArguments().isEmpty()) ? tc.getArguments().values().iterator().next() : null;
             if (!(val instanceof String s)) parts.add(tc.getName());
-            else parts.add(s.length() > 40 ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")" : tc.getName() + "(\"" + s + "\")");
+            else
+                parts.add(s.length() > 40 ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")" : tc.getName() + "(\"" + s + "\")");
         }
         return String.join(", ", parts);
     }
@@ -215,10 +240,16 @@ public class AgentLoop {
         log.info("Agent loop started");
         while (running) {
             InboundMessage msg = null;
-            try { msg = bus.consumeInbound(1, TimeUnit.SECONDS); } catch (Exception ignored) {}
+            try {
+                msg = bus.consumeInbound(1, TimeUnit.SECONDS);
+            } catch (Exception ignored) {
+            }
             if (msg == null) continue;
             String content = msg.getContent() == null ? "" : msg.getContent().trim();
-            if ("/stop".equalsIgnoreCase(content)) { handleStop(msg).toCompletableFuture().join(); continue; }
+            if ("/stop".equalsIgnoreCase(content)) {
+                handleStop(msg).toCompletableFuture().join();
+                continue;
+            }
             InboundMessage finalMsg = msg;
             CompletableFuture<Void> task = CompletableFuture.runAsync(() -> dispatch(finalMsg), executor);
             activeTasks.computeIfAbsent(msg.getSessionKey(), k -> new CopyOnWriteArrayList<>()).add(task);
@@ -228,7 +259,10 @@ public class AgentLoop {
         return CompletableFuture.completedFuture(null);
     }
 
-    public void stop() { running = false; log.info("Agent loop stopping"); }
+    public void stop() {
+        running = false;
+        log.info("Agent loop stopping");
+    }
 
     private CompletionStage<Void> handleStop(InboundMessage msg) {
         String sessionKey = msg.getSessionKey();
@@ -236,7 +270,11 @@ public class AgentLoop {
         int cancelled = 0;
         if (tasks != null) {
             for (CompletableFuture<?> f : tasks) if (f != null && !f.isDone() && f.cancel(true)) cancelled++;
-            for (CompletableFuture<?> f : tasks) try { f.get(2, TimeUnit.SECONDS); } catch (Exception ignored) {}
+            for (CompletableFuture<?> f : tasks)
+                try {
+                    f.get(2, TimeUnit.SECONDS);
+                } catch (Exception ignored) {
+                }
         }
         int finalCancelled = cancelled;
         return subagents.cancelBySession(sessionKey).thenCompose(subCancelled -> {
@@ -251,10 +289,14 @@ public class AgentLoop {
             try {
                 OutboundMessage resp = processMessage(msg, null, null).toCompletableFuture().get();
                 if (resp != null) bus.publishOutbound(resp).toCompletableFuture().join();
-                else if ("cli".equals(msg.getChannel())) bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "", List.of(), msg.getMetadata())).toCompletableFuture().join();
-            } finally { processingLock.release(); }
-        } catch (CancellationException ce) { throw ce; }
-        catch (Exception e) {
+                else if ("cli".equals(msg.getChannel()))
+                    bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "", List.of(), msg.getMetadata())).toCompletableFuture().join();
+            } finally {
+                processingLock.release();
+            }
+        } catch (CancellationException ce) {
+            throw ce;
+        } catch (Exception e) {
             log.warn("Error processing message for session {}: {}", msg.getSessionKey(), e.toString());
             bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Sorry, I encountered an error.", List.of(), Map.of())).toCompletableFuture().join();
         }
@@ -279,14 +321,27 @@ public class AgentLoop {
         String key = (sessionKeyOverride != null) ? sessionKeyOverride : msg.getSessionKey();
         Session session = sessions.getOrCreate(key);
         String cmd = msg.getContent() == null ? "" : msg.getContent().trim().toLowerCase(Locale.ROOT);
-        if ("/new".equals(cmd)) return handleNewCommand(msg, session);
-        if ("/help".equals(cmd)) return CompletableFuture.completedFuture(new OutboundMessage(msg.getChannel(), msg.getChatId(), "🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands", List.of(), Map.of()));
+        if ("/new".equals(cmd)) {
+            return handleNewCommand(msg, session);
+        }
+        if ("/help".equals(cmd)){
+            return CompletableFuture.completedFuture(new OutboundMessage(msg.getChannel(), msg.getChatId(), "🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands", List.of(), Map.of()));
+        }
         int useMemoryWindow = currentMemoryWindow();
         int unconsolidated = session.getMessages().size() - session.getLastConsolidated();
         if (unconsolidated >= useMemoryWindow && !consolidating.contains(session.getKey())) {
             consolidating.add(session.getKey());
             ReentrantLock lock = getConsolidationLock(session.getKey());
-            CompletableFuture<Void> f = CompletableFuture.runAsync(() -> { try { lock.lock(); consolidateMemory(session, false).toCompletableFuture().join(); } finally { consolidating.remove(session.getKey()); if (lock.isHeldByCurrentThread()) lock.unlock(); pruneConsolidationLock(session.getKey(), lock); } }, executor);
+            CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
+                try {
+                    lock.lock();
+                    consolidateMemory(session, false).toCompletableFuture().join();
+                } finally {
+                    consolidating.remove(session.getKey());
+                    if (lock.isHeldByCurrentThread()) lock.unlock();
+                    pruneConsolidationLock(session.getKey(), lock);
+                }
+            }, executor);
             consolidationTasks.add(f);
             f.whenComplete((v, ex) -> consolidationTasks.remove(f));
         }
@@ -324,28 +379,43 @@ public class AgentLoop {
                 if (!snapshot.isEmpty()) {
                     Session temp = new Session(session.getKey());
                     temp.setMessages(new ArrayList<>(snapshot));
-                    if (!consolidateMemory(temp, true).toCompletableFuture().join()) { out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Memory archival failed, session not cleared. Please try again.", List.of(), Map.of())); return; }
+                    if (!consolidateMemory(temp, true).toCompletableFuture().join()) {
+                        out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Memory archival failed, session not cleared. Please try again.", List.of(), Map.of()));
+                        return;
+                    }
                 }
                 session.clear();
                 sessions.save(session);
                 sessions.invalidate(session.getKey());
                 out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "New session started.", List.of(), Map.of()));
-            } catch (Exception e) { out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Memory archival failed, session not cleared. Please try again.", List.of(), Map.of())); }
-            finally { consolidating.remove(session.getKey()); if (lock.isHeldByCurrentThread()) lock.unlock(); pruneConsolidationLock(session.getKey(), lock); }
+            } catch (Exception e) {
+                out.complete(new OutboundMessage(msg.getChannel(), msg.getChatId(), "Memory archival failed, session not cleared. Please try again.", List.of(), Map.of()));
+            } finally {
+                consolidating.remove(session.getKey());
+                if (lock.isHeldByCurrentThread()) lock.unlock();
+                pruneConsolidationLock(session.getKey(), lock);
+            }
         });
         return out;
     }
 
-    private static String extractMessageId(Map<String, Object> meta) { return (meta == null) ? null : (meta.get("message_id") == null) ? null : String.valueOf(meta.get("message_id")); }
+    private static String extractMessageId(Map<String, Object> meta) {
+        return (meta == null) ? null : (meta.get("message_id") == null) ? null : String.valueOf(meta.get("message_id"));
+    }
 
     private CompletionStage<RunResult> runAgentLoop(List<Map<String, Object>> initialMessages, ProgressCallback onProgress) {
         CompletableFuture<RunResult> out = new CompletableFuture<>();
         List<Map<String, Object>> messages = new ArrayList<>(initialMessages);
         List<String> toolsUsed = new ArrayList<>();
-        class State { int iteration = 0; String finalContent = null; final AtomicBoolean done = new AtomicBoolean(false); }
+        class State {
+            int iteration = 0;
+            String finalContent = null;
+            final AtomicBoolean done = new AtomicBoolean(false);
+        }
         State st = new State();
         Runnable step = new Runnable() {
-            @Override public void run() {
+            @Override
+            public void run() {
                 if (st.done.get()) {
                     return;
                 }
@@ -359,17 +429,31 @@ public class AgentLoop {
                 }
                 provider.chatWithRetry(messages, tools.getDefinitions(), rs.model(), rs.maxTokens(), rs.temperature(), rs.reasoningEffort()).whenComplete((resp, ex) -> {
                     if (st.done.get()) return;
-                    if (ex != null) { st.done.set(true); out.completeExceptionally(ex); return; }
+                    if (ex != null) {
+                        st.done.set(true);
+                        out.completeExceptionally(ex);
+                        return;
+                    }
                     if (resp.hasToolCalls()) {
-                        if (onProgress != null) { String clean = stripThink(resp.getContent()); if (clean != null) onProgress.onProgress(clean, false); onProgress.onProgress(toolHint(resp.getToolCalls()), true); }
+                        if (onProgress != null) {
+                            String clean = stripThink(resp.getContent());
+                            if (clean != null) onProgress.onProgress(clean, false);
+                            onProgress.onProgress(toolHint(resp.getToolCalls()), true);
+                        }
                         List<Map<String, Object>> toolCallDicts = new ArrayList<>();
                         for (var tc : resp.getToolCalls()) {
-                            Map<String, Object> fn = new LinkedHashMap<>(); fn.put("name", tc.getName()); fn.put("arguments", JsonUtil.toJson(tc.getArguments()));
-                            Map<String, Object> call = new LinkedHashMap<>(); call.put("id", tc.getId()); call.put("type", "function"); call.put("function", fn);
+                            Map<String, Object> fn = new LinkedHashMap<>();
+                            fn.put("name", tc.getName());
+                            fn.put("arguments", JsonUtil.toJson(tc.getArguments()));
+                            Map<String, Object> call = new LinkedHashMap<>();
+                            call.put("id", tc.getId());
+                            call.put("type", "function");
+                            call.put("function", fn);
                             toolCallDicts.add(call);
                         }
                         List<Map<String, Object>> updated = context.addAssistantMessage(messages, resp.getContent(), toolCallDicts, resp.getReasoningContent(), resp.getThinkingBlocks());
-                        messages.clear(); messages.addAll(updated);
+                        messages.clear();
+                        messages.addAll(updated);
 
                         // 执行工具
                         executeToolCallsSequential(resp.getToolCalls(), toolsUsed, messages)
@@ -390,7 +474,8 @@ public class AgentLoop {
                     String clean = stripThink(resp.getContent());
                     log.info("LLM 回复:\n" + clean);
                     List<Map<String, Object>> updated = context.addAssistantMessage(messages, clean, null, resp.getReasoningContent(), resp.getThinkingBlocks());
-                    messages.clear(); messages.addAll(updated);
+                    messages.clear();
+                    messages.addAll(updated);
                     st.finalContent = clean;
                     st.done.set(true);
                     out.complete(new RunResult(st.finalContent, toolsUsed, messages));
@@ -406,14 +491,19 @@ public class AgentLoop {
         for (var tc : toolCalls) {
             chain = chain.thenCompose(v -> {
                 toolsUsed.add(tc.getName());
-                try { log.info("Tool call: {}({})", tc.getName(), safeTruncate(JsonUtil.toJson(tc.getArguments()), 200)); } catch (Exception ignored) {}
+                try {
+                    log.info("Tool call: {}({})", tc.getName(), safeTruncate(JsonUtil.toJson(tc.getArguments()), 200));
+                } catch (Exception ignored) {
+                }
                 return tools.execute(tc.getName(), tc.getArguments()).thenAccept(result -> {
                     List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), result);
-                    messages.clear(); messages.addAll(updated);
+                    messages.clear();
+                    messages.addAll(updated);
                 }).exceptionally(ex -> {
                     String err = formatToolError(tc.getName(), ex);
                     List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), err);
-                    messages.clear(); messages.addAll(updated);
+                    messages.clear();
+                    messages.addAll(updated);
                     return null;
                 });
             });
@@ -427,8 +517,13 @@ public class AgentLoop {
         return "{\"error\":\"tool_failed\",\"tool\":\"" + toolName + "\",\"message\":\"" + safeOneLine(root.toString()) + "\"}";
     }
 
-    private static String safeOneLine(String s) { return (s == null) ? "" : s.replace("\n", " ").replace("\r", " "); }
-    private static String safeTruncate(String s, int maxLen) { return (s == null) ? "" : (s.length() > maxLen ? s.substring(0, maxLen) : s); }
+    private static String safeOneLine(String s) {
+        return (s == null) ? "" : s.replace("\n", " ").replace("\r", " ");
+    }
+
+    private static String safeTruncate(String s, int maxLen) {
+        return (s == null) ? "" : (s.length() > maxLen ? s.substring(0, maxLen) : s);
+    }
 
     private void saveTurn(Session session, List<Map<String, Object>> messages, int skip) {
         for (int i = skip; i < messages.size(); i++) {
@@ -443,11 +538,15 @@ public class AgentLoop {
                 boolean noToolCalls = (toolCalls == null) || (toolCalls instanceof List<?> l && l.isEmpty());
                 if (emptyContent && noToolCalls) continue;
             }
-            if ("tool".equals(String.valueOf(role)) && content instanceof String s && s.length() > TOOL_RESULT_MAX_CHARS) entry.put("content", s.substring(0, TOOL_RESULT_MAX_CHARS) + "\n... (truncated)");
+            if ("tool".equals(String.valueOf(role)) && content instanceof String s && s.length() > TOOL_RESULT_MAX_CHARS)
+                entry.put("content", s.substring(0, TOOL_RESULT_MAX_CHARS) + "\n... (truncated)");
             if ("user".equals(String.valueOf(role)) && content instanceof List<?> list) {
                 List<Object> replaced = new ArrayList<>();
                 for (Object c : list) {
-                    if (c instanceof Map<?, ?> cm && "image_url".equals(String.valueOf(cm.get("type"))) && cm.get("image_url") instanceof Map<?, ?> im && im.get("url") instanceof String u && u.startsWith("data:image/")) { replaced.add(Map.of("type", "text", "text", "[image]")); continue; }
+                    if (c instanceof Map<?, ?> cm && "image_url".equals(String.valueOf(cm.get("type"))) && cm.get("image_url") instanceof Map<?, ?> im && im.get("url") instanceof String u && u.startsWith("data:image/")) {
+                        replaced.add(Map.of("type", "text", "text", "[image]"));
+                        continue;
+                    }
                     replaced.add(c);
                 }
                 entry.put("content", replaced);
@@ -462,8 +561,13 @@ public class AgentLoop {
         return new MemoryStore(workspace).consolidate(session, provider, model, currentMaxTokens(), 0.5, archiveAll, currentMemoryWindow());
     }
 
-    private ReentrantLock getConsolidationLock(String sessionKey) { return consolidationLocks.computeIfAbsent(sessionKey, k -> new ReentrantLock()); }
-    private void pruneConsolidationLock(String sessionKey, ReentrantLock lock) { if (lock != null && !lock.isLocked()) consolidationLocks.remove(sessionKey, lock); }
+    private ReentrantLock getConsolidationLock(String sessionKey) {
+        return consolidationLocks.computeIfAbsent(sessionKey, k -> new ReentrantLock());
+    }
+
+    private void pruneConsolidationLock(String sessionKey, ReentrantLock lock) {
+        if (lock != null && !lock.isLocked()) consolidationLocks.remove(sessionKey, lock);
+    }
 
     public CompletionStage<String> processDirect(String content, String sessionKey, String channel, String chatId, ProgressCallback onProgress) {
         return connectMcp().thenCompose(v -> {
@@ -472,20 +576,39 @@ public class AgentLoop {
         });
     }
 
-    public ConfigSchema.ChannelsConfig getChannelsConfig() { return currentChannelsConfig(); }
-    public String getModel() { return runtimeSnapshot().model(); }
+    public ConfigSchema.ChannelsConfig getChannelsConfig() {
+        return currentChannelsConfig();
+    }
 
-    public interface ProgressCallback { void onProgress(String content, boolean toolHint); }
+    public String getModel() {
+        return runtimeSnapshot().model();
+    }
+
+    public interface ProgressCallback {
+        void onProgress(String content, boolean toolHint);
+    }
 
     public static class RunResult {
         public final String finalContent;
         public final List<String> toolsUsed;
         public final List<Map<String, Object>> messages;
-        public RunResult(String finalContent, List<String> toolsUsed, List<Map<String, Object>> messages) { this.finalContent = finalContent; this.toolsUsed = toolsUsed; this.messages = messages; }
+
+        public RunResult(String finalContent, List<String> toolsUsed, List<Map<String, Object>> messages) {
+            this.finalContent = finalContent;
+            this.toolsUsed = toolsUsed;
+            this.messages = messages;
+        }
     }
 
     static class JsonUtil {
         private static final com.fasterxml.jackson.databind.ObjectMapper M = new com.fasterxml.jackson.databind.ObjectMapper();
-        static String toJson(Object o) { try { return M.writeValueAsString(o); } catch (Exception e) { return String.valueOf(o); } }
+
+        static String toJson(Object o) {
+            try {
+                return M.writeValueAsString(o);
+            } catch (Exception e) {
+                return String.valueOf(o);
+            }
+        }
     }
 }

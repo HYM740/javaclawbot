@@ -3,6 +3,7 @@ package config;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.NoArgsConstructor;
 import providers.ProviderRegistry;
 
@@ -564,6 +565,7 @@ public final class ConfigSchema {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
+    @Data
     public static class AgentDefaults {
         private String workspace = "~/.nanobot/workspace";
         private String model = "anthropic/claude-opus-4-5";
@@ -572,6 +574,10 @@ public final class ConfigSchema {
         private double temperature = 0.1;
         private int maxToolIterations = 40;
         private int memoryWindow = 100;
+        /**
+         * 最大技能装载数量
+         */
+        private int skillMaxLoad = 5;
 
         private String reasoningEffort = null;
 

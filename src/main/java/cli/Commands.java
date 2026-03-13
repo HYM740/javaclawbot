@@ -38,7 +38,7 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static cli.RuntimeComponents.createRuntimeComponents;
+import static config.ConfigReloader.createRuntimeComponents;
 
 @Command(
         name = "nanobot",
@@ -117,58 +117,6 @@ public class Commands implements Runnable {
                 Files.writeString(historyFile, "", StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW);
             } catch (IOException ignored) {}
         }
-    }
-
-    /**
-     * Provider 创建逻辑（对齐 Python 的“尽量可用”策略）：
-     * 1) openai_codex -> 明确不支持
-     * 2) provider=custom -> CustomProvider(apiKey, apiBase, model)
-     * 3) 其它 provider：如果配置里提供了 api_base（OpenAI-compatible endpoint），也走 CustomProvider
-     * 4) 否则报错：No API key / no api_base
-     */
-    static LLMProvider makeProvider(ConfigSchema.Config config) {
-        String model = config.getAgents().getDefaults().getModel();
-        String providerName = config.getProviderName(model);
-        var p = config.getProvider(model);
-
-        if ("openai_codex".equals(providerName) || (model != null && model.startsWith("openai-codex/"))) {
-            throw new CommandLine.ExecutionException(new CommandLine(new Commands()),
-                    "Error: OpenAI Codex is not supported in this Java build.");
-        }
-
-        String apiKey = (p != null && p.getApiKey() != null) ? p.getApiKey() : null;
-        String apiBase = config.getApiBase(model);
-
-        // custom：强制使用 CustomProvider（OpenAI-compatible）
-        if ("custom".equals(providerName)) {
-            if (apiBase == null || apiBase.isBlank()) apiBase = "http://localhost:8000/v1";
-            if (apiKey == null || apiKey.isBlank()) apiKey = "no-key";
-            return new CustomProvider(apiKey, apiBase, model);
-        }
-
-        // 其它 provider：如果有 api_base，也用 CustomProvider 兜底（解决你现在“config is not supported”）
-        if (apiBase != null && !apiBase.isBlank()) {
-            if (apiKey == null || apiKey.isBlank()) {
-                // 有些本地/无鉴权网关可能不需要 key，这里保持兼容
-                apiKey = "no-key";
-            }
-            return new CustomProvider(apiKey, apiBase, model);
-        }
-
-        // 没 api_base：就要求 apiKey 且 provider 非 oauth
-        ProviderRegistry.ProviderSpec spec = ProviderRegistry.findByName(providerName);
-        boolean isOauth = spec != null && spec.isOauth();
-        boolean isBedrock = model != null && model.startsWith("bedrock/");
-        boolean hasKey = apiKey != null && !apiKey.isBlank();
-
-        if (!isBedrock && !hasKey && !isOauth) {
-            throw new CommandLine.ExecutionException(new CommandLine(new Commands()),
-                    "Error: No API key configured (and no api_base set).");
-        }
-
-        throw new CommandLine.ExecutionException(new CommandLine(new Commands()),
-                "Error: Provider '" + providerName + "' is not supported in this Java build. " +
-                        "Tip: set tools/providers api_base to an OpenAI-compatible endpoint so CustomProvider can be used.");
     }
 
     /**

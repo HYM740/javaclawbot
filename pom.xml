@@ -163,11 +163,11 @@
         </dependency>
 
         <!-- Playwright：浏览器自动化 -->
-        <dependency>
+        <!--<dependency>
             <groupId>com.microsoft.playwright</groupId>
             <artifactId>playwright</artifactId>
             <version>${playwright.version}</version>
-        </dependency>
+        </dependency>-->
 
         <!-- MCP：Model Context Protocol SDK -->
         <dependency>

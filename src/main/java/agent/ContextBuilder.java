@@ -65,6 +65,21 @@ public class ContextBuilder {
             parts.add("# Memory\n\n" + mem);
         }
 
+        // 配置装载技能提示词
+        parts.add("""
+                 # Load and uninstall(remove) Skills
+                   protocol:
+                   Load skill → call `skill_load`
+                   Trigger:
+                   - user asks to load/use a skill
+                   - command starts with `/skill_name`
+                
+                   Uninstall(remove) skill → call `uninstall_skill`
+                   Meaning:
+                   - remove skill from current environment | forget skill
+                   - files remain on disk
+                """);
+
         List<String> alwaysSkills = skills.getAlwaysSkills();
         if (alwaysSkills != null && !alwaysSkills.isEmpty()) {
             String alwaysContent = skills.loadSkillsForContext(alwaysSkills);

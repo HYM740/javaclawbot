@@ -36,7 +36,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import static cli.RuntimeComponents.createRuntimeComponents;
+import static config.ConfigReloader.createRuntimeComponents;
+
 
 /**
  * Nanobot Swing GUI

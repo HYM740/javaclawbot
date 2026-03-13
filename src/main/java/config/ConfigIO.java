@@ -43,6 +43,17 @@ public final class ConfigIO {
     public static Path getConfigPath() {
         return Paths.get(System.getProperty("user.home"), ".nanobot", "config.json");
     }
+    /**
+     * 获取指定的工作空间对应的配置文件路径
+     */
+    public static Path getConfigPath(Path workspacePath) {
+        Path path = workspacePath.resolve("..").resolve("config.json").normalize();
+        // 文件不存在使用默认的
+        /*if (!Files.exists(path)) {
+            return getConfigPath();
+        }*/
+        return path;
+    }
 
     /**
      * 获取 nanobot 数据目录（对齐 Python 的 get_data_dir）

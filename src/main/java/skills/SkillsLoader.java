@@ -1,5 +1,10 @@
 package skills;
 
+import cli.RuntimeComponents;
+import com.google.gson.Gson;
+import config.ConfigReloader;
+import lombok.extern.slf4j.Slf4j;
+
 import java.io.File;
 import java.io.IOException;
 import java.net.URI;
@@ -10,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -21,6 +27,7 @@ import java.util.regex.Pattern;
  * - 支持从头信息中的 metadata 字段解析 JSON，并读取 nanobot/openclaw 下的配置
  * - 支持检查技能依赖（可执行命令、环境变量），并按需过滤不可用技能
  */
+@Slf4j
 public class SkillsLoader {
 
     /** 默认内置技能目录：尝试按类文件位置推导；失败则使用当前工作目录下 skills */
@@ -29,6 +36,11 @@ public class SkillsLoader {
     private final Path workspace;
     private final Path workspaceSkills;
     private final Path builtinSkills;
+
+    /**
+     * 技能装载队列
+     */
+    private volatile ConcurrentLinkedDeque<String> loadSkillQueue = new ConcurrentLinkedDeque<>();
 
     /**
      * 构造方法
@@ -105,6 +117,46 @@ public class SkillsLoader {
             }
         }
         return filtered;
+    }
+
+    /**
+     * 技能装载
+     * ps: 与下面有区别， loadSKill代表被动，读取所有技能内容 skillLoad代表主动装载技能-提供给AI调用的
+     */
+    public String agentSkillLoad(String name) {
+        var alwaysSkills = getAlwaysSkills();
+        if (alwaysSkills.contains(name)) {
+            log.warn("技能:{} 已被装载，无需重复装载", name);
+            return name + "技能已被装载，无需重复装载";
+        }
+
+        // 判断技能装载数量
+        RuntimeComponents rc = ConfigReloader.createRuntimeComponents(null, workspace);
+        int skillMaxLoad = rc.getConfig().getAgents().getDefaults().getSkillMaxLoad();
+        if (loadSkillQueue.size() > skillMaxLoad) {
+            log.error("技能装载过多，超过最大允许值：{}, 技能一旦装载就会常驻，过多影响提示词效率！", skillMaxLoad);
+            return "错误，技能装载过多，超过最大允许值：" + skillMaxLoad + "，请告知用户需卸载一些技能，技能过多影响稳定性与准确性！";
+        }
+
+        loadSkillQueue.addLast(name);
+        var context = loadSkill(name);
+        log.info("技能已装载，技能内容：{}", context);
+        return context;
+    }
+
+    /**
+     * 用户AI技能调用，卸载技能
+     * @param name
+     * @return
+     */
+    public String agentUninstallSkill(String name) {
+        var alwaysSkills = getAlwaysSkills();
+        if (alwaysSkills.contains(name)) {
+            log.error("常驻技能：{} 不允许被卸载,常驻技能有：{}", name, new Gson().toJson(alwaysSkills));
+            return "常驻技能" + name + " 不允许被卸载,常驻技能有：" + new Gson().toJson(alwaysSkills);
+        }
+        loadSkillQueue.remove(name);
+        return "技能" + name + "已被卸载，下次对话就不会出现该技能，直到你重新装载";
     }
 
     /**
