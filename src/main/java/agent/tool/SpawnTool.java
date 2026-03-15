@@ -1,7 +1,7 @@
 package agent.tool;
 
 
-import agent.SubagentManager;
+import agent.subagent.SubagentManager;
 
 import java.util.Map;
 import java.util.Objects;

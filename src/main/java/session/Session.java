@@ -32,6 +32,29 @@ public final class Session {
     /** 已归并到文件的消息数量 */
     private int lastConsolidated = 0;
 
+    // ==================== Usage 跟踪字段（对齐 OpenClaw SessionEntry） ====================
+
+    /** 输入 token 数 */
+    private int inputTokens = 0;
+
+    /** 输出 token 数 */
+    private int outputTokens = 0;
+
+    /** 总 token 数 */
+    private int totalTokens = 0;
+
+    /** 缓存读取 token 数 */
+    private int cacheRead = 0;
+
+    /** 缓存写入 token 数 */
+    private int cacheWrite = 0;
+
+    /** 模型名称 */
+    private String model;
+
+    /** 提供商名称 */
+    private String modelProvider;
+
     public Session(String key) {
         this.key = key;
     }
@@ -158,5 +181,74 @@ public final class Session {
         this.messages = new ArrayList<>();
         this.lastConsolidated = 0;
         this.updatedAt = LocalDateTime.now();
+    }
+
+    // ==================== Usage Getter/Setter ====================
+
+    public int getInputTokens() {
+        return inputTokens;
+    }
+
+    public void setInputTokens(int inputTokens) {
+        this.inputTokens = inputTokens;
+    }
+
+    public int getOutputTokens() {
+        return outputTokens;
+    }
+
+    public void setOutputTokens(int outputTokens) {
+        this.outputTokens = outputTokens;
+    }
+
+    public int getTotalTokens() {
+        return totalTokens;
+    }
+
+    public void setTotalTokens(int totalTokens) {
+        this.totalTokens = totalTokens;
+    }
+
+    public int getCacheRead() {
+        return cacheRead;
+    }
+
+    public void setCacheRead(int cacheRead) {
+        this.cacheRead = cacheRead;
+    }
+
+    public int getCacheWrite() {
+        return cacheWrite;
+    }
+
+    public void setCacheWrite(int cacheWrite) {
+        this.cacheWrite = cacheWrite;
+    }
+
+    public String getModel() {
+        return model;
+    }
+
+    public void setModel(String model) {
+        this.model = model;
+    }
+
+    public String getModelProvider() {
+        return modelProvider;
+    }
+
+    public void setModelProvider(String modelProvider) {
+        this.modelProvider = modelProvider;
+    }
+
+    /**
+     * 累加 usage（对齐 OpenClaw mergeUsageIntoAccumulator）
+     */
+    public void addUsage(int input, int output, int cacheRead, int cacheWrite) {
+        this.inputTokens += input;
+        this.outputTokens += output;
+        this.cacheRead += cacheRead;
+        this.cacheWrite += cacheWrite;
+        this.totalTokens = this.inputTokens + this.outputTokens + this.cacheRead + this.cacheWrite;
     }
 }

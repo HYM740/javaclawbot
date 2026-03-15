@@ -66,8 +66,8 @@ public class SessionsSpawnTool extends Tool {
 
     @Override
     public String description() {
-        return "Spawn an isolated session (subagent). mode=\"run\" is one-shot and mode=\"session\" is persistent/thread-bound. " +
-                "Subagents inherit the parent workspace directory automatically.";
+        return "生成一个隔离会话（子代理）。mode=\"run\" 是一次性执行，mode=\"session\" 是持久化/线程绑定模式。" +
+                "子代理自动继承父工作区目录。";
     }
 
     @Override
@@ -87,7 +87,7 @@ public class SessionsSpawnTool extends Tool {
                 "properties", Map.of(
                         "task", Map.of(
                                 "type", "string",
-                                "description", "The task for the subagent to complete"
+                                "description", "子代理要完成的任务"
                         ),
                         "label", Map.of(
                                 "type", "string",
@@ -101,11 +101,11 @@ public class SessionsSpawnTool extends Tool {
                         ),
                         "thinking", Map.of(
                                 "type", "string",
-                                "description", "Thinking level: low, medium, high"
+                                "description", "思考级别: low, medium, high"
                         ),
                         "runTimeoutSeconds", Map.of(
                                 "type", "integer",
-                                "description", "Timeout in seconds (default 300)",
+                                "description", "超时秒数（默认 300）",
                                 "minimum", 10
                         )
                 ),
@@ -174,7 +174,7 @@ public class SessionsSpawnTool extends Tool {
         // 注册到Registry
         registry.register(record);
 
-        log.info("Spawning subagent: {} (depth: {}, mode: {})", runId, childDepth, mode);
+        log.info("启动子代理: {} (深度: {}, 模式: {})", runId, childDepth, mode);
 
         // 构建子Agent系统提示词
         SubagentSystemPromptBuilder.Params promptParams = new SubagentSystemPromptBuilder.Params()
@@ -199,7 +199,7 @@ public class SessionsSpawnTool extends Tool {
                     announceService.announceWithRetry(record);
                 })
                 .exceptionally(ex -> {
-                    log.error("Subagent execution failed: {}", runId, ex);
+                    log.error("子代理执行失败: {}", runId, ex);
                     record.setOutcome(SubagentOutcome.error(ex.getMessage()));
                     announceService.announceWithRetry(record);
                     return null;
@@ -214,8 +214,8 @@ public class SessionsSpawnTool extends Tool {
         result.put("childSessionKey", childSessionKey);
         result.put("mode", mode.name().toLowerCase());
         result.put("depth", childDepth);
-        result.put("note", "Auto-announce is push-based. After spawning children, do NOT call sessions_list, sessions_history, exec sleep, or any polling tool. Wait for completion events to arrive as user messages.");
-        result.put("text", String.format("Subagent [%s] started (id: %s). I'll notify you when it completes.", displayLabel, runId));
+        result.put("note", "自动公告是推送模式。启动子代理后，不要调用 sessions_list、sessions_history、exec sleep 或任何轮询工具。等待完成事件作为用户消息到达。");
+        result.put("text", String.format("子代理 [%s] 已启动 (id: %s)。完成时会通知您。", displayLabel, runId));
 
         return CompletableFuture.completedFuture(toJson(result));
     }

@@ -1,12 +1,5 @@
-package agent;
+package agent.subagent;
 
-import agent.subagent.*;
-import agent.tool.ExecTool;
-import agent.tool.FileSystemTools;
-import agent.tool.ToolRegistry;
-import agent.tool.WebFetchTool;
-import agent.tool.WebSearchTool;
-import bus.InboundMessage;
 import bus.MessageBus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,14 +7,10 @@ import config.ConfigSchema;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
-import providers.LLMResponse;
-import skills.SkillsLoader;
 
-import java.lang.reflect.Method;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.*;
-import java.util.stream.Collectors;
 
 /**
  * 子代理管理器（重构版）

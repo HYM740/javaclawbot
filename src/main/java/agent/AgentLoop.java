@@ -1,12 +1,18 @@
 package agent;
 
+import agent.subagent.SubagentManager;
 import agent.tool.*;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
 import config.AgentRuntimeSettings;
 import config.ConfigSchema;
+import context.ContextBuilder;
+import context.ContextOverflowDetector;
+import context.ContextWindowDiscovery;
 import corn.CronService;
+import memory.MemoryCompaction;
+import memory.MemoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
@@ -49,6 +55,10 @@ public class AgentLoop {
     private final SubagentManager subagents;
     private final AgentRuntimeSettings runtimeSettings;
     private final ExecutorService executor;
+    /**
+     * 全局共享工具
+     */
+    private final ToolRegistry sharedTools;
     private volatile boolean running = false;
     private final Map<String, ConfigSchema.MCPServerConfig> mcpServers;
     private volatile boolean mcpConnected = false;
@@ -125,7 +135,7 @@ public class AgentLoop {
             maxConcurrent = cfg.getAgents().getDefaults().getMaxConcurrent();
         }
         this.queue = new AgentLoopQueue(maxConcurrent);
-
+        this.sharedTools = new ToolRegistry();
         this.cronToolFacade = (cronService != null) ? new CronTool(cronService) : null;
     }
 
@@ -151,25 +161,23 @@ public class AgentLoop {
         return runtimeSettings.getCurrentConfig().getChannels();
     }
 
+
     /**
-     * 每次请求构建一份完整 ToolRegistry：
-     * - 带上下文的 MessageTool / CronTool 使用请求级实例，避免串会话
-     * - 其它工具直接重建，代码更直观
+     * 注册“全局共享、无请求上下文”的工具。
      */
-    private ToolRegistry buildRequestToolRegistry(String channel, String chatId, String messageId) {
-        ToolRegistry tools = new ToolRegistry();
+    private void registerSharedTools() {
         java.nio.file.Path allowedDir = restrictToWorkspace ? workspace : null;
 
-        // 文件 / 命令 / 网络工具
-        tools.register(new FileSystemTools.ReadFileTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.EditFileTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
-        tools.register(new ExecTool(
+        // 文件/命令/网络工具：无会话上下文，可共享
+        sharedTools.register(new FileSystemTools.ReadFileTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.EditFileTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
+        sharedTools.register(new ExecTool(
                 execConfig.getTimeout(),
                 workspace.toString(),
                 null,
@@ -177,23 +185,10 @@ public class AgentLoop {
                 restrictToWorkspace,
                 execConfig.getPathAppend()
         ));
-        tools.register(new WebSearchTool(braveApiKey, null));
-        tools.register(new WebFetchTool(null));
+        sharedTools.register(new WebSearchTool(braveApiKey, null));
+        sharedTools.register(new WebFetchTool(null));
 
-        // 每次请求独立 MessageTool，避免串会话
-        tools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
-
-        // 每次请求独立 CronTool，复制 facade 的 cron 上下文
-        if (cronService != null) {
-            CronTool cronTool = new CronTool(cronService);
-            cronTool.setContext(channel, chatId);
-            if (cronToolFacade != null) {
-                cronTool.setCronContext(cronToolFacade.isInCronContext());
-            }
-            tools.register(cronTool);
-        }
-
-        // 多 Agent / subagent 相关
+        // ========== 多 Agent / subagent 相关 ==========
         agent.subagent.LocalSubagentExecutor localExec = new agent.subagent.LocalSubagentExecutor(
                 provider, workspace, execConfig, braveApiKey, restrictToWorkspace,
                 subagents.getRegistry(), bus
@@ -206,19 +201,46 @@ public class AgentLoop {
                 workspace,
                 bus
         );
-        tools.register(spawnTool);
+        sharedTools.register(spawnTool);
 
         agent.subagent.SubagentsTool subagentsTool = new agent.subagent.SubagentsTool(
                 subagents.getRegistry(),
                 subagents.getController()
         );
-        tools.register(subagentsTool);
+        sharedTools.register(subagentsTool);
 
+        // 技能工具
         SkillsLoader skillsLoader = new SkillsLoader(workspace);
-        tools.register(new LoadSkillTool(skillsLoader));
-        tools.register(new UninstallSkillTool(skillsLoader));
+        sharedTools.register(new LoadSkillTool(skillsLoader));
+        sharedTools.register(new UninstallSkillTool(skillsLoader));
 
-        return tools;
+        // 注意：
+        // MessageTool / CronTool 不在这里注册，改为“每请求单独创建”
+    }
+    /**
+     * 构建当前请求的工具视图：
+     * - sharedTools：全局共享、无上下文工具
+     * - localTools：当前请求独有、有上下文工具
+     */
+    private ToolView buildRequestToolsAndSetContext(String channel, String chatId, String messageId) {
+        ToolRegistry localTools = new ToolRegistry();
+
+        // 每次请求独立创建 MessageTool，避免串会话
+        localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
+
+        // CronTool 带 channel/chatId 上下文，也做成每请求独立
+        if (cronService != null) {
+            CronTool cronTool = new CronTool(cronService);
+            cronTool.setContext(channel, chatId);
+            localTools.register(cronTool);
+        }
+
+        // 如果你后续有旧版 SpawnTool 需要带上下文，也在这里按请求新建
+        // var spawn = new SpawnTool(subagents);
+        // spawn.setContext(channel, chatId);
+        // localTools.register(spawn);
+
+        return new CompositeToolView(sharedTools, localTools);
     }
 
     public CronTool getCronTool() {
@@ -236,15 +258,14 @@ public class AgentLoop {
                     String name = entry.getKey();
                     ConfigSchema.MCPServerConfig cfg = entry.getValue();
 
-                    ToolRegistry mcpTools = buildRequestToolRegistry("system", "mcp", null);
-                    MCPClient client = new MCPClient(name, cfg, mcpTools);
+                    MCPClient client = new MCPClient(name, cfg, sharedTools);
                     client.connect().toCompletableFuture().join();
                     mcpClients.add(client);
                 }
                 mcpConnected = true;
-                log.info("MCP servers connected: {}", mcpClients.size());
+                log.info("MCP 服务器已连接: {}", mcpClients.size());
             } catch (Exception e) {
-                log.warn("Failed to connect MCP servers: {}", e.toString());
+                log.warn("连接 MCP 服务器失败: {}", e.toString());
                 mcpConnected = false;
             } finally {
                 mcpConnecting = false;
@@ -258,7 +279,7 @@ public class AgentLoop {
                 try {
                     client.close();
                 } catch (Exception e) {
-                    log.warn("Failed to close MCP client: {}", e.toString());
+                    log.warn("关闭 MCP 客户端失败: {}", e.toString());
                 }
             }
             mcpClients.clear();
@@ -294,7 +315,7 @@ public class AgentLoop {
     public CompletableFuture<Void> run() {
         running = true;
         connectMcp();
-        log.info("Agent loop started");
+        log.info("Agent 循环已启动");
 
         while (running) {
             InboundMessage msg = null;
@@ -325,7 +346,7 @@ public class AgentLoop {
             });
         }
 
-        log.info("Agent loop stopped");
+        log.info("Agent 循环已停止");
         return CompletableFuture.completedFuture(null);
     }
 
@@ -334,7 +355,7 @@ public class AgentLoop {
         if (queue != null) {
             queue.shutdown();
         }
-        log.info("Agent loop stopping");
+        log.info("Agent 循环正在停止");
     }
 
     private CompletionStage<Void> handleStop(InboundMessage msg) {
@@ -362,7 +383,7 @@ public class AgentLoop {
             return bus.publishOutbound(new OutboundMessage(
                     msg.getChannel(),
                     msg.getChatId(),
-                    total > 0 ? "⏹ Stopped " + total + " task(s)." : "No active task to stop.",
+                    total > 0 ? "⏹ 已停止 " + total + " 个任务。" : "没有活动任务可停止。",
                     List.of(),
                     Map.of()
             ));
@@ -398,17 +419,17 @@ public class AgentLoop {
                     } catch (CancellationException ce) {
                         throw ce;
                     } catch (Exception e) {
-                        log.warn("Error processing message for session {}: {}", msg.getSessionKey(), e.toString());
+                        log.warn("处理会话 {} 的消息时出错: {}", msg.getSessionKey(), e.toString());
                         try {
                             bus.publishOutbound(new OutboundMessage(
                                     msg.getChannel(),
                                     msg.getChatId(),
-                                    "Sorry, I encountered an error.",
+                                    "抱歉，处理时遇到了错误。",
                                     List.of(),
                                     Map.of()
                             )).toCompletableFuture().join();
                         } catch (Exception publishEx) {
-                            log.warn("Failed to publish error outbound for session {}: {}", msg.getSessionKey(), publishEx.toString());
+                            log.warn("发布错误消息到会话 {} 失败: {}", msg.getSessionKey(), publishEx.toString());
                         }
                         throw new CompletionException(e);
                     }
@@ -424,7 +445,7 @@ public class AgentLoop {
             String chatId = (chat != null && chat.contains(":")) ? chat.split(":", 2)[1] : chat;
             String key = channel + ":" + chatId;
 
-            ToolRegistry requestTools = buildRequestToolRegistry(channel, chatId, extractMessageId(msg.getMetadata()));
+            ToolView requestTools = buildRequestToolsAndSetContext(channel, chatId, extractMessageId(msg.getMetadata()));
 
             Session session = sessions.getOrCreate(key);
             List<Map<String, Object>> history = session.getHistory(currentMemoryWindow());
@@ -432,13 +453,13 @@ public class AgentLoop {
                     history, msg.getContent(), null, null, channel, chatId
             );
 
-            return runAgentLoop(initial, requestTools, null).thenApply(rr -> {
+            return runAgentLoop(key, initial, requestTools, null).thenApply(rr -> {
                 saveTurn(session, rr.messages, 1 + history.size());
                 sessions.save(session);
                 return new OutboundMessage(
                         channel,
                         chatId,
-                        rr.finalContent != null ? rr.finalContent : "Background task completed.",
+                        rr.finalContent != null ? rr.finalContent : "后台任务已完成。",
                         List.of(),
                         Map.of()
                 );
@@ -457,7 +478,7 @@ public class AgentLoop {
             return CompletableFuture.completedFuture(new OutboundMessage(
                     msg.getChannel(),
                     msg.getChatId(),
-                    "🐈 nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands",
+                    "🐈 nanobot 命令:\n/new — 开始新对话\n/stop — 停止当前任务\n/help — 显示可用命令",
                     List.of(),
                     Map.of()
             ));
@@ -482,7 +503,7 @@ public class AgentLoop {
             f.whenComplete((v, ex) -> consolidationTasks.remove(f));
         }
 
-        ToolRegistry requestTools = buildRequestToolRegistry(
+        ToolView requestTools = buildRequestToolsAndSetContext(
                 msg.getChannel(),
                 msg.getChatId(),
                 extractMessageId(msg.getMetadata())
@@ -518,10 +539,10 @@ public class AgentLoop {
         };
         ProgressCallback progress = (onProgress != null) ? onProgress : busProgress;
 
-        return runAgentLoop(initialMessages, requestTools, progress).thenApply(rr -> {
+        return runAgentLoop(key, initialMessages, requestTools, progress).thenApply(rr -> {
             String finalContent = rr.finalContent != null
                     ? rr.finalContent
-                    : "I've completed processing but have no response to give.";
+                    : "处理完成但没有响应内容。";
 
             saveTurn(session, rr.messages, 1 + history.size());
             sessions.save(session);
@@ -559,7 +580,7 @@ public class AgentLoop {
                         out.complete(new OutboundMessage(
                                 msg.getChannel(),
                                 msg.getChatId(),
-                                "Memory archival failed, session not cleared. Please try again.",
+                                "记忆归档失败，会话未清除。请重试。",
                                 List.of(),
                                 Map.of()
                         ));
@@ -574,7 +595,7 @@ public class AgentLoop {
                 out.complete(new OutboundMessage(
                         msg.getChannel(),
                         msg.getChatId(),
-                        "New session started.",
+                        "新会话已开始。",
                         List.of(),
                         Map.of()
                 ));
@@ -582,7 +603,7 @@ public class AgentLoop {
                 out.complete(new OutboundMessage(
                         msg.getChannel(),
                         msg.getChatId(),
-                        "Memory archival failed, session not cleared. Please try again.",
+                        "记忆归档失败，会话未清除。请重试。",
                         List.of(),
                         Map.of()
                 ));
@@ -603,15 +624,17 @@ public class AgentLoop {
     }
 
     private CompletionStage<RunResult> runAgentLoop(
+            String sessionKey,
             List<Map<String, Object>> initialMessages,
-            ToolRegistry tools,
+            ToolView tools,
             ProgressCallback onProgress
     ) {
         CompletableFuture<RunResult> out = new CompletableFuture<>();
         List<Map<String, Object>> messages = new ArrayList<>(initialMessages);
         List<String> toolsUsed = new ArrayList<>();
 
-        UsageAccumulator usageAcc = new UsageAccumulator();
+        // 使用 usageTrackers 跟踪每个会话的 usage（对齐 OpenClaw）
+        UsageAccumulator usageAcc = usageTrackers.computeIfAbsent(sessionKey, k -> new UsageAccumulator());
 
         ContextPruningSettings pruningSettings = ContextPruningSettings.DEFAULT;
         int contextWindow = ContextWindowDiscovery.resolveContextTokensForModel(
@@ -638,7 +661,7 @@ public class AgentLoop {
                 st.iteration++;
                 if (st.iteration > rs.maxIterations()) {
                     st.finalContent =
-                            "I reached the maximum number of tool call iterations (" + rs.maxIterations() + ") without completing the task. You can try breaking the task into smaller steps.";
+                            "已达到最大工具调用迭代次数 (" + rs.maxIterations() + ")，任务未完成。请尝试将任务拆分为更小的步骤。";
                     st.done.set(true);
                     out.complete(new RunResult(st.finalContent, toolsUsed, messages, usageAcc.getTotal()));
                     return;
@@ -650,7 +673,7 @@ public class AgentLoop {
                 if (prunedMessages != messages) {
                     int beforeChars = ContextPruner.estimateContextChars(messages);
                     int afterChars = ContextPruner.estimateContextChars(prunedMessages);
-                    log.debug("Context pruned: {} chars -> {} chars", beforeChars, afterChars);
+                    log.debug("上下文已修剪: {} 字符 -> {} 字符", beforeChars, afterChars);
                     messages.clear();
                     messages.addAll(prunedMessages);
                 }
@@ -669,19 +692,19 @@ public class AgentLoop {
                         String errorMsg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
 
                         if (ContextOverflowDetector.isLikelyContextOverflowError(errorMsg)) {
-                            log.warn("Context overflow detected: {}", errorMsg);
+                            log.warn("检测到上下文溢出: {}", errorMsg);
 
                             if (overflowCompactionAttempts[0] < maxOverflowCompactionAttempts) {
                                 overflowCompactionAttempts[0]++;
-                                log.info("Attempting auto-compaction (attempt {}/{})",
+                                log.info("尝试自动压缩 (第 {}/{} 次)",
                                         overflowCompactionAttempts[0], maxOverflowCompactionAttempts);
 
                                 compactMessages(messages).thenAccept(compacted -> {
                                     if (compacted) {
-                                        log.info("Auto-compaction succeeded, retrying...");
+                                        log.info("自动压缩成功，正在重试...");
                                         executor.execute(this);
                                     } else {
-                                        log.warn("Auto-compaction failed");
+                                        log.warn("自动压缩失败");
                                         st.done.set(true);
                                         out.complete(new RunResult(
                                                 ContextOverflowDetector.formatOverflowError(),
@@ -691,7 +714,7 @@ public class AgentLoop {
                                         ));
                                     }
                                 }).exceptionally(compactEx -> {
-                                    log.warn("Auto-compaction error: {}", compactEx.toString());
+                                    log.warn("自动压缩出错: {}", compactEx.toString());
                                     st.done.set(true);
                                     out.complete(new RunResult(
                                             ContextOverflowDetector.formatOverflowError(),
@@ -793,7 +816,7 @@ public class AgentLoop {
             List<ToolCallRequest> toolCalls,
             List<String> toolsUsed,
             List<Map<String, Object>> messages,
-            ToolRegistry tools
+            ToolView tools
     ) {
         CompletionStage<Void> chain = CompletableFuture.completedFuture(null);
 
@@ -801,7 +824,7 @@ public class AgentLoop {
             chain = chain.thenCompose(v -> {
                 toolsUsed.add(tc.getName());
                 try {
-                    log.info("Tool call: {}({})", tc.getName(), safeTruncate(JsonUtil.toJson(tc.getArguments()), 200));
+                    log.info("工具调用: {}({})", tc.getName(), safeTruncate(JsonUtil.toJson(tc.getArguments()), 200));
                 } catch (Exception ignored) {
                 }
 
@@ -900,7 +923,7 @@ public class AgentLoop {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 if (messages.size() <= 4) {
-                    log.warn("Not enough messages to compact (need > 4)");
+                    log.warn("消息数量不足，无法压缩 (需要 > 4)");
                     return false;
                 }
 
@@ -918,11 +941,11 @@ public class AgentLoop {
                 );
 
                 if (pruneResult.droppedChunks == 0 && pruneResult.messages.size() == historyMessages.size()) {
-                    log.info("No pruning needed, messages fit within budget");
+                    log.info("无需修剪，消息在预算范围内");
                     return compactMessagesInternal(messages, contextWindow);
                 }
 
-                log.info("Pruned {} chunks ({} messages, {} tokens) to fit history budget",
+                log.info("已修剪 {} 块 ({} 条消息, {} tokens) 以适应历史预算",
                         pruneResult.droppedChunks,
                         pruneResult.droppedMessages,
                         pruneResult.droppedTokens
@@ -935,14 +958,14 @@ public class AgentLoop {
                 messages.clear();
                 messages.addAll(compacted);
 
-                log.info("Compaction complete: {} messages -> {} messages",
+                log.info("压缩完成: {} 条消息 -> {} 条消息",
                         historyMessages.size() + 1,
                         compacted.size()
                 );
 
                 return true;
             } catch (Exception e) {
-                log.error("Compaction failed: {}", e.toString());
+                log.error("压缩失败: {}", e.toString());
                 return false;
             }
         }, executor);
@@ -953,7 +976,7 @@ public class AgentLoop {
         int keepLast = 2;
 
         if (messages.size() <= keepFirst + keepLast) {
-            log.warn("Messages too short to compact");
+            log.warn("消息太短，无法压缩");
             return false;
         }
 
@@ -978,7 +1001,7 @@ public class AgentLoop {
                 String roleStr = role != null ? String.valueOf(role) : "message";
                 int tokens = MemoryCompaction.estimateTokens(msg);
                 oversizedNotes.add(String.format(
-                        "[Large %s (~%dK tokens) omitted from summary]",
+                        "[大型 %s (~%dK tokens) 已从摘要中省略]",
                         roleStr,
                         tokens / 1000
                 ));
@@ -988,20 +1011,20 @@ public class AgentLoop {
         }
 
         if (smallMessages.isEmpty()) {
-            log.warn("All messages are oversized, cannot compact");
+            log.warn("所有消息都过大，无法压缩");
             return false;
         }
 
         if (smallMessages.size() < toCompact.size()) {
-            log.info("Skipping {} oversized messages", toCompact.size() - smallMessages.size());
+            log.info("跳过 {} 条过大消息", toCompact.size() - smallMessages.size());
             toCompact = smallMessages;
         }
 
-        log.info("Compacting {} messages (keeping first {} and last {})",
+        log.info("正在压缩 {} 条消息 (保留前 {} 条和后 {} 条)",
                 toCompact.size(), keepFirst, keepLast);
 
         StringBuilder prompt = new StringBuilder();
-        prompt.append("Summarize the following conversation concisely, preserving key information, decisions, and context:\n\n");
+        prompt.append("请简洁地总结以下对话，保留关键信息、决策和上下文：\n\n");
         prompt.append(MemoryCompaction.IDENTIFIER_PRESERVATION_INSTRUCTIONS).append("\n\n");
 
         for (Map<String, Object> msg : toCompact) {
@@ -1032,7 +1055,7 @@ public class AgentLoop {
         ).toCompletableFuture().join().getContent();
 
         if (summary == null || summary.isBlank()) {
-            log.warn("Compaction returned empty summary");
+            log.warn("压缩返回空摘要");
             return false;
         }
 
@@ -1041,7 +1064,7 @@ public class AgentLoop {
 
         Map<String, Object> summaryMsg = new LinkedHashMap<>();
         summaryMsg.put("role", "user");
-        summaryMsg.put("content", "[Previous conversation summary]\n" + summary);
+        summaryMsg.put("content", "[之前的对话摘要]\n" + summary);
         compacted.add(summaryMsg);
 
         for (int i = toIndex; i < messages.size(); i++) {
@@ -1051,7 +1074,7 @@ public class AgentLoop {
         messages.clear();
         messages.addAll(compacted);
 
-        log.info("Compaction complete: {} messages -> {} messages",
+        log.info("压缩完成: {} 条消息 -> {} 条消息",
                 toCompact.size() + keepFirst + keepLast,
                 compacted.size()
         );
@@ -1130,6 +1153,77 @@ public class AgentLoop {
             this.toolsUsed = toolsUsed;
             this.messages = messages;
             this.usage = usage != null ? usage : new Usage();
+        }
+    }
+    /**
+     * 对 sharedTools + request-local tools 的组合视图。
+     * local 同名工具优先覆盖 shared。
+     */
+    private interface ToolView {
+        List<Map<String, Object>> getDefinitions();
+        CompletionStage<String> execute(String name, Map<String, Object> args);
+        Object get(String name);
+    }
+
+    private static final class CompositeToolView implements ToolView {
+        private final ToolRegistry shared;
+        private final ToolRegistry local;
+
+        private CompositeToolView(ToolRegistry shared, ToolRegistry local) {
+            this.shared = shared;
+            this.local = local;
+        }
+
+        @Override
+        public List<Map<String, Object>> getDefinitions() {
+            List<Map<String, Object>> defs = new ArrayList<>();
+            defs.addAll(shared.getDefinitions());
+
+            // local 覆盖 shared 中同名工具定义
+            Map<String, Integer> sharedIndexes = new LinkedHashMap<>();
+            for (int i = 0; i < defs.size(); i++) {
+                Object fn = defs.get(i).get("function");
+                if (fn instanceof Map<?, ?> fnMap) {
+                    Object name = fnMap.get("name");
+                    if (name != null) {
+                        sharedIndexes.put(String.valueOf(name), i);
+                    }
+                }
+            }
+
+            for (Map<String, Object> localDef : local.getDefinitions()) {
+                String localName = null;
+                Object fn = localDef.get("function");
+                if (fn instanceof Map<?, ?> fnMap) {
+                    Object name = fnMap.get("name");
+                    if (name != null) {
+                        localName = String.valueOf(name);
+                    }
+                }
+
+                if (localName != null && sharedIndexes.containsKey(localName)) {
+                    defs.set(sharedIndexes.get(localName), localDef);
+                } else {
+                    defs.add(localDef);
+                }
+            }
+
+            return defs;
+        }
+
+        @Override
+        public CompletionStage<String> execute(String name, Map<String, Object> args) {
+            Object localTool = local.get(name);
+            if (localTool != null) {
+                return local.execute(name, args);
+            }
+            return shared.execute(name, args);
+        }
+
+        @Override
+        public Object get(String name) {
+            Object localTool = local.get(name);
+            return localTool != null ? localTool : shared.get(name);
         }
     }
 

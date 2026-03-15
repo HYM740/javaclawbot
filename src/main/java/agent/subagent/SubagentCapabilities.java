@@ -150,7 +150,7 @@ public class SubagentCapabilities {
                 caps.controlScope
         );
         capabilityStore.put(sessionKey, entry);
-        log.debug("Registered capabilities for {}: depth={}, role={}", sessionKey, depth, caps.role);
+        log.debug("已注册 {} 的能力: 深度={}, 角色={}", sessionKey, depth, caps.role);
     }
 
     /**
@@ -197,7 +197,7 @@ public class SubagentCapabilities {
      */
     public static String buildCapabilityDescription(Capabilities caps) {
         StringBuilder sb = new StringBuilder();
-        sb.append("You are a ").append(caps.role.name().toLowerCase()).append(" agent");
+        sb.append("你是一个 ").append(caps.role.name().toLowerCase()).append(" 代理");
         sb.append(" at depth ").append(caps.depth).append(".");
 
         if (caps.canSpawn) {
@@ -223,11 +223,11 @@ public class SubagentCapabilities {
         sb.append("\n\n");
 
         if (caps.role == SessionRole.LEAF) {
-            sb.append("As a leaf agent, you should focus on completing your assigned task ");
+            sb.append("作为叶子代理，你应该专注于完成分配的任务 ");
             sb.append("without delegating to sub-agents. Report your results clearly.\n");
         } else if (caps.role == SessionRole.ORCHESTRATOR) {
-            sb.append("As an orchestrator, you can break down complex tasks and delegate to sub-agents. ");
-            sb.append("Coordinate their work and synthesize results.\n");
+            sb.append("作为编排者，你可以分解复杂任务并委托给子代理。 ");
+            sb.append("协调它们的工作并综合结果。\n");
         }
 
         return sb.toString();

@@ -1,4 +1,4 @@
-package agent;
+package context;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -237,7 +237,7 @@ public class ContextOverflowDetector {
      * 格式化上下文溢出错误消息
      */
     public static String formatOverflowError() {
-        return "Context overflow: prompt too large for the model. " +
-                "Try /new to start a fresh session, or use a larger-context model.";
+        return "上下文溢出：提示词过大，超出模型限制。" +
+                "请尝试 /new 开始新会话，或使用更大上下文的模型。";
     }
 }

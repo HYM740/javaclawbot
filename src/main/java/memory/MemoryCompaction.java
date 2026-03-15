@@ -1,4 +1,4 @@
-package agent;
+package memory;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,8 +34,8 @@ public class MemoryCompaction {
 
     /** 标识符保留指令 */
     public static final String IDENTIFIER_PRESERVATION_INSTRUCTIONS =
-            "Preserve all opaque identifiers exactly as written (no shortening or reconstruction), " +
-            "including UUIDs, hashes, IDs, tokens, API keys, hostnames, IPs, ports, URLs, and file names.";
+            "保留所有不透明标识符的原样（不缩短或重构），" +
+            "包括 UUID、哈希、ID、令牌、API 密钥、主机名、IP、端口、URL 和文件名。";
 
     /**
      * 估算消息的 token 数

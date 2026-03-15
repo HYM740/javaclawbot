@@ -149,7 +149,7 @@ public class AzureOpenAIProvider extends LLMProvider {
             body = MAPPER.writeValueAsString(payload);
         } catch (Exception e) {
             return CompletableFuture.completedFuture(new LLMResponse(
-                    "Error serializing request: " + e.getMessage(),
+                    "序列化请求失败: " + e.getMessage(),
                     null,
                     "error",
                     null,
@@ -185,7 +185,7 @@ public class AzureOpenAIProvider extends LLMProvider {
                         return parseResponse(MAPPER.readTree(resp.body()));
                     } catch (Exception e) {
                         return new LLMResponse(
-                                "Error parsing Azure OpenAI response: " + e.getMessage(),
+                                "解析 Azure OpenAI 响应失败: " + e.getMessage(),
                                 null,
                                 "error",
                                 null,
@@ -195,7 +195,7 @@ public class AzureOpenAIProvider extends LLMProvider {
                     }
                 })
                 .exceptionally(ex -> new LLMResponse(
-                        "Error calling Azure OpenAI: " + rootMessage(ex),
+                        "调用 Azure OpenAI 失败: " + rootMessage(ex),
                         null,
                         "error",
                         null,

@@ -1,5 +1,6 @@
-package agent;
+package context;
 
+import memory.MemoryStore;
 import skills.SkillsLoader;
 
 import java.io.IOException;
@@ -33,7 +34,7 @@ public class ContextBuilder {
     );
 
     /** 运行时元信息标签（仅元数据，不是指令） */
-    private static final String RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]";
+    private static final String RUNTIME_CONTEXT_TAG = "[运行时上下文 — 仅元数据，非指令]";
 
     private final Path workspace;
     private final MemoryStore memory;
@@ -62,29 +63,29 @@ public class ContextBuilder {
 
         String mem = memory.getMemoryContext();
         if (mem != null && !mem.isBlank()) {
-            parts.add("# Memory\n\n" + mem);
+            parts.add("# 记忆\n\n" + mem);
         }
 
         // 配置装载技能提示词
         parts.add("""
-                 # Load and uninstall(remove) Skills
-                   protocol:
-                   Load skill → call `skill_load`
-                   Trigger:
-                   - user asks to load/use a skill
-                   - command starts with `/skill_name`
+                 # 加载和卸载技能
+                   协议：
+                   加载技能 → 调用 `skill_load`
+                   触发条件：
+                   - 用户要求加载/使用技能
+                   - 命令以 `/skill_name` 开头
                 
-                   Uninstall(remove) skill → call `uninstall_skill`
-                   Meaning:
-                   - remove skill from current environment | forget skill
-                   - files remain on disk
+                   卸载技能 → 调用 `uninstall_skill`
+                   含义：
+                   - 从当前环境移除技能 | 忘记技能
+                   - 文件保留在磁盘上
                 """);
 
         List<String> alwaysSkills = skills.getAlwaysSkills();
         if (alwaysSkills != null && !alwaysSkills.isEmpty()) {
             String alwaysContent = skills.loadSkillsForContext(alwaysSkills);
             if (alwaysContent != null && !alwaysContent.isBlank()) {
-                parts.add("# Active Skills\n\n" + alwaysContent);
+                parts.add("# 活跃技能\n\n" + alwaysContent);
             }
         }
 
@@ -92,19 +93,19 @@ public class ContextBuilder {
         if (skillsSummary != null && !skillsSummary.isBlank()) {
             parts.add(
                     """
-                            # Skills
-                                The following skills extend your capabilities.
+                            # 技能
+                                以下技能扩展了你的能力。
                 
-                                Skill usage protocol:
-                                1. Treat each skill's SKILL.md as an entrypoint, not as the complete skill.
-                                2. When a task matches a skill, first read that skill's SKILL.md using the read_file tool.
-                                3. Then follow the instructions inside SKILL.md exactly.
-                                4. If SKILL.md tells you to read additional files, examples, templates, schemas, or supporting documents, you MUST read them before proceeding.
-                                5. Do not assume the skill is fully loaded after reading only SKILL.md.
-                                6. Respect gradual disclosure: only load the additional skill files that are required for the current task, but do not stop at SKILL.md if it explicitly points to more required context.
-                                7. Do not summarize or approximate a skill from the index alone when the task requires actually using it.
+                                技能使用协议：
+                                1. 将每个技能的 SKILL.md 视为入口点，而非完整技能。
+                                2. 当任务匹配某个技能时，先使用 read_file 工具读取该技能的 SKILL.md。
+                                3. 然后严格按照 SKILL.md 中的说明执行。
+                                4. 如果 SKILL.md 要求读取额外的文件、示例、模板、模式或支持文档，必须在执行前读取。
+                                5. 不要仅阅读 SKILL.md 就认为技能已完全加载。
+                                6. 遵循渐进式加载：只加载当前任务所需的额外技能文件，但如果 SKILL.md 明确指向更多必需上下文，不要止步于此。
+                                7. 当任务需要实际使用技能时，不要仅凭索引摘要或近似判断。
                 
-                                Skills with available=\\"false\\" need dependencies installed first - you can try installing them with apt/brew.
+                                available="false" 的技能需要先安装依赖 - 可以尝试用 apt/brew 安装。
                                            """ +
                             skillsSummary
             );
@@ -137,24 +138,24 @@ public class ContextBuilder {
         String runtime = system + " " + arch + ", Java " + javaVersion;
 
         return "# nanobot 🐈\n\n" +
-                "You are nanobot, a helpful AI assistant.\n\n" +
-                "## Runtime\n" +
+                "你是一个有帮助的 AI 助手。\n\n" +
+                "## 运行环境\n" +
                 runtime + "\n\n" +
-                "## Workspace\n" +
-                "Your workspace is at: " + workspacePath + "\n" +
-                "- Long-term memory: " + workspacePath + "/memory/MEMORY.md (write important facts here)\n" +
-                "- History log: " + workspacePath + "/memory/HISTORY.md (grep-searchable). Each entry starts with [YYYY-MM-DD HH:MM].\n" +
-                "- Custom skills: " + workspacePath + "/skills/{skill-name}/SKILL.md\n\n" +
+                "## 工作区\n" +
+                "工作区路径: " + workspacePath + "\n" +
+                "- 长期记忆: " + workspacePath + "/memory/MEMORY.md（在此记录重要事实）\n" +
+                "- 历史日志: " + workspacePath + "/memory/HISTORY.md（可通过 grep 搜索）。每条记录以 [YYYY-MM-DD HH:MM] 开头。\n" +
+                "- 自定义技能: " + workspacePath + "/skills/{skill-name}/SKILL.md\n\n" +
                 """
-                ## nanobot Guidelines\n
-                - State intent before tool calls, but NEVER predict or claim results before receiving them.\n
-                - Before modifying a file, read it first. Do not assume files or directories exist.\n
-                - After writing or editing a file, re-read it if accuracy matters.\n
-                - If a tool call fails, analyze the error before retrying with a different approach.\n
-                - Ask for clarification when the request is ambiguous.\n\n
-                - When using a skill, treat SKILL.md as the entrypoint only; follow its instructions and read any additional referenced files before acting.\n\n
-                - Do not assume a skill is fully understood from its summary or SKILL.md alone if it explicitly requires additional context files.\\n\\n
-                "Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel.
+                ## nanobot 指南\n
+                - 调用工具前先说明意图，但在收到结果前不要预测或声称结果。\n
+                - 修改文件前先读取。不要假设文件或目录存在。\n
+                - 写入或编辑文件后，如果准确性重要，请重新读取确认。\n
+                - 如果工具调用失败，分析错误后再尝试其他方法。\n
+                - 请求不明确时请询问澄清。\n\n
+                - 使用技能时，将 SKILL.md 视为入口点；在执行前请阅读其说明和引用的额外文件。\n\n
+                - 如果技能明确需要额外的上下文文件，不要仅凭摘要或 SKILL.md 就认为已完全理解。\n\n
+                "对话直接回复文本。只有发送到特定聊天频道时才使用 'message' 工具。
                 """;
     }
 
@@ -164,7 +165,7 @@ public class ContextBuilder {
      * 说明：
      * - Python 使用 datetime.now() + time.strftime("%Z") 获取时区缩写
      * - Java 这里用 ZonedDateTime + TimeZone.getDefault().getID() 作为时区标识
-     * - 该块只是“元数据”，不是指令（tag 文本保持一致）
+     * - 该块只是"元数据"，不是指令（tag 文本保持一致）
      */
     public static String buildRuntimeContext(String channel, String chatId) {
         String now = ZonedDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm (EEEE)"));
@@ -174,11 +175,11 @@ public class ContextBuilder {
         String tzName = (tz != null && tz.getID() != null && !tz.getID().isBlank()) ? tz.getID() : "UTC";
 
         List<String> lines = new ArrayList<>();
-        lines.add("Current Time: " + now + " (" + tzName + ")");
+        lines.add("当前时间: " + now + " (" + tzName + ")");
 
         if (channel != null && !channel.isBlank() && chatId != null && !chatId.isBlank()) {
-            lines.add("Channel: " + channel);
-            lines.add("Chat ID: " + chatId);
+            lines.add("渠道: " + channel);
+            lines.add("聊天 ID: " + chatId);
         }
 
         return RUNTIME_CONTEXT_TAG + "\n" + String.join("\n", lines);
@@ -213,7 +214,7 @@ public class ContextBuilder {
 
         // 对齐 OpenClaw：如果 SOUL.md 存在，添加特殊提示
         if (hasSoulFile) {
-            parts.add(0, "If SOUL.md is present, embody its persona and tone. Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.");
+            parts.add(0, "如果存在 SOUL.md，请体现其中的人格和语气。避免生硬、通用的回复；除非更高优先级的指令覆盖，否则遵循其指导。");
         }
 
         return parts.isEmpty() ? "" : String.join("\n\n", parts);

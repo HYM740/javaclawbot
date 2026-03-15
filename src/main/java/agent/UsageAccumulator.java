@@ -161,7 +161,7 @@ public class UsageAccumulator {
      */
     public String generateReport() {
         if (!hasData()) {
-            return "No usage data";
+            return "无使用数据";
         }
 
         StringBuilder sb = new StringBuilder();

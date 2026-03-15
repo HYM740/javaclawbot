@@ -101,7 +101,7 @@ public final class HotSwappableProvider extends LLMProvider {
                 activeSnapshot = next;
 
                 ModelFallbackManager.FallbackChain chain = next.getFallbackChain();
-                log.info("Provider snapshot rebuilt successfully. version={}, primary={} / {}, fallback_mode={}",
+                log.info("Provider 快照重建成功。版本={}, 主提供商={} / {}, 回退模式={}",
                         next.getVersion(),
                         next.getPrimaryProviderName(),
                         next.getModel(),
@@ -109,7 +109,7 @@ public final class HotSwappableProvider extends LLMProvider {
 
                 return next;
             } catch (Exception e) {
-                log.warn("Failed to rebuild provider snapshot, keep previous snapshot. error={}", e.toString());
+                log.warn("重建 Provider 快照失败，保留之前的快照。错误={}", e.toString());
                 return activeSnapshot;
             }
         } finally {

@@ -141,7 +141,7 @@ public class SubagentPersistence {
      */
     public synchronized void load() {
         if (!Files.exists(storePath)) {
-            log.debug("Store file does not exist: {}", storePath);
+            log.debug("存储文件不存在: {}", storePath);
             return;
         }
 
@@ -160,7 +160,7 @@ public class SubagentPersistence {
 
             log.info("Loaded {} persisted run records", memoryCache.size());
         } catch (IOException e) {
-            log.warn("Failed to load persisted store: {}", e.getMessage());
+            log.warn("加载持久化存储失败: {}", e.getMessage());
         }
     }
 
@@ -189,7 +189,7 @@ public class SubagentPersistence {
             dirty = false;
             log.debug("Saved {} run records to {}", store.runs.size(), storePath);
         } catch (IOException e) {
-            log.warn("Failed to save persisted store: {}", e.getMessage());
+            log.warn("保存持久化存储失败: {}", e.getMessage());
         }
     }
 
@@ -290,7 +290,7 @@ public class SubagentPersistence {
 
         if (removed > 0) {
             dirty = true;
-            log.info("Cleaned up {} expired run records", removed);
+            log.info("已清理 {} 条过期运行记录", removed);
         }
 
         return removed;

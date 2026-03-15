@@ -263,7 +263,7 @@ public final class ModelFallbackManager {
             CompletableFuture<LLMResponse> result
     ) {
         if (index >= fullChain.size() || index >= maxAttempts) {
-            result.complete(errorResponse("All providers/models failed or no valid provider response."));
+            result.complete(errorResponse("所有提供商/模型都失败或没有有效的提供商响应。"));
             return;
         }
 
@@ -280,7 +280,7 @@ public final class ModelFallbackManager {
                         if (ex != null) {
                             result.complete(errorResponse(ex.toString()));
                         } else {
-                            result.complete(resp != null ? resp : errorResponse("Provider returned null response."));
+                            result.complete(resp != null ? resp : errorResponse("提供商返回空响应。"));
                         }
                         return;
                     }
@@ -294,7 +294,7 @@ public final class ModelFallbackManager {
                         } else {
                             log.warn("Provider {} / {} produced fallback-worthy response and no more fallbacks.",
                                     providerName, model);
-                            result.complete(resp != null ? resp : errorResponse("No more fallbacks available."));
+                            result.complete(resp != null ? resp : errorResponse("没有更多可用的回退。"));
                         }
                         return;
                     }
@@ -369,7 +369,7 @@ public final class ModelFallbackManager {
 
                     fallbacks.add(new NamedProvider(targetProvider, targetModel, provider));
                 } catch (Exception e) {
-                    log.warn("Failed to create fallback provider: {} / {}", targetProvider, targetModel, e);
+                    log.warn("创建回退提供商失败: {} / {}", targetProvider, targetModel, e);
                 }
             }
         }

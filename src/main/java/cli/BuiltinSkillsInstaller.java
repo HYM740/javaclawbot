@@ -70,7 +70,7 @@ public final class BuiltinSkillsInstaller {
                     .collect(Collectors.toList());
 
         } catch (Exception e) {
-            System.err.println("Failed to discover built-in skills: " + e.getMessage());
+            System.err.println("发现内置技能失败: " + e.getMessage());
             return List.of();
         }
     }
@@ -83,7 +83,7 @@ public final class BuiltinSkillsInstaller {
                 terminal,
                 allSkills,
                 SkillResource::getName,
-                "Select built-in skills to install",
+                "选择要安装的内置技能",
                 false,
                 true
         );
@@ -226,7 +226,7 @@ public final class BuiltinSkillsInstaller {
             URI uri = url.toURI();
             String uriStr = uri.toString();
             int sep = uriStr.indexOf("!/");
-            if (sep < 0) throw new IOException("Invalid jar uri: " + uriStr);
+            if (sep < 0) throw new IOException("无效的 jar uri: " + uriStr);
 
             URI jarUri = URI.create(uriStr.substring(0, sep));
             try (FileSystem fs = openOrGetJarFileSystem(jarUri)) {
@@ -236,7 +236,7 @@ public final class BuiltinSkillsInstaller {
             }
         }
 
-        throw new IOException("Unsupported protocol: " + protocol);
+        throw new IOException("不支持的协议: " + protocol);
     }
 
     private static void copyFromFileSystemDir(Path sourceDir, Path targetDir) throws IOException {

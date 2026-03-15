@@ -65,7 +65,7 @@ public final class ConfigReloader {
             try {
                 ConfigSchema.Config newConfig = ConfigIO.loadConfig(configPath);
                 if (newConfig == null) {
-                    log.warn("Config reload returned null, keep previous config: {}", configPath);
+                    log.warn("配置重载返回空，保留之前的配置: {}", configPath);
                     return false;
                 }
 
@@ -73,10 +73,10 @@ public final class ConfigReloader {
                 this.lastModifiedMillis = latest;
                 long v = this.version.incrementAndGet();
 
-                log.info("Config reloaded successfully. version={}, path={}", v, configPath);
+                log.info("配置重载成功。版本={}, 路径={}", v, configPath);
                 return true;
             } catch (Exception e) {
-                log.warn("Failed to reload config, keep previous snapshot. path={}, error={}",
+                log.warn("配置重载失败，保留之前的快照。路径={}, 错误={}",
                         configPath, e.toString());
                 return false;
             }

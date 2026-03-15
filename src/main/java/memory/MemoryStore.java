@@ -1,9 +1,7 @@
-package agent;
+package memory;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import memory.EmbeddingProvider;
-import memory.MemorySearchTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
@@ -12,7 +10,6 @@ import session.Session;
 import utils.Helpers;
 
 import java.io.BufferedWriter;
-import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -261,18 +258,18 @@ public class MemoryStore {
 
         // 注意：这里的 prompt 用纯文本拼接，避免 JSON 结构干扰模型
         String prompt = ""
-                + "Process this conversation and call the save_memory tool with your consolidation.\n\n"
-                + (compactionInstructions != null ? "## Instructions\n" + compactionInstructions + "\n\n" : "")
-                + "## Current Long-term Memory\n"
-                + ((currentMemory == null || currentMemory.isEmpty()) ? "(empty)" : currentMemory)
+                + "处理此对话并调用 save_memory 工具保存压缩结果。\n\n"
+                + (compactionInstructions != null ? "## 指令\n" + compactionInstructions + "\n\n" : "")
+                + "## 当前长期记忆\n"
+                + ((currentMemory == null || currentMemory.isEmpty()) ? "(空)" : currentMemory)
                 + "\n\n"
-                + "## Conversation to Process\n"
+                + "## 待处理对话\n"
                 + String.join("\n", lines);
 
         List<Map<String, Object>> msgList = List.of(
                 Map.of(
                         "role", "system",
-                        "content", "You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation."
+                        "content", "你是一个记忆压缩代理。调用 save_memory 工具保存对话的压缩结果。"
                 ),
                 Map.of(
                         "role", "user",
@@ -372,30 +369,30 @@ public class MemoryStore {
             double temperature
     ) {
         String mergeInstructions = ""
-                + "Merge these partial summaries into a single cohesive summary.\n\n"
-                + "MUST PRESERVE:\n"
-                + "- Active tasks and their current status (in-progress, blocked, pending)\n"
-                + "- Batch operation progress (e.g., '5/17 items completed')\n"
-                + "- The last thing the user requested and what was being done about it\n"
-                + "- Decisions made and their rationale\n"
-                + "- TODOs, open questions, and constraints\n"
-                + "- Any commitments or follow-ups promised\n"
+                + "将这些部分摘要合并为一个连贯的摘要。\n\n"
+                + "必须保留：\n"
+                + "- 活动任务及其当前状态（进行中、阻塞、待处理）\n"
+                + "- 批处理进度（例如 '已完成 5/17 项'）\n"
+                + "- 用户最后请求的内容以及正在进行的处理\n"
+                + "- 已做出的决策及其理由\n"
+                + "- 待办事项、未决问题和约束条件\n"
+                + "- 任何承诺或后续跟进事项\n"
                 + "\n"
-                + "PRIORITIZE recent context over older history. The agent needs to know\n"
-                + "what it was doing, not just what was discussed.\n\n"
+                + "优先保留近期上下文而非历史记录。代理需要知道\n"
+                + "它正在做什么，而不仅仅是讨论了什么。\n\n"
                 + MemoryCompaction.IDENTIFIER_PRESERVATION_INSTRUCTIONS;
 
         StringBuilder prompt = new StringBuilder();
         prompt.append(mergeInstructions).append("\n\n");
-        prompt.append("## Partial Summaries to Merge\n\n");
+        prompt.append("## 待合并的部分摘要\n\n");
 
         for (int i = 0; i < partialSummaries.size(); i++) {
-            prompt.append("### Summary ").append(i + 1).append("\n");
+            prompt.append("### 摘要 ").append(i + 1).append("\n");
             prompt.append(partialSummaries.get(i)).append("\n\n");
         }
 
         List<Map<String, Object>> msgList = List.of(
-                Map.of("role", "system", "content", "You are a memory consolidation agent. Merge the partial summaries."),
+                Map.of("role", "system", "content", "你是一个记忆压缩代理。合并这些部分摘要。"),
                 Map.of("role", "user", "content", prompt.toString())
         );
 
@@ -634,13 +631,13 @@ public class MemoryStore {
         historyEntry.put("type", "string");
         historyEntry.put("description",
                 "A paragraph (2-5 sentences) summarizing key events/decisions/topics. " +
-                        "Start with [YYYY-MM-DD HH:MM]. Include detail useful for grep search.");
+                        "以 [YYYY-MM-DD HH:MM] 开头。包含便于 grep 搜索的详细信息。");
 
         Map<String, Object> memoryUpdate = new LinkedHashMap<>();
         memoryUpdate.put("type", "string");
         memoryUpdate.put("description",
-                "Full updated long-term memory as markdown. Include all existing facts plus new ones. " +
-                        "Return unchanged if nothing new.");
+                "完整的更新后长期记忆（markdown 格式）。包含所有现有事实和新事实。" +
+                        "如果没有新内容则保持不变。");
 
         Map<String, Object> properties = new LinkedHashMap<>();
         properties.put("history_entry", historyEntry);
@@ -653,7 +650,7 @@ public class MemoryStore {
 
         Map<String, Object> function = new LinkedHashMap<>();
         function.put("name", "save_memory");
-        function.put("description", "Save the memory consolidation result to persistent storage.");
+        function.put("description", "将记忆压缩结果保存到持久存储。");
         function.put("parameters", parameters);
 
         Map<String, Object> tool = new LinkedHashMap<>();

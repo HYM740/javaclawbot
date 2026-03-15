@@ -91,8 +91,8 @@ public final class ConfigIO {
                 return mapper.convertValue(data, ConfigSchema.Config.class);
             } catch (Exception e) {
                 // 对齐 Python：打印警告并回退默认配置
-                System.out.println("Warning: Failed to load config from " + path + ": " + e.getMessage());
-                System.out.println("Using default configuration.");
+                System.out.println("警告: 从 " + path + " 加载配置失败: " + e.getMessage());
+                System.out.println("使用默认配置。");
             }
         }
 

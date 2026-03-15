@@ -53,7 +53,7 @@ public class SubagentAnnounceService {
 
         String requesterSessionKey = record.getRequesterSessionKey();
         if (requesterSessionKey == null || requesterSessionKey.isBlank()) {
-            log.warn("Cannot announce: no requester session key for run {}", record.getRunId());
+            log.warn("无法公告：运行 {} 没有请求者会话键", record.getRunId());
             return CompletableFuture.completedFuture(null);
         }
 
@@ -84,7 +84,7 @@ public class SubagentAnnounceService {
                 )
         );
 
-        log.info("Announcing subagent completion: {} -> {}", record.getRunId(), requesterSessionKey);
+        log.info("公告子代理完成: {} -> {}", record.getRunId(), requesterSessionKey);
 
         // 发布到消息总线
         return messageBus.publishInbound(msg);
@@ -105,7 +105,7 @@ public class SubagentAnnounceService {
                 .exceptionally(ex -> {
                     if (retryCount < MAX_RETRY_COUNT && isTransientError(ex)) {
                         long delayMs = RETRY_DELAYS_MS[Math.min(retryCount, RETRY_DELAYS_MS.length - 1)];
-                        log.warn("Announce failed (attempt {}/{}), retrying in {}ms: {}",
+                        log.warn("公告失败（第 {}/{} 次），{} 毫秒后重试: {}",
                                 retryCount + 1, MAX_RETRY_COUNT, delayMs, ex.getMessage());
 
                         // 延迟后重试
@@ -122,7 +122,7 @@ public class SubagentAnnounceService {
                         });
                         return retry.join();
                     } else {
-                        log.error("Announce failed after {} attempts: {}", retryCount + 1, ex.getMessage());
+                        log.error("公告失败，已重试 {} 次: {}", retryCount + 1, ex.getMessage());
                         throw new RuntimeException("Announce failed", ex);
                     }
                 });
@@ -158,7 +158,7 @@ public class SubagentAnnounceService {
                 ? record.getLabel()
                 : truncate(record.getTask(), 30);
 
-        return String.format("Subagent [%s] started (id: %s). I'll notify you when it completes.",
+        return String.format("子代理 [%s] 已启动 (id: %s)。完成时会通知您。",
                 label, record.getRunId());
     }
 

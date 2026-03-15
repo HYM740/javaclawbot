@@ -59,15 +59,15 @@ public class SubagentsTool extends Tool {
                         "action", actionEnum,
                         "target", Map.of(
                                 "type", "string",
-                                "description", "Target subagent runId or 'all' for kill action"
+                                "description", "目标子代理 runId 或 'all' 用于 kill 操作"
                         ),
                         "message", Map.of(
                                 "type", "string",
-                                "description", "Steering message for the subagent (max 4000 chars)"
+                                "description", "发送给子代理的引导消息（最多 4000 字符）"
                         ),
                         "recentMinutes", Map.of(
                                 "type", "integer",
-                                "description", "Minutes to look back for recent subagents (default 30)",
+                                "description", "查看最近多少分钟内的子代理（默认 30）",
                                 "minimum", 1
                         )
                 )
@@ -95,7 +95,7 @@ public class SubagentsTool extends Tool {
                 return executeSteer(requesterKey, target, message);
             default:
                 return CompletableFuture.completedFuture(
-                        "{\"status\":\"error\",\"error\":\"Unsupported action: " + action + "\"}"
+                        "{\"status\":\"error\",\"error\":\"不支持的操作: " + action + "\"}"
                 );
         }
     }
@@ -181,8 +181,8 @@ public class SubagentsTool extends Tool {
                         result.put("target", "all");
                         result.put("killed", count);
                         result.put("text", count > 0
-                                ? "Killed " + count + " subagent" + (count == 1 ? "" : "s")
-                                : "No running subagents to kill");
+                                ? "已终止 " + count + " 个子代理"
+                                : "没有运行中的子代理可终止");
                         return toJson(result);
                     });
         }
@@ -195,12 +195,12 @@ public class SubagentsTool extends Tool {
                         result.put("status", "ok");
                         result.put("action", "kill");
                         result.put("target", target);
-                        result.put("text", "Killed subagent: " + target);
+                        result.put("text", "已终止子代理: " + target);
                     } else {
                         result.put("status", "error");
                         result.put("action", "kill");
                         result.put("target", target);
-                        result.put("error", "Subagent not found or already completed");
+                        result.put("error", "子代理未找到或已完成");
                     }
                     return toJson(result);
                 });
@@ -236,12 +236,12 @@ public class SubagentsTool extends Tool {
                         result.put("status", "ok");
                         result.put("action", "steer");
                         result.put("target", target);
-                        result.put("text", "Steered subagent: " + target);
+                        result.put("text", "已引导子代理: " + target);
                     } else {
                         result.put("status", "error");
                         result.put("action", "steer");
                         result.put("target", target);
-                        result.put("error", "Subagent not found or not running");
+                        result.put("error", "子代理未找到或未运行");
                     }
                     return toJson(result);
                 });

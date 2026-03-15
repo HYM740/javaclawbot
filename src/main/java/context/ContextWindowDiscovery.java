@@ -1,4 +1,4 @@
-package agent;
+package context;
 
 import config.ConfigIO;
 import config.ConfigSchema;
@@ -54,9 +54,9 @@ public class ContextWindowDiscovery {
                 applyConfiguredContextWindows(config);
             }
             initialized = true;
-            log.debug("Context window cache initialized with {} entries", MODEL_CACHE.size());
+            log.debug("上下文窗口缓存已初始化，共 {} 条记录", MODEL_CACHE.size());
         } catch (Exception e) {
-            log.warn("Failed to initialize context window cache: {}", e.getMessage());
+            log.warn("初始化上下文窗口缓存失败: {}", e.getMessage());
         }
     }
 
@@ -208,7 +208,7 @@ public class ContextWindowDiscovery {
         MODEL_CACHE.put("mistral", 32768);
         MODEL_CACHE.put("codellama", 16384);
 
-        log.debug("Applied {} default context windows", MODEL_CACHE.size());
+        log.debug("已应用 {} 个默认上下文窗口", MODEL_CACHE.size());
     }
 
     /**

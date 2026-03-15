@@ -183,7 +183,7 @@ public abstract class LLMProvider {
                 .exceptionally(ex -> {
                     // 捕获异常，返回错误响应
                     return new LLMResponse(
-                            "Error calling LLM: " + ex.getMessage(),
+                            "调用 LLM 失败: " + ex.getMessage(),
                             null,
                             "error",
                             null,

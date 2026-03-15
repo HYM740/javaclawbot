@@ -149,11 +149,11 @@ public class SubagentAttachments {
         }
 
         if (!limits.enabled) {
-            return MaterializeResult.forbidden("Attachments are not enabled");
+            return MaterializeResult.forbidden("附件功能未启用");
         }
 
         if (attachments.size() > limits.maxFiles) {
-            return MaterializeResult.forbidden("Too many attachments: " + attachments.size() + " > " + limits.maxFiles);
+            return MaterializeResult.forbidden("附件数量过多: " + attachments.size() + " > " + limits.maxFiles);
         }
 
         // 创建附件目录
@@ -163,7 +163,7 @@ public class SubagentAttachments {
         try {
             Files.createDirectories(absDir);
         } catch (IOException e) {
-            return MaterializeResult.error("Failed to create attachment directory: " + e.getMessage());
+            return MaterializeResult.error("创建附件目录失败: " + e.getMessage());
         }
 
         List<ReceiptFile> receiptFiles = new ArrayList<>();
@@ -183,17 +183,17 @@ public class SubagentAttachments {
                     content = attachment.content.getBytes(StandardCharsets.UTF_8);
                 }
             } catch (IllegalArgumentException e) {
-                return MaterializeResult.error("Failed to decode attachment " + attachment.name + ": " + e.getMessage());
+                return MaterializeResult.error("解码附件失败 " + attachment.name + ": " + e.getMessage());
             }
 
             // 检查大小限制
             if (content.length > limits.maxFileBytes) {
-                return MaterializeResult.forbidden("Attachment too large: " + attachment.name + " (" + content.length + " > " + limits.maxFileBytes + ")");
+                return MaterializeResult.forbidden("附件过大: " + attachment.name + " (" + content.length + " > " + limits.maxFileBytes + ")");
             }
 
             totalBytes += content.length;
             if (totalBytes > limits.maxTotalBytes) {
-                return MaterializeResult.forbidden("Total attachments too large: " + totalBytes + " > " + limits.maxTotalBytes);
+                return MaterializeResult.forbidden("附件总大小过大: " + totalBytes + " > " + limits.maxTotalBytes);
             }
 
             // 写入文件
@@ -201,7 +201,7 @@ public class SubagentAttachments {
             try {
                 Files.write(filePath, content, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             } catch (IOException e) {
-                return MaterializeResult.error("Failed to write attachment " + attachment.name + ": " + e.getMessage());
+                return MaterializeResult.error("写入附件失败 " + attachment.name + ": " + e.getMessage());
             }
 
             // 计算SHA256
@@ -213,11 +213,11 @@ public class SubagentAttachments {
 
         // 构建系统提示后缀
         StringBuilder promptSuffix = new StringBuilder();
-        promptSuffix.append("\n\nThe following files have been attached to your workspace:\n");
+        promptSuffix.append("\n\n以下文件已附加到您的工作区:\n");
         for (ReceiptFile file : receiptFiles) {
             promptSuffix.append("- ").append(file.name).append(" (").append(file.bytes).append(" bytes)\n");
         }
-        promptSuffix.append("\nThese files are available at: ").append(relDir).append("/\n");
+        promptSuffix.append("\n这些文件位于: ").append(relDir).append("/\n");
 
         return MaterializeResult.ok(receipt, absDir.toString(), workspaceDir.toString(), limits.retainOnSessionKeep, promptSuffix.toString());
     }

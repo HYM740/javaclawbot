@@ -292,7 +292,7 @@ public class SubagentRegistry {
         }
 
         if (!toRemove.isEmpty()) {
-            log.info("Cleaned up {} completed subagent records", toRemove.size());
+            log.info("已清理 {} 条完成的子代理记录", toRemove.size());
         }
 
         return toRemove.size();
@@ -305,7 +305,7 @@ public class SubagentRegistry {
         runs.clear();
         sessionIndex.clear();
         childSessionIndex.clear();
-        log.info("Cleared all subagent records");
+        log.info("已清除所有子代理记录");
     }
 
     /**
