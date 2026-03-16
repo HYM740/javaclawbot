@@ -36,16 +36,27 @@ public final class HeartbeatService {
     /** 心跳确认 token（对齐 OpenClaw HEARTBEAT_TOKEN） */
     public static final String HEARTBEAT_TOKEN = "HEARTBEAT_OK";
 
-    /** 默认心跳间隔（30分钟） */
-    public static final String DEFAULT_HEARTBEAT_EVERY = "30m";
 
     /** 默认确认消息最大字符数 */
     public static final int DEFAULT_HEARTBEAT_ACK_MAX_CHARS = 300;
 
-    /** 默认心跳提示词 */
+    /** 默认心跳提示词（对齐 OpenClaw AGENTS.md 中的 Memory Maintenance 指导） */
     public static final String DEFAULT_HEARTBEAT_PROMPT =
         "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. " +
-        "Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.";
+        "Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.\n\n" +
+        "## Memory Maintenance\n\n" +
+        "Periodically (every few days), you should:\n" +
+        "1. Read through recent memory/YYYY-MM-DD.md files\n" +
+        "2. Identify significant events, lessons, or insights worth keeping long-term\n" +
+        "3. Update MEMORY.md with distilled learnings\n" +
+        "4. Remove outdated info from MEMORY.md that's no longer relevant\n\n" +
+        "Daily files are raw notes; MEMORY.md is curated wisdom.\n\n" +
+        "## Proactive Work\n\n" +
+        "You can also:\n" +
+        "- Read and organize memory files\n" +
+        "- Check on projects (git status, etc.)\n" +
+        "- Update documentation\n" +
+        "- Commit and push your own changes";
 
     /** 心跳运行结果 */
     public record HeartbeatRunResult(

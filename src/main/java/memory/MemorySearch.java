@@ -149,7 +149,7 @@ public class MemorySearch {
      * @param keyword 关键词
      * @return 匹配的行
      */
-    public List<String> grepHistory(String keyword) throws Exception {
+    /*public List<String> grepHistory(String keyword) throws Exception {
         Path historyFile = workspaceDir.resolve("memory").resolve("HISTORY.md");
 
         if (!Files.exists(historyFile)) {
@@ -165,7 +165,7 @@ public class MemorySearch {
         }
 
         return matches;
-    }
+    }*/
 
     /**
      * 读取记忆文件内容
@@ -182,8 +182,6 @@ public class MemorySearch {
 
         if (relPath.equals("MEMORY.md") || relPath.equals("memory/MEMORY.md")) {
             targetFile = memoryDir.resolve("MEMORY.md");
-        } else if (relPath.equals("HISTORY.md") || relPath.equals("memory/HISTORY.md")) {
-            targetFile = memoryDir.resolve("HISTORY.md");
         } else {
             // 其他文件，在 memory 目录下查找
             if (relPath.startsWith("memory/")) {

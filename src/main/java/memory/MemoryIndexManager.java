@@ -1108,6 +1108,169 @@ public class MemoryIndexManager implements AutoCloseable {
         return sessionsDir;
     }
 
+    // ==================== 文件读取 ====================
+
+    /**
+     * 读取文件片段
+     *
+     * @param relPath 相对路径
+     * @param from    起始行号（可选，1-based）
+     * @param lines   读取行数（可选）
+     * @return 读取结果
+     */
+    public MemoryTypes.ReadFileResult readFile(String relPath, Integer from, Integer lines) {
+        if (relPath == null || relPath.isEmpty()) {
+            return MemoryTypes.ReadFileResult.error("", "Path is required");
+        }
+
+        try {
+            Path file = workspaceDir.resolve(relPath);
+
+            // 安全检查：防止路径遍历攻击
+            if (!file.normalize().startsWith(workspaceDir.normalize())) {
+                return MemoryTypes.ReadFileResult.error(relPath, "Access denied: path outside workspace");
+            }
+
+            if (!Files.isRegularFile(file)) {
+                return MemoryTypes.ReadFileResult.error(relPath, "File not found: " + relPath);
+            }
+
+            // 读取文件内容
+            String content = Files.readString(file, StandardCharsets.UTF_8);
+
+            // 如果指定了行范围，截取对应行
+            if (from != null || lines != null) {
+                String[] allLines = content.split("\n");
+                int startLine = from != null ? Math.max(1, from) : 1;
+                int lineCount = lines != null ? lines : allLines.length;
+
+                StringBuilder result = new StringBuilder();
+                for (int i = startLine - 1; i < Math.min(startLine - 1 + lineCount, allLines.length); i++) {
+                    if (i >= 0 && i < allLines.length) {
+                        if (result.length() > 0) {
+                            result.append("\n");
+                        }
+                        result.append(allLines[i]);
+                    }
+                }
+                content = result.toString();
+            }
+
+            return new MemoryTypes.ReadFileResult(relPath, content);
+
+        } catch (IOException e) {
+            return MemoryTypes.ReadFileResult.error(relPath, "Failed to read file: " + e.getMessage());
+        }
+    }
+
+    // ==================== 状态查询 ====================
+
+    /**
+     * 获取提供者状态
+     *
+     * @return 提供者状态
+     */
+    public MemoryTypes.MemoryProviderStatus status() {
+        try {
+            ensureInitialized();
+
+            // 统计文件和分块数
+            int fileCount = 0;
+            int chunkCount = 0;
+            List<MemoryTypes.SourceCount> sourceCounts = new ArrayList<>();
+
+            try (Statement stmt = dbConnection.createStatement()) {
+                try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM files")) {
+                    if (rs.next()) {
+                        fileCount = rs.getInt(1);
+                    }
+                }
+                try (ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM chunks")) {
+                    if (rs.next()) {
+                        chunkCount = rs.getInt(1);
+                    }
+                }
+                // 按来源统计
+                try (ResultSet rs = stmt.executeQuery(
+                        "SELECT source, COUNT(DISTINCT path) as files, COUNT(*) as chunks " +
+                        "FROM chunks GROUP BY source")) {
+                    while (rs.next()) {
+                        sourceCounts.add(new MemoryTypes.SourceCount(
+                                MemoryTypes.MemorySource.fromValue(rs.getString("source")),
+                                rs.getInt("files"),
+                                rs.getInt("chunks")
+                        ));
+                    }
+                }
+            }
+
+            // 构建状态
+            return MemoryTypes.MemoryProviderStatus.builder()
+                    .backend("builtin")
+                    .provider(embeddingProvider != null ? embeddingProvider.getId() : "none")
+                    .model(embeddingProvider != null ? embeddingProvider.getModel() : null)
+                    .files(fileCount)
+                    .chunks(chunkCount)
+                    .dirty(dirty)
+                    .workspaceDir(workspaceDir.toString())
+                    .dbPath(dbPath.toString())
+                    .sources(sources.stream()
+                            .map(MemoryTypes.MemorySource::fromValue)
+                            .collect(Collectors.toList()))
+                    .sourceCounts(sourceCounts)
+                    .fts(new MemoryTypes.FtsStatus(ftsEnabled, ftsEnabled, null))
+                    .vector(new MemoryTypes.VectorStatus(
+                            vectorEnabled && embeddingProvider != null,
+                            vectorEnabled && embeddingProvider != null,
+                            null, null,
+                            embeddingProvider != null ? embeddingProvider.getDimensions() : null
+                    ))
+                    .build();
+
+        } catch (SQLException e) {
+            return MemoryTypes.MemoryProviderStatus.builder()
+                    .backend("builtin")
+                    .provider("error")
+                    .dirty(true)
+                    .workspaceDir(workspaceDir.toString())
+                    .dbPath(dbPath != null ? dbPath.toString() : null)
+                    .fts(new MemoryTypes.FtsStatus(false, false, e.getMessage()))
+                    .build();
+        }
+    }
+
+    /**
+     * 探测嵌入可用性
+     *
+     * @return 探测结果
+     */
+    public MemoryTypes.MemoryEmbeddingProbeResult probeEmbeddingAvailability() {
+        if (embeddingProvider == null) {
+            return MemoryTypes.MemoryEmbeddingProbeResult.error("No embedding provider configured");
+        }
+
+        try {
+            // 尝试嵌入一个简单的测试文本
+            float[] embedding = embeddingProvider.embedQuery("test");
+            if (embedding != null && embedding.length > 0) {
+                return MemoryTypes.MemoryEmbeddingProbeResult.ok();
+            } else {
+                return MemoryTypes.MemoryEmbeddingProbeResult.error("Embedding returned empty result");
+            }
+        } catch (Exception e) {
+            return MemoryTypes.MemoryEmbeddingProbeResult.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 探测向量可用性
+     *
+     * @return 是否可用
+     */
+    public boolean probeVectorAvailability() {
+        return vectorEnabled && embeddingProvider != null;
+    }
+
     // ==================== 关闭 ====================
 
     @Override

@@ -61,6 +61,8 @@ public class MemoryHybridSearch {
 
     /**
      * 混合搜索结果
+     *
+     * 对齐 OpenClaw 的 MemorySearchResult
      */
     public static class HybridResult implements MemoryMMR.MMRItem, MemoryTemporalDecay.TemporalDecayItem {
         public final String id;
@@ -72,6 +74,8 @@ public class MemoryHybridSearch {
         public double score;
         public final double vectorScore;
         public final double textScore;
+        /** 引用（格式: path#Lstart-Lend） */
+        public final String citation;
 
         public HybridResult(String id, String path, int startLine, int endLine,
                            String source, String snippet, double score,
@@ -85,6 +89,42 @@ public class MemoryHybridSearch {
             this.score = score;
             this.vectorScore = vectorScore;
             this.textScore = textScore;
+            this.citation = formatCitation(path, startLine, endLine);
+        }
+
+        public HybridResult(String id, String path, int startLine, int endLine,
+                           String source, String snippet, double score,
+                           double vectorScore, double textScore, String citation) {
+            this.id = id;
+            this.path = path;
+            this.startLine = startLine;
+            this.endLine = endLine;
+            this.source = source;
+            this.snippet = snippet;
+            this.score = score;
+            this.vectorScore = vectorScore;
+            this.textScore = textScore;
+            this.citation = citation != null ? citation : formatCitation(path, startLine, endLine);
+        }
+
+        /**
+         * 格式化引用
+         */
+        public static String formatCitation(String path, int startLine, int endLine) {
+            if (startLine == endLine) {
+                return path + "#L" + startLine;
+            }
+            return path + "#L" + startLine + "-L" + endLine;
+        }
+
+        /**
+         * 转换为 MemorySearchResult
+         */
+        public MemoryTypes.MemorySearchResult toSearchResult() {
+            return new MemoryTypes.MemorySearchResult(
+                    path, startLine, endLine, score, snippet,
+                    MemoryTypes.MemorySource.fromValue(source), citation
+            );
         }
 
         @Override

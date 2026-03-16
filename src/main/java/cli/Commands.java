@@ -365,6 +365,7 @@ public class Commands implements Runnable {
                     rt.runtimeSettings
             );
 
+
             BiProgress progress = new BiProgress(agentLoop);
 
             // 单次模式：直接调用，不需要 bus
@@ -380,6 +381,34 @@ public class Commands implements Runnable {
                 try { agentLoop.closeMcp().toCompletableFuture().join(); } catch (Exception ignored) {}
                 return;
             }
+
+            cron.setOnJob(job -> {
+                // 防止 cron 作业内部递归调度新作业
+                var cronTool = agentLoop.getCronTool();
+                if (cronTool != null) cronTool.setCronContext(true);
+                try {
+                    return agentLoop.processDirect(
+                            job.getPayload().getMessage(),
+                            "cron:" + job.getId(),
+                            job.getPayload().getChannel() != null ? job.getPayload().getChannel() : "cli",
+                            job.getPayload().getTo() != null ? job.getPayload().getTo() : "direct",
+                            (c, toolHint) -> CompletableFuture.completedFuture(null)
+                    ).thenCompose(resp -> {
+                        if (job.getPayload().isDeliver() && job.getPayload().getTo() != null) {
+                            return bus.publishOutbound(new OutboundMessage(
+                                    job.getPayload().getChannel() != null ? job.getPayload().getChannel() : "cli",
+                                    job.getPayload().getTo(),
+                                    resp != null ? resp : "",
+                                    null,
+                                    null
+                            )).thenApply(x -> resp);
+                        }
+                        return CompletableFuture.completedFuture(resp);
+                    });
+                } finally {
+                    if (cronTool != null) cronTool.setCronContext(false);
+                }
+            });
 
             // 交互模式：通过 bus 路由（对齐 Python）
             String cliChannel;
