@@ -51,6 +51,20 @@ public class BootstrapLoader {
         this.warnHandler = warnHandler;
     }
 
+    public String loadIdentity() {
+        Path filePath = workspace.resolve("IDENTITY.md");
+        if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
+            try {
+                String content = Files.readString(filePath);
+                return content;
+            } catch (IOException e) {
+                warn("Failed to read bootstrap file: " + filePath.getFileName() + " - " + e.getMessage());
+            }
+        }
+
+        return "";
+    }
+
     /**
      * 加载所有 bootstrap 文件
      */

@@ -181,6 +181,7 @@ public class ContextBuilder {
                 "工作区路径: " + workspacePath + "\n" +
                 "- 长期记忆: " + workspacePath + "/memory/MEMORY.md（在此记录重要事实）\n" +
                 "- 自定义技能: " + workspacePath + "/skills/{skill-name}/SKILL.md\n\n" +
+                bootstrapLoader.loadIdentity() + "\n\n" +
                 """
                 ## nanobot 指南\n
                 - 调用工具前先说明意图，但在收到结果前不要预测或声称结果。\n
@@ -190,7 +191,7 @@ public class ContextBuilder {
                 - 请求不明确时请询问澄清。\n\n
                 - 使用技能时，将 SKILL.md 视为入口点；在执行前请阅读其说明和引用的额外文件。\n\n
                 - 如果技能明确需要额外的上下文文件，不要仅凭摘要或 SKILL.md 就认为已完全理解。\n\n
-                - 对话直接回复文本。只有发送到特定聊天频道时才使用 'message' 工具。
+                - 对话直接回复文本。只有发送到特定聊天频道时才使用 'message' 工具。\n\n
                 """;
     }
 
@@ -218,52 +219,6 @@ public class ContextBuilder {
         }
 
         return RUNTIME_CONTEXT_TAG + "\n" + String.join("\n", lines);
-    }
-
-    /**
-     * 从工作区读取引导文件，按顺序拼接
-     *
-     * 注意：此方法已废弃，请使用 BootstrapLoader
-     *
-     * @deprecated 使用 {@link BootstrapLoader#resolveBootstrapFiles()} 和 {@link BootstrapLoader#buildProjectContext(List)} 代替
-     */
-    @Deprecated
-    private String loadBootstrapFiles() {
-        List<String> parts = new ArrayList<>();
-        boolean hasSoulFile = false;
-
-        for (String filename : BOOTSTRAP_FILES) {
-            Path filePath = workspace.resolve(filename);
-
-            if (Files.exists(filePath) && Files.isRegularFile(filePath)) {
-                try {
-                    String content = Files.readString(filePath);
-                    parts.add("## " + filename + "\n\n" + content);
-                    if (filename.equals("SOUL.md")) {
-                        hasSoulFile = true;
-                    }
-                } catch (IOException ignored) {
-                    // 读取失败则跳过
-                }
-            }
-        }
-
-        if (parts.isEmpty()) {
-            return "";
-        }
-
-        // 对齐 OpenClaw：添加 # Project Context 标题和引导性说明
-        List<String> result = new ArrayList<>();
-        result.add("# Project Context");
-        result.add("");
-        result.add("The following project context files have been loaded:");
-        if (hasSoulFile) {
-            result.add("If SOUL.md is present, embody its persona and tone. Avoid stiff, generic replies; follow its guidance unless higher-priority instructions override it.");
-        }
-        result.add("");
-        result.addAll(parts);
-
-        return String.join("\n", result);
     }
 
     /**
