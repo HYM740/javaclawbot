@@ -167,6 +167,7 @@ public class MemoryBatchEmbedding {
         List<CompletableFuture<Void>> futures = new ArrayList<>();
 
         for (List<Integer> batchIndices : batches) {
+            BatchConfig finalConfig = config;
             CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
                 try {
                     semaphore.acquire();
@@ -179,7 +180,7 @@ public class MemoryBatchEmbedding {
 
                         // 带重试的嵌入
                         List<float[]> batchEmbeddings = embedWithRetry(
-                                provider, batchTexts, config.maxRetries, config.retryDelayMs
+                                provider, batchTexts, finalConfig.maxRetries, finalConfig.retryDelayMs
                         );
 
                         // 存储结果

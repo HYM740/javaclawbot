@@ -1,9 +1,16 @@
 package context;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import lombok.Getter;
+import lombok.Setter;
+
 /**
  * Bootstrap 上下文配置
  * 对齐 OpenClaw 的 bootstrap-files.ts
  */
+@JsonIgnoreProperties(ignoreUnknown = true)
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class BootstrapConfig {
 
     /**
@@ -39,6 +46,10 @@ public class BootstrapConfig {
     private int totalMaxChars = DEFAULT_BOOTSTRAP_TOTAL_MAX_CHARS;
     private ContextMode contextMode = ContextMode.FULL;
     private RunKind runKind = RunKind.DEFAULT;
+
+    @Getter
+    @Setter
+    private int isBootstrap = 0;
 
     public int getMaxChars() {
         return maxChars;
@@ -81,6 +92,6 @@ public class BootstrapConfig {
             return config;
         }
         // 可以从 defaults 中读取配置（如果添加了相应字段）
-        return config;
+        return defaults.getBootstrapConfig();
     }
 }

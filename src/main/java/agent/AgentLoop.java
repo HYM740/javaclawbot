@@ -5,7 +5,9 @@ import agent.tool.*;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
+import com.google.gson.Gson;
 import config.AgentRuntimeSettings;
+import config.ConfigIO;
 import config.ConfigSchema;
 import context.ContextBuilder;
 import context.ContextOverflowDetector;
@@ -23,6 +25,7 @@ import session.Session;
 import session.SessionManager;
 import skills.SkillsLoader;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
@@ -55,6 +58,7 @@ public class AgentLoop {
     private final SubagentManager subagents;
     private final AgentRuntimeSettings runtimeSettings;
     private final ExecutorService executor;
+    private final MemoryStore memoryStore;
     /**
      * 全局共享工具
      */
@@ -115,7 +119,7 @@ public class AgentLoop {
         this.cronService = cronService;
         this.restrictToWorkspace = restrictToWorkspace;
         this.runtimeSettings = runtimeSettings;
-        this.context = new ContextBuilder(workspace);
+
         this.sessions = (sessionManager != null) ? sessionManager : new SessionManager(workspace);
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
@@ -129,6 +133,7 @@ public class AgentLoop {
         );
         this.mcpServers = (mcpServers != null) ? mcpServers : Map.of();
 
+        this.memoryStore = new MemoryStore(workspace);
         // 注册工具
         this.sharedTools = new ToolRegistry();
         registerSharedTools();
@@ -138,11 +143,9 @@ public class AgentLoop {
             var cfg = runtimeSettings.getCurrentConfig();
             maxConcurrent = cfg.getAgents().getDefaults().getMaxConcurrent();
         }
+        this.context = new ContextBuilder(workspace, runtimeSettings.getCurrentConfig().getAgents().getDefaults().getBootstrapConfig());
         this.queue = new AgentLoopQueue(maxConcurrent);
-
-
         this.cronToolFacade = (cronService != null) ? new CronTool(cronService) : null;
-
     }
 
     private AgentRuntimeSettings.Snapshot runtimeSnapshot() {
@@ -662,6 +665,11 @@ public class AgentLoop {
         }
         State st = new State();
 
+        // 最后一个必定是用户消息
+        Map<String, Object> userMsg = initialMessages.get(initialMessages.size() - 1);
+        // 添加用户消息至历史的memory 形式为 YYYY-mm-dd.md
+        String msg = getContextFromMap(userMsg);
+        memoryStore.appendToToday("用户: " + msg);
         Runnable step = new Runnable() {
             @Override
             public void run() {
@@ -669,12 +677,18 @@ public class AgentLoop {
                     return;
                 }
 
+                String appendToHisMemory;
+
                 AgentRuntimeSettings.Snapshot rs = runtimeSnapshot();
                 st.iteration++;
                 if (st.iteration > rs.maxIterations()) {
                     st.finalContent =
-                            "已达到最大工具调用迭代次数 (" + rs.maxIterations() + ")，任务未完成。请尝试将任务拆分为更小的步骤。";
+                            "错误，已达到最大工具调用迭代次数 (" + rs.maxIterations() + ")，任务未完成。请尝试将任务拆分为更小的步骤。";
                     st.done.set(true);
+                    appendToHisMemory = "系统错误：" + st.finalContent;
+                    // 添加至记忆
+                    memoryStore.appendToToday(appendToHisMemory);
+
                     out.complete(new RunResult(st.finalContent, toolsUsed, messages, usageAcc.getTotal()));
                     return;
                 }
@@ -698,7 +712,9 @@ public class AgentLoop {
                         rs.temperature(),
                         rs.reasoningEffort()
                 ).whenComplete((resp, ex) -> {
-                    if (st.done.get()) return;
+                    if (st.done.get()) {
+                        return;
+                    }
 
                     if (ex != null) {
                         String errorMsg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
@@ -750,6 +766,8 @@ public class AgentLoop {
                         }
 
                         st.done.set(true);
+                        // 添加至记忆
+                        memoryStore.appendToToday("系统错误：" + errorMsg);
                         out.completeExceptionally(ex);
                         return;
                     }
@@ -788,9 +806,12 @@ public class AgentLoop {
 
                         executeToolCallsSequential(resp.getToolCalls(), toolsUsed, messages, tools)
                                 .whenComplete((v, ex2) -> {
-                                    if (st.done.get()) return;
+                                    if (st.done.get()) {
+                                        return;
+                                    }
                                     if (ex2 != null) {
                                         st.done.set(true);
+                                        memoryStore.appendToToday("工具调用异常：" + ex2.getMessage());
                                         out.completeExceptionally(ex2);
                                     } else {
                                         executor.execute(this);
@@ -799,8 +820,24 @@ public class AgentLoop {
                         return;
                     }
 
+                    // 如果未引导
+                    if (!context.isBootstrap()) {
+                        // 设置为已引导
+                        context.getBootstrapConfig().setIsBootstrap(1);
+                        try {
+                            context.cleanBootstrapMd();
+                            ConfigIO.saveConfig(runtimeSettings.getCurrentConfig(), ConfigIO.getConfigPath(workspace));
+                        } catch (Exception e) {
+                            log.error("修改引导程序异常！", e);
+                        }
+                    }
+
                     log.info("思考: \n{}", resp.getReasoningContent());
                     String clean = stripThink(resp.getContent());
+
+                    // 添加至每日记忆
+                    memoryStore.appendToToday("助手：" + "<思考>" + resp.getReasoningContent() + "</思考>" + "\t" + clean);
+
                     log.info("LLM 回复:\n{}", clean);
 
                     List<Map<String, Object>> updated = context.addAssistantMessage(
@@ -824,6 +861,21 @@ public class AgentLoop {
         return out;
     }
 
+    private static String getContextFromMap(Map<String, Object> userMsg) {
+        Object content = userMsg.get("content");
+        String msg;
+        if (content instanceof String str) {
+            msg = str;
+        }else {
+            try {
+                msg = new Gson().toJson(content);
+            }catch (Exception e) {
+                msg = content.toString();
+            }
+        }
+        return msg;
+    }
+
     private CompletionStage<Void> executeToolCallsSequential(
             List<ToolCallRequest> toolCalls,
             List<String> toolsUsed,
@@ -840,10 +892,12 @@ public class AgentLoop {
                 } catch (Exception ignored) {
                 }
 
-                return tools.execute(tc.getName(), tc.getArguments()).thenAccept(result -> {
-                    List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), result);
-                    messages.clear();
-                    messages.addAll(updated);
+                return tools.execute(tc.getName(), tc.getArguments())
+                        .thenAccept(result -> {
+                            memoryStore.appendToToday("助手：工具调用：" + new Gson().toJson(tc) + "，结果：" + result);
+                            List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), result);
+                            messages.clear();
+                            messages.addAll(updated);
                 }).exceptionally(ex -> {
                     String err = formatToolError(tc.getName(), ex);
                     List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), err);
@@ -920,7 +974,7 @@ public class AgentLoop {
     }
 
     private CompletionStage<Boolean> consolidateMemory(Session session, boolean archiveAll) {
-        return new MemoryStore(workspace).consolidate(
+        return memoryStore.consolidate(
                 session,
                 provider,
                 model,

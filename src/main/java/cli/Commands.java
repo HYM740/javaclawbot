@@ -4,6 +4,7 @@ import agent.AgentLoop;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
+import channels.BaseChannel;
 import channels.ChannelManager;
 import config.AgentRuntimeSettings;
 import config.ConfigIO;
@@ -170,8 +171,6 @@ public class Commands implements Runnable {
             RuntimeComponents rt = createRuntimeComponents(configPath, workspacePath);
             ConfigSchema.Config config = rt.config;
             MessageBus bus = new MessageBus();
-            // 变成可fallback的
-            // LLMProvider provider = makeProvider(config);
             LLMProvider provider = makeHotProvider();
             SessionManager sessionManager = new SessionManager(config.getWorkspacePath());
 

@@ -1,6 +1,7 @@
 package context;
 
 import config.ConfigSchema;
+import lombok.Getter;
 import memory.MemoryStore;
 import skills.SkillsLoader;
 
@@ -19,13 +20,6 @@ import java.util.*;
  * 1) 生成系统提示词：身份信息 + 工作区引导文件 + 记忆 + 技能
  * 2) 生成消息列表：system + 历史 + 运行时元信息 + 用户消息（可带图片）
  * 3) 追加工具调用结果、追加助手消息
- *
- * 注意：
- * - 本类的行为尽量与 Python 逻辑一致，尤其是：
- *   - system prompt 分段拼接与 "---" 分隔
- *   - runtime context 的 tag 文案与字段
- *   - media 图片以 base64 data URL 注入（只处理 image/*）
- *   - assistant message 支持 tool_calls / reasoning_content / thinking_blocks
  */
 public class ContextBuilder {
 
@@ -42,10 +36,14 @@ public class ContextBuilder {
     private final MemoryStore memory;
     private final SkillsLoader skills;
     private final BootstrapLoader bootstrapLoader;
+    @Getter
     private final BootstrapConfig bootstrapConfig;
 
     public ContextBuilder(Path workspace) {
         this(workspace, null, null);
+    }
+    public ContextBuilder(Path workspace, BootstrapConfig bootstrapConfig) {
+        this(workspace, bootstrapConfig, null);
     }
 
     /**
@@ -96,7 +94,7 @@ public class ContextBuilder {
 
         String mem = memory.getMemoryContext();
         if (mem != null && !mem.isBlank()) {
-            parts.add("# 记忆\n\n" + mem);
+            parts.add("# 长期记忆\n\n" + mem);
         }
 
         // 配置装载技能提示词
@@ -152,8 +150,6 @@ public class ContextBuilder {
             }
         }
 
-
-
         return String.join("\n\n---\n\n", parts);
     }
 
@@ -161,9 +157,6 @@ public class ContextBuilder {
      * 获取身份与运行环境信息（系统提示词核心身份区块）
      *
      * 说明：
-     * - Python 里 runtime 拼为："{system} {machine}, Python x.y.z"
-     * - Java 里没有 Python 版本，这里用 Java 运行时替代
-     * - 历史日志在 Python 里强调每条以 [YYYY-MM-DD HH:MM] 开头，这里补齐相同文字
      */
     private String getIdentity() {
         // Python：workspace.expanduser().resolve()
@@ -187,7 +180,6 @@ public class ContextBuilder {
                 "## 工作区\n" +
                 "工作区路径: " + workspacePath + "\n" +
                 "- 长期记忆: " + workspacePath + "/memory/MEMORY.md（在此记录重要事实）\n" +
-                "- 历史日志: " + workspacePath + "/memory/HISTORY.md（可通过 grep 搜索）。每条记录以 [YYYY-MM-DD HH:MM] 开头。\n" +
                 "- 自定义技能: " + workspacePath + "/skills/{skill-name}/SKILL.md\n\n" +
                 """
                 ## nanobot 指南\n
@@ -198,7 +190,7 @@ public class ContextBuilder {
                 - 请求不明确时请询问澄清。\n\n
                 - 使用技能时，将 SKILL.md 视为入口点；在执行前请阅读其说明和引用的额外文件。\n\n
                 - 如果技能明确需要额外的上下文文件，不要仅凭摘要或 SKILL.md 就认为已完全理解。\n\n
-                "对话直接回复文本。只有发送到特定聊天频道时才使用 'message' 工具。
+                - 对话直接回复文本。只有发送到特定聊天频道时才使用 'message' 工具。
                 """;
     }
 
@@ -314,11 +306,18 @@ public class ContextBuilder {
         ));
 
         // 当前用户内容（文本 + 可选图片）
-        out.add(mapOf(
-                "role", "user",
-                "content", buildUserContent(currentMessage, media)
-        ));
-
+        // 是否引导过，如果未引导，设置引导用户 1 代表已引导
+        if (!isBootstrap()) {
+            out.add(mapOf(
+                    "role", "user",
+                    "content", "用户现在是第一次使用该程序，请按照引导程序流程引导用户,必须要在引导完成后回答用户消息，用户消息：" + buildUserContent(currentMessage, media)
+            ));
+        }else {
+            out.add(mapOf(
+                    "role", "user",
+                    "content", buildUserContent(currentMessage, media)
+            ));
+        }
         return out;
     }
 
@@ -490,5 +489,23 @@ public class ContextBuilder {
             m.put(String.valueOf(kv[i]), kv[i + 1]);
         }
         return m;
+    }
+
+    /**
+     * 是否进行了引导, 1代表已引导
+     * @return
+     */
+    public boolean isBootstrap() {
+        return bootstrapConfig.getIsBootstrap() == 1;
+    }
+
+    /**
+     * 清除引导文件
+     */
+    public void cleanBootstrapMd() throws Exception{
+        Path resolve = workspace.resolve("BOOTSTRAP.md");
+        if (Files.exists(resolve)) {
+            Files.delete(resolve);
+        }
     }
 }

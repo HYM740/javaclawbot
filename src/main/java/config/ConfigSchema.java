@@ -3,6 +3,7 @@ package config;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.lark.oapi.service.search.v2.model.ModelConfig;
+import context.BootstrapConfig;
 import lombok.*;
 import providers.ProviderRegistry;
 
@@ -599,6 +600,11 @@ public final class ConfigSchema {
          * 队列配置
          */
         private QueueConfig queue = new QueueConfig();
+
+        /**
+         * 引导配置
+         */
+        private BootstrapConfig bootstrapConfig = new BootstrapConfig();
 
         public String getWorkspace() { return workspace; }
         public void setWorkspace(String workspace) { this.workspace = workspace; }

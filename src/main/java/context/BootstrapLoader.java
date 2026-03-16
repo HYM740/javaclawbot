@@ -189,6 +189,7 @@ public class BootstrapLoader {
         return files;
     }
 
+
     /**
      * 构建 Project Context 字符串
      * 对齐 OpenClaw 的 buildAgentSystemPrompt 中的 contextFiles 处理
@@ -211,6 +212,9 @@ public class BootstrapLoader {
         lines.add("");
 
         for (BootstrapFile file : files) {
+            if (file.getName().contains("BOOTSTRAP.md")) {
+                continue;
+            }
             lines.add("## " + file.getPath());
             lines.add("");
             if (file.isMissing()) {

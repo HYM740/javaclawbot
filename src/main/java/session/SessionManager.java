@@ -264,7 +264,9 @@ public final class SessionManager {
      */
     private Session loadBySessionId(String key, String sessionId) {
         Path path = getSessionPath(sessionId);
-        if (!Files.exists(path)) return null;
+        if (!Files.exists(path)) {
+            return null;
+        }
         
         return loadFromPath(key, path);
     }
