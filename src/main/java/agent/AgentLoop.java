@@ -260,11 +260,6 @@ public class AgentLoop {
             localTools.register(cronTool);
         }
 
-        // 如果你后续有旧版 SpawnTool 需要带上下文，也在这里按请求新建
-        // var spawn = new SpawnTool(subagents);
-        // spawn.setContext(channel, chatId);
-        // localTools.register(spawn);
-
         return new CompositeToolView(sharedTools, localTools);
     }
 
