@@ -112,20 +112,20 @@ public class ContextBuilder {
         if (skillsSummary != null && !skillsSummary.isBlank()) {
             parts.add(
                     """
-                            \n\n# 技能
-                                技能扩展了你的能力。
-                
-                                技能使用协议：
-                                1. 将每个技能的 SKILL.md 视为入口点，而非完整技能。
-                                2. 当任务匹配某个技能时, 用户未主动提供技能说明，主动先使用 read_file 工具读取该技能的 SKILL.md。
-                                3. 然后严格按照 SKILL.md 中的说明执行。
-                                4. 如果 SKILL.md 要求读取额外的文件、示例、模板、模式或支持文档，必须在执行前读取。
-                                5. 不要仅阅读 SKILL.md 就认为技能已完全加载。
-                                6. 遵循渐进式加载：只加载当前任务所需的额外技能文件，但如果 SKILL.md 明确指向更多必需上下文，不要止步于此。
-                                7. 当任务需要实际使用技能时，不要仅凭索引摘要或近似判断。
-                
-                                available="false" 的技能需要先安装依赖 - 可以尝试用 apt/brew 安装。
-                             ## 可使用技能总结
+                        # 技能
+                            技能扩展了你的能力。
+                            技能使用协议：
+                            - 使用技能时，将 SKILL.md 视为入口点；在执行前请阅读其说明和引用的额外文件。
+                            - 如果技能明确需要额外的上下文文件，不要仅凭摘要或 SKILL.md 就认为已完全理解。
+                            - 将每个技能的 SKILL.md 视为入口点，而非完整技能。
+                            - 当任务匹配某个技能时, 用户未主动提供技能说明，主动先使用 read_file 工具读取该技能的 SKILL.md。
+                            - 然后严格按照 SKILL.md 中的说明执行。
+                            - 如果 SKILL.md 要求读取额外的文件、示例、模板、模式或支持文档，必须在执行前读取。
+                            - 不要仅阅读 SKILL.md 就认为技能已完全加载。
+                            - 遵循渐进式加载：只加载当前任务所需的额外技能文件，但如果 SKILL.md 明确指向更多必需上下文，不要止步于此。
+                            - 当任务需要实际使用技能时，不要仅凭索引摘要或近似判断。
+                            - available="false" 的技能需要先安装依赖 - 可以尝试用 apt/brew 安装。
+                         ## 可使用技能总结
                      """ + skillsSummary
             );
         }
@@ -142,7 +142,7 @@ public class ContextBuilder {
             // 加载用户指定技能
             String userAppointSkills = skills.loadUserAppointSkill(alwaysSkills);
             if (userAppointSkills != null && !userAppointSkills.isBlank()) {
-                parts.add("\n\n## 活跃技能\n\n" + userAppointSkills);
+                parts.add("## 活跃技能\n\n" + userAppointSkills);
             }
         }
 
@@ -230,13 +230,13 @@ public class ContextBuilder {
                 "- 自定义技能: " + workspacePath + "/skills/{skill-name}/SKILL.md\n\n" +
                 """
                 ## 指南\n
+                - 使用技能时，将 SKILL.md 视为入口点；在执行前请阅读其说明和引用的额外文件。\n
+                - 如果技能明确需要额外的上下文文件，不要仅凭摘要或 SKILL.md 就认为已完全理解。\n
                 - 调用工具前先说明意图，但在收到结果前不要预测或声称结果。\n
                 - 修改文件前先读取。不要假设文件或目录存在。\n
                 - 写入或编辑文件后，如果准确性重要，请重新读取确认。\n
                 - 如果工具调用失败，分析错误后再尝试其他方法。\n
                 - 请求不明确时请询问澄清。\n\n
-                - 使用技能时，将 SKILL.md 视为入口点；在执行前请阅读其说明和引用的额外文件。\n\n
-                - 如果技能明确需要额外的上下文文件，不要仅凭摘要或 SKILL.md 就认为已完全理解。\n\n
                 - 对话直接回复文本。只有发送到特定聊天频道时才使用 'message' 工具。\n\n
                 """;
     }
