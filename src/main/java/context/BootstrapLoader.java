@@ -236,8 +236,9 @@ public class BootstrapLoader {
                         || "SOUL.md".equalsIgnoreCase(file.getName())
                         || "USER.md".equalsIgnoreCase(file.getName())) {
                     lines.add(file.getContent());
+                    continue;
                 }
-                  lines.add("如需要读取,则调用read_file工具加载");
+                lines.add("如需要读取,则调用read_file工具加载");
             }
             lines.add("");
         }
