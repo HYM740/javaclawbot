@@ -781,7 +781,7 @@ public final class ConfigSchema {
     @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
     public static class ProvidersConfig {
-        private ProviderConfig custom = new ProviderConfig();
+        private ProviderConfig custom = new ProviderConfig("http://localhost:8000/v1");
 
         private ProviderConfig anthropic =
                 new ProviderConfig("https://api.anthropic.com");
