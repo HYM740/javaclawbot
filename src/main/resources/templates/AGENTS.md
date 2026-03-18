@@ -12,7 +12,7 @@
 
 1. 阅读 `SOUL.md` — 这是你的身份
 2. 阅读 `USER.md` — 这是你要帮助的人
-3. 阅读 `memory/YYYY-MM-DD.md`（今天 + 昨天）获取近期上下文
+3. 阅读 `memory/YYYY-MM-DD.md`（今天 + 昨天）获取近期上下文,注意`YYYY-MM-DD.md`为原始对话文件,你需要通过memory search来获取最近有效的上下文
 4. **如果在主会话中**（与你的人类直接对话）：还要阅读 `MEMORY.md`
 
 不要请求许可。直接做。
