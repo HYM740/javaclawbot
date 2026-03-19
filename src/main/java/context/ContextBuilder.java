@@ -165,7 +165,8 @@ public class ContextBuilder {
      */
     public String[] loadSkillByPrefix(String userMsg) {
         String skill = "";
-        String[] results = new String[2];
+        String name = "";
+        String[] results = new String[3];
         List<String> alwaysSkills = skills.getAlwaysSkills();
 
         // 常驻技能判断
@@ -176,6 +177,7 @@ public class ContextBuilder {
                     userMsg = userMsg.replace("/" + alwaysSkill, "").trim();
                     results[0] = userMsg;
                     results[1] = skill;
+                    results[2] = name;
                     return results;
                 }
             }
@@ -189,6 +191,7 @@ public class ContextBuilder {
                 userMsg = userMsg.replace("/" + loadedSkill, "").trim();
                 results[0] = userMsg;
                 results[1] = skill;
+                results[2] = name;
                 return results;
             }
         }
@@ -201,12 +204,14 @@ public class ContextBuilder {
                 results[0] = userMsg;
                 skill = skills.loadSkill(skillName);
                 results[1] = skill;
+                results[2] = skillName;
                 return results;
             }
         }
 
         results[0] = userMsg.replaceFirst("/", "");
         results[1] = skill;
+        results[2] = name;
         return results;
     }
 
@@ -291,7 +296,10 @@ public class ContextBuilder {
         // 通过用户指定前缀加载技能
         String[] res = loadSkillByPrefix(currentMessage);
         currentMessage = res[0];
-        systemPrompt += "\n\n## 活跃技能\n" + res[1];
+        if (StrUtil.isNotBlank(res[1])) {
+            log.info("用户加载了指定技能:{}", res[2]);
+            systemPrompt += "\n\n## 用户指定技能\n" + res[1];
+        }
 
         out.add(mapOf(
                 "role", "system",
