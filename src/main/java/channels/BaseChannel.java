@@ -3,6 +3,7 @@ package channels;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
+import lombok.extern.slf4j.Slf4j;
 import utils.Retryer;
 
 import java.lang.reflect.Array;
@@ -30,6 +31,7 @@ import java.util.concurrent.CompletionStage;
  *   <li>把入站消息封装成 {@link InboundMessage} 并投递到 {@link MessageBus}</li>
  * </ul>
  */
+@Slf4j
 public abstract class BaseChannel {
 
     /**
