@@ -216,11 +216,9 @@ public class AgentLoop {
         // 记忆搜索工具
         sharedTools.register(new MemorySearchTool(workspace));
 
-        // 记忆读取工具
-        sharedTools.register(new MemoryGetTool(workspace));
+        // 记忆读取工具,可复用read_file工具
+        // sharedTools.register(new MemoryGetTool(workspace));
 
-        // 注意：
-        // MessageTool / CronTool 不在这里注册，改为“每请求单独创建”
     }
     /**
      * 构建当前请求的工具视图：

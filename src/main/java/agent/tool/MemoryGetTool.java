@@ -21,6 +21,7 @@ import java.util.concurrent.CompletionStage;
  * 使用方式：
  * - 在 memory_search 后使用，只拉取需要的行
  */
+/*
 public class MemoryGetTool extends Tool {
 
     private static final Logger log = LoggerFactory.getLogger(MemoryGetTool.class);
@@ -141,12 +142,14 @@ public class MemoryGetTool extends Tool {
         }
     }
 
-    /**
+    */
+/**
      * 关闭工具
-     */
+     *//*
+
     public void close() {
         if (searchTool != null) {
             searchTool.close();
         }
     }
-}
+}*/

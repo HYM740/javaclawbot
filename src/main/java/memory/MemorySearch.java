@@ -175,7 +175,7 @@ public class MemorySearch {
      * @param lines   读取行数（可选）
      * @return 文件内容结果
      */
-    public ReadFileResult readFile(String relPath, Integer from, Integer lines) throws Exception {
+    /*public ReadFileResult readFile(String relPath, Integer from, Integer lines) throws Exception {
         // 规范化路径
         Path memoryDir = workspaceDir.resolve("memory");
         Path targetFile;
@@ -229,7 +229,7 @@ public class MemorySearch {
             log.error("读取记忆文件失败: {}", relPath, e);
             return new ReadFileResult(relPath, "", false, "读取失败: " + e.getMessage());
         }
-    }
+    }*/
 
     /**
      * 同步索引
