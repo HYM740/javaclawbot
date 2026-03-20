@@ -115,14 +115,12 @@ public class ContextBuilder {
      */
     public Object[] loadSkillByPrefix(String userMsg) {
         Object[] results = new Object[2];
-        String context = "";
 
         // 常驻和已加载技能判断
         String skillName = commandQueueManager.isLoadedByUserMsg(userMsg);
         if (StrUtil.isNotBlank(skillName)) {
             userMsg = userMsg.replace("/" + skillName, "").trim();
-            context = userMsg;
-            results[0] = context;
+            results[0] = userMsg;
             results[1] = false;
             return results;
         }
@@ -140,14 +138,14 @@ public class ContextBuilder {
                 for (ContentBlock block : list) {
                     sb.append(block.getText()).append("\n");
                 }
-                context = sb + "\n\nARGUMENTS: " + userMsg;
-                results[0] = context;
+                userMsg = sb + "\n\nARGUMENTS: " + userMsg;
+                results[0] = userMsg;
                 results[1] = true;
                 return results;
             }
         }
 
-        results[0] = context;
+        results[0] = userMsg;
         results[1] = false;
         return results;
     }
