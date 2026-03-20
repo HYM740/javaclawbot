@@ -545,6 +545,8 @@ public class AgentLoop {
                 msg.getChatId()
         );
 
+        //log.info("测试消息：{}", GsonFactory.getGson().toJson(initialMessages));
+
         ProgressCallback busProgress = (content1, toolHint) -> {
             Map<String, Object> meta = new LinkedHashMap<>();
             if (msg.getMetadata() != null) meta.putAll(msg.getMetadata());
