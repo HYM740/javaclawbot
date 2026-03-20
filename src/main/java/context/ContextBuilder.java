@@ -1,18 +1,26 @@
 package context;
 
+import agent.command.CommandQueueManager;
+import agent.command.ContentBlock;
+import agent.command.SkillCommand;
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import memory.MemoryStore;
+import org.checkerframework.checker.units.qual.C;
 import skills.SkillsLoader;
+import utils.GsonFactory;
 
 import java.io.IOException;
 import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 /**
  * 上下文构建器：负责组装系统提示词与消息列表，用于调用大模型。
@@ -32,6 +40,7 @@ public class ContextBuilder {
     private final MemoryStore memory;
     private final SkillsLoader skills;
     private final BootstrapLoader bootstrapLoader;
+    private final CommandQueueManager commandQueueManager;
     @Getter
     private final BootstrapConfig bootstrapConfig;
 
@@ -55,6 +64,7 @@ public class ContextBuilder {
         this.skills = new SkillsLoader(workspace);
         this.bootstrapConfig = bootstrapConfig != null ? bootstrapConfig : new BootstrapConfig();
         this.bootstrapLoader = new BootstrapLoader(workspace, this.bootstrapConfig, warnHandler);
+        this.commandQueueManager = new CommandQueueManager(this.skills);
     }
 
     /**
@@ -81,12 +91,8 @@ public class ContextBuilder {
         String agents = bootstrapLoader.loadAgents();
         parts.add(agents);
 
-        // 使用新的 BootstrapLoader
-        if (runKind != null) {
-            bootstrapConfig.setRunKind(runKind);
-        }
         // 配置身份
-        parts.add(getIdentity());
+        parts.add(bootstrapLoader.loadIdentity());
         // 配置灵魂
         parts.add(bootstrapLoader.loadSoul());
         // 加载用户说明
@@ -99,149 +105,53 @@ public class ContextBuilder {
             parts.add(bootstrap);
         }*/
 
-        // 记忆由ai主动读取, 见AGENTS.md流程
-        /*String mem = memory.getMemoryContext();
-        if (mem != null && !mem.isBlank()) {
-            parts.add("# 长期记忆\n\n" + mem);
-        }*/
-
-        // 配置装载技能提示词
-        parts.add("""
-                 # 加载和卸载技能
-                   协议：
-                   加载技能 → 调用 `skill_load`,返回当前 `SKILL.md` 内容
-                   含义: 下次对话会自动加载该技能`SKILL.md`内容至上下文环境
-                   触发条件：
-                   - 用户要求加载/使用技能
-                   卸载技能 → 调用 `uninstall_skill`
-                   含义：
-                   - 从当前上下文环境移除技能 | 忘记技能
-                   - 文件保留在磁盘上
-                """);
-
-        // 技能总览
-        String skillsSummary = skills.buildSkillsSummary();
-        if (skillsSummary != null && !skillsSummary.isBlank()) {
-            parts.add(
-                    """
-                        # 技能
-                        技能扩展了你的能力。
-                        技能使用协议：
-                        - 使用技能时，将 SKILL.md 视为入口点；在执行前请阅读其说明和引用的额外文件。
-                        - 如果技能明确需要额外的上下文文件，不要仅凭摘要或 SKILL.md 就认为已完全理解。
-                        - 将每个技能的 SKILL.md 视为入口点，而非完整技能。
-                        - 当任务匹配某个技能时, 用户未主动提供技能说明，主动先使用 read_file 工具读取该技能的 SKILL.md。
-                        - 然后严格按照 SKILL.md 中的说明执行。
-                        - 如果 SKILL.md 要求读取额外的文件、示例、模板、模式或支持文档，必须在执行前读取。
-                        - 不要仅阅读 SKILL.md 就认为技能已完全加载。
-                        - 遵循渐进式加载：只加载当前任务所需的额外技能文件，但如果 SKILL.md 明确指向更多必需上下文，不要止步于此。
-                        - 当任务需要实际使用技能时，不要仅凭索引摘要或近似判断。
-                        - available="false" 的技能需要先安装依赖 - 可以尝试用 apt/brew 安装。
-                        ## 可使用技能总结
-                     """ + skillsSummary
-            );
-        }
-
-        List<String> alwaysSkills = skills.getAlwaysSkills();
-        // 加载常驻技能
-        String alwaysContent = skills.loadSkillsForContext(alwaysSkills);
-        if (StrUtil.isNotBlank(alwaysContent)) {
-            parts.add("## 常驻技能\n\n" + alwaysContent);
-        }
-
-        // 加载用户指定技能
-        String userAppointSkills = skills.loadUserAppointSkill(alwaysSkills);
-        if (StrUtil.isNotBlank(userAppointSkills)) {
-            parts.add("## 用户指定技能\n\n" + userAppointSkills);
-        }
-
         return String.join("\n\n---\n\n", parts);
     }
 
     /**
      * 通过用户消息的前缀加载技能
      * @param userMsg
-     * @return
+     * @return Object[] (String, Boolean)
      */
-    public String[] loadSkillByPrefix(String userMsg) {
-        String skill = "";
-        String name = "";
-        String[] results = new String[3];
-        List<String> alwaysSkills = skills.getAlwaysSkills();
+    public Object[] loadSkillByPrefix(String userMsg) {
+        Object[] results = new Object[2];
+        String context = "";
 
-        // 常驻技能判断
-        if (alwaysSkills != null && !alwaysSkills.isEmpty()) {
-            for (String alwaysSkill : alwaysSkills) {
-                // 如果是常驻技能 无需指定
-                if (userMsg.startsWith("/" + alwaysSkill)) {
-                    userMsg = userMsg.replace("/" + alwaysSkill, "").trim();
-                    results[0] = userMsg;
-                    results[1] = skill;
-                    results[2] = name;
-                    return results;
-                }
-            }
-        }
-
-        // 已加载技能判断
-        List<String> loadedSkills = skills.getLoadSkillQueue();
-        for (String loadedSkill : loadedSkills) {
-            // 如果为已加载技能, 无需指定
-            if (userMsg.startsWith("/" + loadedSkill)) {
-                userMsg = userMsg.replace("/" + loadedSkill, "").trim();
-                results[0] = userMsg;
-                results[1] = skill;
-                results[2] = name;
-                return results;
-            }
+        // 常驻和已加载技能判断
+        String skillName = commandQueueManager.isLoadedByUserMsg(userMsg);
+        if (StrUtil.isNotBlank(skillName)) {
+            userMsg = userMsg.replace("/" + skillName, "").trim();
+            context = userMsg;
+            results[0] = context;
+            results[1] = false;
+            return results;
         }
 
         // 如果以上条件都不满足则查询所有技能
         List<String> skillNames = skills.listSkillNames(true);
-        for (String skillName : skillNames) {
-            if (userMsg.startsWith("/" + skillName)) {
-                userMsg = userMsg.replace("/" + skillName, "").trim();
-                results[0] = userMsg;
-                skill = skills.loadSkill(skillName);
-                results[1] = skill;
-                results[2] = skillName;
+        for (String skill : skillNames) {
+            if (userMsg.startsWith("/" + skill)) {
+                userMsg = userMsg.replace("/" + skill, "").trim();
+
+                SkillCommand skillCommand = new SkillCommand(skill, skill, skills);
+                commandQueueManager.addSkillCommand(skillCommand);
+                List<ContentBlock> list = commandQueueManager.triggerCommandOutput();
+                StringBuilder sb = new StringBuilder();
+                for (ContentBlock block : list) {
+                    sb.append(block.getText()).append("\n");
+                }
+                context = sb + "\n\nARGUMENTS: " + userMsg;
+                results[0] = context;
+                results[1] = true;
                 return results;
             }
         }
 
-        results[0] = userMsg.replaceFirst("/", "");
-        results[1] = skill;
-        results[2] = name;
+        results[0] = context;
+        results[1] = false;
         return results;
     }
 
-    /**
-     * 获取身份与运行环境信息（系统提示词核心身份区块）
-     *
-     * 说明：
-     */
-    private String getIdentity() {
-        // Python：workspace.expanduser().resolve()
-        String workspacePath = workspace.toAbsolutePath().normalize().toString();
-
-        String os = System.getProperty("os.name", "Unknown");
-        String arch = System.getProperty("os.arch", "Unknown");
-        String javaVersion = System.getProperty("java.version", "Unknown");
-
-        // Python：macOS 特判 Darwin；这里按 Java 的 os.name 简单特判
-        String system = os;
-        if (system.toLowerCase(Locale.ROOT).contains("mac") || system.toLowerCase(Locale.ROOT).contains("darwin")) {
-            system = "macOS";
-        }
-        String runtime = system + " " + arch + ", Java " + javaVersion;
-
-        return bootstrapLoader.loadIdentity() + "\n\n" +
-                "## 当前运行环境\n" +
-                runtime + "\n\n" +
-                "## 当前工作区\n" +
-                "工作区路径: " + workspacePath + "\n"
-                ;
-    }
 
     /**
      * 构建运行时元信息块（放在用户消息之前的单独 user 消息里）
@@ -269,6 +179,29 @@ public class ContextBuilder {
     }
 
     /**
+     * 参考Claude code 上下文构建方法
+     * @return
+     */
+    public String buildMemoryContext() {
+        String mem = memory.readLongTermShort();
+        StringBuilder sb = new StringBuilder();
+        sb.append("""
+                <system-reminder>
+                在回答用户问题时，可以使用以下上下文：
+                # currentDate
+                 今天的日期是 %s。
+                # 部分MEMORY.md内容 >200 行会被截断
+                 %s
+                 
+                 重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。
+                 </system-reminder>
+                """.formatted(LocalDate.now(), mem));
+        return sb.toString();
+    }
+
+
+
+    /**
      * 构建本次调用的大模型消息列表：
      * system + 历史 + 运行时元信息 + 用户输入（可带图片）
      *
@@ -292,34 +225,81 @@ public class ContextBuilder {
 
         // 构建系统提示词
         String systemPrompt = buildSystemPrompt(skillNames);
-
-        // 通过用户指定前缀加载技能
-        String[] res = loadSkillByPrefix(currentMessage);
-        currentMessage = res[0];
-        if (StrUtil.isNotBlank(res[1])) {
-            log.info("用户加载了指定技能:{}", res[2]);
-            systemPrompt += "\n\n## 用户指定技能\n" + res[1];
-        }
-
         out.add(mapOf(
                 "role", "system",
                 "content", systemPrompt
         ));
 
-        // history（Python 是 *history 直接展开）
-        if (history != null && !history.isEmpty()) {
+        List<Map<String, Object>> userBlocks = new ArrayList<>();
+
+        // 构建第一条用户消息, 主要是技能相关
+        userBlocks.add(Map.of("type", "text", "text", skills.buildSkillsSimpleSummary()));
+        // 构建第二条用户消息, 该消息为内存上下文
+        userBlocks.add(Map.of("type", "text", "text", buildMemoryContext()));
+        // 构建第三条用户消息, 该消息为本地命令描述
+        userBlocks.add(Map.of("type", "text", "text", buildLocalCommandDesc()));
+        // 构建第四条用户消息, 该消息为常驻技能
+        userBlocks.add(Map.of("type", "text", "text", loadResidentSkill()));
+        out.add(mapOf(
+                "role", "user",
+                "content", userBlocks
+        ));
+
+        /*// 构建第一条用户消息, 主要是技能相关
+        out.add(mapOf(
+                "role", "user",
+                "content", skills.buildSkillsSimpleSummary()
+        ));
+
+        // 构建第二个消息,该消息为上下文消息
+        out.add(mapOf(
+                "role", "user",
+                "content", buildMemoryContext()
+        ));
+
+        // 构建第四个用户消息,该条消息是构建的用户输入的命令
+        out.add(mapOf(
+                "role", "user",
+                "content", buildLocalCommandDesc()
+        ));
+
+        // 添加常驻技能
+        out.add(mapOf(
+                "role", "user",
+                "content", loadResidentSkill()
+        ));*/
+
+        // 添加历史
+        if (CollUtil.isNotEmpty(history)) {
             out.addAll(history);
         }
 
-        // runtime context（作为 user 消息插入）
+        // 构建用户消息,运行时环境
         out.add(mapOf(
                 "role", "user",
                 "content", buildRuntimeContext(channel, chatId)
         ));
 
+        // 通过用户指定前缀加载技能
+        Object[] objects = loadSkillByPrefix(currentMessage);
+        currentMessage = (String) objects[0];
+        boolean isLoadedSkillByMsg = (boolean) objects[1];
+
+        // 如果没有通过用户指定前缀加载技能(或者已经加载过了)
+        if (!isLoadedSkillByMsg) {
+            StringBuilder sb = new StringBuilder();
+            List<ContentBlock> contentBlocks = commandQueueManager.triggerCommandOutput();
+            if (CollUtil.isNotEmpty(contentBlocks)) {
+                for (ContentBlock contentBlock : contentBlocks) {
+                    sb.append(contentBlock.getText()).append("\n");
+                }
+                currentMessage = sb + currentMessage;
+            }
+        }
+
         // 当前用户内容（文本 + 可选图片）
         // 是否需要引导，设置引导用户
-        if (isNeedBootstrap()) {
+        /*if (isNeedBootstrap()) {
             out.add(mapOf(
                     "role", "user",
                     "content", "用户现在是第一次使用该程序，请按照引导程序流程引导用户,必须要在引导完成后回答用户消息，用户消息：" + buildUserContent(currentMessage, media)
@@ -329,8 +309,43 @@ public class ContextBuilder {
                     "role", "user",
                     "content", buildUserContent(currentMessage, media)
             ));
-        }
+        }*/
+
+        out.add(mapOf(
+                "role", "user",
+                "content", buildUserContent(currentMessage, media)
+        ));
         return out;
+    }
+
+    /**
+     * 加载常驻技能
+     * @return
+     */
+    private String loadResidentSkill() {
+        List<String> alwaysSkills = skills.getAlwaysSkills();
+        if (alwaysSkills.isEmpty()) {
+            return "";
+        }
+
+        // 加载技能
+        List<ContentBlock> contentBlocks = commandQueueManager.triggerResidentSKillOutput(alwaysSkills);
+        StringBuilder sb = new StringBuilder();
+        for (ContentBlock cb : contentBlocks) {
+            sb.append(cb.getText()).append("\n");
+        }
+        return "<resident-skill>"+ sb + "</resident-skill>";
+    }
+
+
+    /**
+     * 构建用户输入的本地命令
+     * @return
+     */
+    private String buildLocalCommandDesc() {
+        return """
+                <local-command-caveat>Caveat: The messages below were generated by the user while running local commands. DO NOT respond to these messages or otherwise consider them in your response unless the user explicitly asks you to.</local-command-caveat>
+                """;
     }
 
     /**

@@ -38,12 +38,6 @@ public class SkillsLoader {
     private final Path builtinSkills;
 
     /**
-     * 技能装载队列
-     */
-    @Getter
-    private volatile List<String> loadSkillQueue = Collections.synchronizedList(new ArrayList<>());
-
-    /**
      * 构造方法
      * @param workspace 工作区根目录
      * @param builtinSkillsDir 内置技能目录（可为 null，表示使用默认目录）
@@ -128,37 +122,13 @@ public class SkillsLoader {
         return filtered;
     }
 
-    /**
-     * 技能装载
-     * ps: 与下面有区别， loadSKill代表被动，读取所有技能内容 skillLoad代表主动装载技能-提供给AI调用的
-     */
-    public String agentSkillLoad(String name) {
-        var alwaysSkills = getAlwaysSkills();
-        if (alwaysSkills.contains(name)) {
-            log.warn("技能:{} 已被装载，无需重复装载", name);
-            return name + "技能已被装载，无需重复装载";
-        }
-
-        // 判断技能装载数量
-        RuntimeComponents rc = ConfigReloader.createRuntimeComponents(null, workspace);
-        int skillMaxLoad = rc.getConfig().getAgents().getDefaults().getSkillMaxLoad();
-        if (loadSkillQueue.size() > skillMaxLoad) {
-            log.error("技能装载过多，超过最大允许值：{}, 技能一旦装载就会常驻，过多影响提示词效率！", skillMaxLoad);
-            return "错误，技能装载过多，超过最大允许值：" + skillMaxLoad + "，请告知用户需卸载一些技能，技能过多影响稳定性与准确性！";
-        }
-
-        loadSkillQueue.add(name);
-        var context = loadSkill(name);
-        log.info("技能已装载，技能内容：{}", context);
-        return context;
-    }
 
     /**
      * 用户AI技能调用，卸载技能
      * @param name
      * @return
      */
-    public String agentUninstallSkill(String name) {
+    /*public String agentUninstallSkill(String name) {
         var alwaysSkills = getAlwaysSkills();
         if (alwaysSkills.contains(name)) {
             log.error("常驻技能：{} 不允许被卸载,常驻技能有：{}", name, new Gson().toJson(alwaysSkills));
@@ -166,8 +136,9 @@ public class SkillsLoader {
         }
         loadSkillQueue.remove(name);
         return "技能" + name + "已被卸载，下次对话就不会出现该技能，直到你重新装载";
-    }
+    }*/
 
+    private static final String skill_format = "Base directory for this skill: %s\n\n%s";
     /**
      * 按名称加载技能内容
      * @param name 技能目录名
@@ -177,52 +148,23 @@ public class SkillsLoader {
         // 先查工作区
         Path workspaceSkill = workspaceSkills.resolve(name).resolve("SKILL.md");
         if (Files.exists(workspaceSkill) && Files.isRegularFile(workspaceSkill)) {
-            return readUtf8(workspaceSkill);
+            String context = stripFrontmatter(readUtf8(workspaceSkill));
+            return String.format(skill_format, workspaceSkill.getParent(), context);
         }
 
         // 再查内置
         if (builtinSkills != null) {
             Path builtinSkill = builtinSkills.resolve(name).resolve("SKILL.md");
             if (Files.exists(builtinSkill) && Files.isRegularFile(builtinSkill)) {
-                return readUtf8(builtinSkill);
+                String context = stripFrontmatter(readUtf8(builtinSkill));
+                return String.format(skill_format, builtinSkill.getParent(), context);
             }
         }
 
-        return null;
+        return "";
     }
 
 
-    /**
-     * 加载用户指定的技能
-     * @return
-     */
-    public String loadUserAppointSkill(List<String> alwaysSkills) {
-        if (loadSkillQueue.isEmpty()) {
-            log.info("用户未指定加载技能...");
-            return "";
-        }
-        return loadSkillsForContext(loadSkillQueue);
-    }
-
-    /**
-     * 将指定技能加载成“可直接拼接进上下文”的文本
-     * - 会去掉 YAML 头信息
-     * - 每个技能以固定标题格式拼接
-     * @param skillNames 技能名称列表
-     * @return 拼接后的文本；没有任何技能则返回空字符串
-     */
-    public String loadSkillsForContext(List<String> skillNames) {
-        List<String> parts = new ArrayList<>();
-        for (String name : skillNames) {
-            String content = loadSkill(name);
-            if (content != null) {
-                content = stripFrontmatter(content);
-                log.info("系统上下文成功加载技能:{}", name);
-                parts.add("### Skill: " + name + "\n\n" + content);
-            }
-        }
-        return parts.isEmpty() ? "" : String.join("\n\n---\n\n", parts);
-    }
 
     /**
      * 构建技能摘要（XML 格式）
@@ -261,6 +203,48 @@ public class SkillsLoader {
             lines.add("  </skill>");
         }
         lines.add("</skills>");
+        return String.join("\n", lines);
+    }
+
+
+
+    /**
+     * 构建技能摘要（XML 格式）
+     * - 每个技能包含：名称、描述、位置、是否可用
+     * - 若不可用，会输出缺失的依赖项说明
+     * @return XML 字符串；没有技能则返回空字符串
+     */
+    public String buildSkillsSimpleSummary() {
+        List<Map<String, String>> allSkills = listSkills(false);
+        if (allSkills.isEmpty()) {
+            return "";
+        }
+
+        List<String> lines = new ArrayList<>();
+        lines.add("<system-reminder>");
+
+
+        for (Map<String, String> s : allSkills) {
+            StringBuilder sb = new StringBuilder();
+            sb.append("以下为可用技能,其中 available=\"false\" 的技能需要先安装依赖。");
+            sb.append("- ");
+            String name = s.get("name");
+            String path = s.get("path");
+            sb.append(name).append(", path:").append(path).append(", ");
+
+            // 获取元数据
+            Map<String, Object> skillMeta = getSkillMeta(s.get("name"));
+            boolean available = checkRequirements(skillMeta);
+            sb.append("available: ").append(available).append(" :");
+
+            // 获取说明
+            String desc = getSkillDescription(name);
+            sb.append(desc).append("\n");
+
+            // 添加内容
+            lines.add(sb.toString());
+        }
+        lines.add("</system-reminder>");
         return String.join("\n", lines);
     }
 
@@ -348,7 +332,7 @@ public class SkillsLoader {
      * - 命令行工具：在 PATH 中找不到
      * - 环境变量：不存在或为空
      */
-    private String getMissingRequirements(Map<String, Object> skillMeta) {
+    public String getMissingRequirements(Map<String, Object> skillMeta) {
         List<String> missing = new ArrayList<>();
         Map<String, Object> requires = asMap(skillMeta.get("requires"));
 
@@ -379,7 +363,7 @@ public class SkillsLoader {
      * - 优先读取 YAML 头信息 description
      * - 没有则使用技能名称作为描述
      */
-    private String getSkillDescription(String name) {
+    public String getSkillDescription(String name) {
         Map<String, String> meta = getSkillMetadata(name);
         if (meta != null) {
             String d = meta.get("description");
@@ -476,7 +460,7 @@ public class SkillsLoader {
     /**
      * 获取技能的 javaclawbot/openclaw 元数据
      */
-    private Map<String, Object> getSkillMeta(String name) {
+    public Map<String, Object> getSkillMeta(String name) {
         Map<String, String> meta = getSkillMetadata(name);
         if (meta == null) meta = Collections.emptyMap();
         return parseJavaClawBotMetadata(meta.getOrDefault("metadata", ""));

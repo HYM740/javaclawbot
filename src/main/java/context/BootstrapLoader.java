@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.function.Consumer;
 import java.util.logging.Logger;
 
@@ -225,48 +226,6 @@ public class BootstrapLoader {
     }
 
 
-    /**
-     * 构建 字符串
-     * 对齐 OpenClaw 的 buildAgentSystemPrompt 中的 contextFiles 处理
-     */
-    public String buildProjectContext(List<BootstrapFile> files) {
-        if (files == null || files.isEmpty()) {
-            return "";
-        }
-
-        boolean hasSoulFile = files.stream()
-                .anyMatch(f -> "SOUL.md".equalsIgnoreCase(f.getName()));
-
-        List<String> lines = new ArrayList<>();
-        lines.add("# 前置说明");
-        lines.add("");
-        lines.add("已加载的定义说明(在标签<pre_defined>)中):");
-        if (hasSoulFile) {
-            lines.add("若存在SOUL.md文件，需体现其人格特质与语气风格。避免生硬、通用的回复；除非更高优先级的指令覆盖，否则遵循其指导原则。");
-        }
-        lines.add("<pre_defined>");
-        for (BootstrapFile file : files) {
-            lines.add("## " + file.getPath());
-            lines.add("");
-            if (file.isMissing()) {
-                lines.add("[MISSING] Expected at: " + file.getPath());
-            } else {
-                // 基础 AGENTS.md SOUL.md USER.md 直接读取, 省下工具调用
-                if ("AGENTS.md".equalsIgnoreCase(file.getName())
-                        || "SOUL.md".equalsIgnoreCase(file.getName())
-                        || "USER.md".equalsIgnoreCase(file.getName())) {
-                    lines.add(file.getContent());
-                    continue;
-                }
-                lines.add("如需要读取,则调用read_file工具加载");
-            }
-            lines.add("");
-        }
-        lines.add("</pre_defined>");
-
-        return String.join("\n", lines);
-    }
-
     private void warn(String message) {
         if (warnHandler != null) {
             warnHandler.accept(message);
@@ -290,8 +249,25 @@ public class BootstrapLoader {
     }
 
     public String loadAgents() {
-        return doGetContent("AGENTS.md");
+        String content = doGetContent("AGENTS.md");
+
+        // Python：workspace.expanduser().resolve()
+        String workspacePath = workspace.toAbsolutePath().normalize().toString();
+
+        String os = System.getProperty("os.name", "Unknown");
+        String arch = System.getProperty("os.arch", "Unknown");
+        String version = System.getProperty("os.version", "Unknown");
+        String javaVersion = System.getProperty("java.version", "Unknown");
+
+        // Python：macOS 特判 Darwin；这里按 Java 的 os.name 简单特判
+        String system = os;
+        if (system.toLowerCase(Locale.ROOT).contains("mac") || system.toLowerCase(Locale.ROOT).contains("darwin")) {
+            system = "macOS";
+        }
+        String runtime = system + " " + arch + ", 版本:" + version + ", Java " + javaVersion;
+        return content.replace("{runtime}", runtime).replace("{workspace}", workspacePath);
     }
+
 
     public String loadIdentity() {
         return doGetContent("IDENTITY.md");

@@ -1,5 +1,6 @@
 package memory;
 
+import agent.tool.FileSystemTools;
 import cn.hutool.core.date.DateUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -213,6 +214,19 @@ public class MemoryStore {
         if (!Files.exists(memoryFile)) return "";
         try {
             return Files.readString(memoryFile, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+    /**
+     * 读取长期记忆 前两百行
+     */
+    public String readLongTermShort() {
+        if (!Files.exists(memoryFile)) return "";
+        try {
+            String context = Files.readString(memoryFile, StandardCharsets.UTF_8);
+            String firstNLines = FileSystemTools.firstNLines(context, 200);
+            return firstNLines;
         } catch (Exception e) {
             return "";
         }

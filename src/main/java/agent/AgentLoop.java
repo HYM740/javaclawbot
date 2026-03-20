@@ -1,5 +1,6 @@
 package agent;
 
+import agent.command.CommandQueueManager;
 import agent.subagent.LocalSubagentExecutor;
 import agent.subagent.SessionsSpawnTool;
 import agent.subagent.SubagentManager;
@@ -8,7 +9,6 @@ import agent.tool.*;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
-import com.google.gson.Gson;
 import config.AgentRuntimeSettings;
 import config.ConfigSchema;
 import context.ContextBuilder;
@@ -26,6 +26,7 @@ import context.ContextPruningSettings;
 import session.Session;
 import session.SessionManager;
 import skills.SkillsLoader;
+import utils.GsonFactory;
 
 import java.time.LocalDateTime;
 import java.util.*;
@@ -210,8 +211,9 @@ public class AgentLoop {
 
         // 技能工具
         SkillsLoader skillsLoader = new SkillsLoader(workspace);
-        sharedTools.register(new LoadSkillTool(skillsLoader));
-        sharedTools.register(new UninstallSkillTool(skillsLoader));
+        CommandQueueManager queueManager = new CommandQueueManager(skillsLoader);
+        sharedTools.register(new SkillTool(queueManager, skillsLoader));
+        //sharedTools.register(new UninstallSkillTool(skillsLoader));
 
         // 记忆搜索工具
         sharedTools.register(new MemorySearchTool(workspace));
@@ -671,10 +673,11 @@ public class AgentLoop {
 
         // 每次对话最后2个必定是用户消息
         Map<String, Object> userMsg1 = initialMessages.get(initialMessages.size() - 1);
-        Map<String, Object> userMsg2 = initialMessages.get(initialMessages.size() - 2);
         // 添加用户消息至历史的memory 形式为 YYYY-mm-dd.md
-        String msg = getContextFromMap(userMsg1, userMsg2);
-        memoryStore.appendToToday("用户: \n" + msg);
+        String msg = getContextFromMap(userMsg1);
+        // 添加每日记忆
+        memoryStore.appendToToday(msg);
+
         Runnable step = new Runnable() {
             @Override
             public void run() {
@@ -830,7 +833,7 @@ public class AgentLoop {
                     String clean = stripThink(resp.getContent());
 
                     // 添加至每日记忆
-                    memoryStore.appendToToday("助手：\n" + "<思考>" + resp.getReasoningContent() + "</思考>" + "\n" + clean);
+                    memoryStore.appendToToday("<思考>" + resp.getReasoningContent() + "</思考>" + "\n" + clean);
 
                     log.info("LLM 回复:\n{}", clean);
 
@@ -861,18 +864,8 @@ public class AgentLoop {
             if (!userMsg.get("role").equals("user")) {
                 continue;
             }
-            Object content = userMsg.get("content");
-            String msg;
-            if (content instanceof String str) {
-                msg = str;
-            }else {
-                try {
-                    msg = new Gson().toJson(content);
-                }catch (Exception e) {
-                    msg = content.toString();
-                }
-            }
-            sb.append(msg).append("\n");
+            String content = GsonFactory.getGson().toJson(userMsg);
+            sb.append(content).append("\n");
         }
         return sb.toString();
     }
@@ -895,8 +888,11 @@ public class AgentLoop {
 
                 return tools.execute(tc.getName(), tc.getArguments())
                         .thenAccept(result -> {
-                            memoryStore.appendToToday("助手：\n tool_call, 完整参数: \n" + new Gson().toJson(tc) + "\n 结果：\n ```text\n" + result + "\n```");
                             List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), result);
+
+                            // 获取工具链路,追加只每日记忆中
+                            memoryStore.appendToToday(GsonFactory.getGson().toJson(updated.get(updated.size() - 1)));
+
                             messages.clear();
                             messages.addAll(updated);
                 }).exceptionally(ex -> {
@@ -928,51 +924,105 @@ public class AgentLoop {
         return (s == null) ? "" : (s.length() > maxLen ? s.substring(0, maxLen) : s);
     }
 
+    /**
+     * saveTurn - 将本轮对话消息保存到 Session 中
+     *
+     * 整体流程：
+     *   1. 从 skip 位置开始遍历 messages（跳过已处理的历史消息）
+     *   2. 对每条消息做清洗：
+     *      - 去掉 reasoning_content（思维链，不需要持久化）
+     *      - 过滤掉空的 assistant 消息（既没有内容也没有 tool_calls）
+     *      - 截断过长的 tool 返回结果
+     *      - 将 user 消息中的 base64 图片替换为 "[image]" 文本（节省存储）
+     *   3. 给每条消息打上时间戳，追加到 session.messages 中
+     *   4. 更新 session 的 updatedAt 时间
+     *
+     * @param session  当前会话对象，最终消息会存入 session.getMessages()
+     * @param messages 本轮对话的完整消息列表（包含 system/user/assistant/tool 等角色）
+     * @param skip     跳过前 skip 条消息（这些已经在之前的调用中保存过了，避免重复）
+     */
     private void saveTurn(Session session, List<Map<String, Object>> messages, int skip) {
+
+        // 从 skip 位置开始遍历，只处理新增的消息
         for (int i = skip; i < messages.size(); i++) {
             Map<String, Object> m = messages.get(i);
+
+            // 创建一份新的有序 Map 作为清洗后的消息条目
+            // 用 LinkedHashMap 保证字段顺序与原始消息一致
             Map<String, Object> entry = new LinkedHashMap<>();
+
+            // ── Step 1: 复制除 reasoning_content 之外的所有字段 ──
+            // reasoning_content 是模型的内部思维链，不需要保存到会话历史
             for (var e : m.entrySet()) {
                 if (!"reasoning_content".equals(e.getKey())) {
                     entry.put(e.getKey(), e.getValue());
                 }
             }
 
+            // 取出 role 和 content，后续判断用
             Object role = entry.get("role");
             Object content = entry.get("content");
 
+            // ── Step 2: 过滤空的 assistant 消息 ──
+            // assistant 消息如果既没有文本内容也没有 tool_calls，就是无意义的空消息，跳过不保存
             if ("assistant".equals(String.valueOf(role))) {
                 Object toolCalls = entry.get("tool_calls");
+
+                // content 为 null 或者是空白字符串
                 boolean emptyContent = (content == null) || (content instanceof String s && s.isBlank());
+
+                // tool_calls 为 null 或者是空列表
                 boolean noToolCalls = (toolCalls == null) || (toolCalls instanceof List<?> l && l.isEmpty());
+
+                // 两个条件都满足 → 跳过这条消息
                 if (emptyContent && noToolCalls) continue;
             }
 
+            // ── Step 3: 截断过长的 tool 返回结果 ──
+            // tool 消息的 content 是工具执行的返回值，可能非常长（比如读取了一个大文件）
+            // 超过 TOOL_RESULT_MAX_CHARS 的部分截断，替换为 "... (truncated)"
             if ("tool".equals(String.valueOf(role)) && content instanceof String s && s.length() > TOOL_RESULT_MAX_CHARS) {
                 entry.put("content", s.substring(0, TOOL_RESULT_MAX_CHARS) + "\n... (truncated)");
             }
 
+            // ── Step 4: 将 user 消息中的 base64 图片替换为文本占位符 ──
+            // user 消息的 content 可能是一个 List（多模态消息，包含 text + image_url）
+            // base64 编码的图片体积巨大，不适合持久化，用 "[image]" 文本代替
             if ("user".equals(String.valueOf(role)) && content instanceof List<?> list) {
                 List<Object> replaced = new ArrayList<>();
+
                 for (Object c : list) {
+                    // 判断是否是 base64 图片块：
+                    //   { "type": "image_url", "image_url": { "url": "data:image/xxx;base64,..." } }
                     if (c instanceof Map<?, ?> cm
                             && "image_url".equals(String.valueOf(cm.get("type")))
                             && cm.get("image_url") instanceof Map<?, ?> im
                             && im.get("url") instanceof String u
                             && u.startsWith("data:image/")) {
+                        // 是 base64 图片 → 替换为文本
                         replaced.add(Map.of("type", "text", "text", "[image]"));
                         continue;
                     }
+                    // 非 base64 图片（普通文本块、URL 图片等）→ 原样保留
                     replaced.add(c);
                 }
+
+                // 用替换后的列表覆盖原来的 content
                 entry.put("content", replaced);
             }
 
+            // ── Step 5: 打时间戳，追加到 session ──
+            // 如果消息本身没有 timestamp 字段，补上当前时间
             entry.putIfAbsent("timestamp", LocalDateTime.now().toString());
+
+            // 追加到 session 的消息列表中
             session.getMessages().add(entry);
         }
+
+        // 更新 session 的最后修改时间
         session.setUpdatedAt(LocalDateTime.now());
     }
+
 
     private CompletionStage<Boolean> consolidateMemory(Session session, boolean archiveAll) {
         return memoryStore.consolidate(

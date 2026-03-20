@@ -1415,7 +1415,7 @@ public final class FileSystemTools {
 
 
     /** 按行切分，但保留每行末尾的 \n（最后一行可能没有） */
-    private static List<String> splitLinesPreserveNewline(String s) {
+    public static List<String> splitLinesPreserveNewline(String s) {
         List<String> out = new ArrayList<>();
         if (s == null || s.isEmpty()) return out;
 
@@ -1458,7 +1458,7 @@ public final class FileSystemTools {
     }
 
     /** 读取前 N 行 */
-    private static String firstNLines(String content, int n) {
+    public static String firstNLines(String content, int n) {
         if (n <= 0) return "";
         List<String> lines = splitLinesPreserveNewline(content);
         StringBuilder sb = new StringBuilder();
@@ -1469,7 +1469,7 @@ public final class FileSystemTools {
     }
 
     /** 读取后 N 行 */
-    private static String lastNLines(String content, int n) {
+    public static String lastNLines(String content, int n) {
         if (n <= 0) return "";
         List<String> lines = splitLinesPreserveNewline(content);
         int start = Math.max(0, lines.size() - n);
