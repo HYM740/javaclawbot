@@ -221,12 +221,11 @@ public class SkillsLoader {
         }
 
         List<String> lines = new ArrayList<>();
-        lines.add("<system-reminder>");
-
+        lines.add("<system-reminder>\n");
+        lines.add("以下为可用技能,其中 available=\"false\" 的技能需要先安装依赖。\n");
 
         for (Map<String, String> s : allSkills) {
             StringBuilder sb = new StringBuilder();
-            sb.append("以下为可用技能,其中 available=\"false\" 的技能需要先安装依赖。");
             sb.append("- ");
             String name = s.get("name");
             String path = s.get("path");
@@ -244,7 +243,7 @@ public class SkillsLoader {
             // 添加内容
             lines.add(sb.toString());
         }
-        lines.add("</system-reminder>");
+        lines.add("</system-reminder>\n");
         return String.join("\n", lines);
     }
 
