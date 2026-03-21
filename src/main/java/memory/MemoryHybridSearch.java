@@ -245,16 +245,11 @@ public class MemoryHybridSearch {
      */
     public static double bm25RankToScore(double rank) {
         if (!Double.isFinite(rank)) {
-            return 1.0 / (1 + 999);
+            return 0.0;
         }
 
-        if (rank < 0) {
-            // 负数表示相关性，转换为正数
-            double relevance = -rank;
-            return 1 / (1 + relevance);
-        }
-
-        return 1.0 / (1 + rank);
+        double x = Math.max(0.0, -rank);
+        return x / (1.0 + x);
     }
 
     /**

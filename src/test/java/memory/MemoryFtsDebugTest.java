@@ -30,12 +30,12 @@ public class MemoryFtsDebugTest {
 
     public static void main(String[] args) throws Exception {
         // ===== 1) 改成你的工作目录 =====
-        Path workspaceDir = Paths.get("C:\\Users\\19247\\.javaclawbot\\workspace");
+        Path workspaceDir = Paths.get("/Users/zhengwei/.javaclawbot//workspace/");
 
         // ===== 2) 查询词：优先读命令行参数，否则给一个默认值 =====
         String query = args != null && args.length > 0
                 ? String.join(" ", args)
-                : "memory";
+                : "销售数据";
 
         System.out.println("==================================================");
         System.out.println("Memory FTS 调试开始");
@@ -69,8 +69,8 @@ public class MemoryFtsDebugTest {
             System.out.println("ftsQuery = " + ftsQuery);
 
             // 5) 直接执行最简单 FTS SQL（原始 query）
-            /*System.out.println("\n[2] 直接 FTS 查询（使用原始 query）");
-            runDirectFts(conn, query, 10);*/
+            System.out.println("\n[2] 直接 FTS 查询（使用原始 query）");
+            runDirectFts(conn, query, 10);
 
             // 6) 直接执行 buildFtsQuery 后的 FTS SQL
             /*if (ftsQuery != null && !ftsQuery.isBlank()) {
@@ -80,15 +80,13 @@ public class MemoryFtsDebugTest {
                 System.out.println("\n[3] buildFtsQuery 为空，跳过");
             }*/
 
-            List<MemoryHybridSearch.HybridResult> search = manager.search(query, 10, 0.35, null);
-
             /*// 7) 用 Java fallback 逻辑测试
             System.out.println("\n[4] Java fallback 搜索测试");
-            runJavaFallback(conn, query, 10);
+            runJavaFallback(conn, query, 10);*/
 
             // 8) 调用 manager.search() 实际看看
             System.out.println("\n[5] 通过 MemoryIndexManager.search() 测试");
-            List<MemoryHybridSearch.HybridResult> results = manager.search(query, 10, 0.0, null);
+            List<MemoryHybridSearch.HybridResult> results = manager.search(query, 10, 0.35, null);
             if (results.isEmpty()) {
                 System.out.println("manager.search() 返回 0 条结果");
             } else {
@@ -109,7 +107,6 @@ public class MemoryFtsDebugTest {
             System.out.println("==================================================");
             System.out.println("调试结束");
             System.out.println("==================================================");
-            */
         } finally {
             manager.close();
         }
