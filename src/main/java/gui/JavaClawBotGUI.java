@@ -2,7 +2,10 @@ package gui;
 
 import agent.AgentLoop;
 import bus.MessageBus;
+import bus.OutboundMessage;
+import channels.ChannelManager;
 import cli.RuntimeComponents;
+import heartbeat.HeartbeatService;
 import com.formdev.flatlaf.FlatClientProperties;
 import com.formdev.flatlaf.FlatLaf;
 import com.formdev.flatlaf.themes.FlatMacLightLaf;
@@ -30,9 +33,13 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -89,8 +96,10 @@ public class JavaClawBotGUI extends JFrame {
     private JButton clearButton;
     private JButton onboardButton;
     private JButton statusButton;
+    private JButton gatewayButton;
     private JLabel statusLabel;
     private JLabel modelLabel;
+    private JLabel gatewayStatusLabel;
 
     // =========================
     // 核心组件
@@ -100,6 +109,15 @@ public class JavaClawBotGUI extends JFrame {
     private AgentLoop agentLoop;
     private CronService cron;
     private SessionManager sessionManager;
+    private HeartbeatService heartbeat;
+    private ChannelManager channels;
+    private MessageBus bus;
+
+    // =========================
+    // Gateway 模式
+    // =========================
+    private boolean gatewayMode = false;
+    private final AtomicBoolean gatewayRunning = new AtomicBoolean(false);
 
     // =========================
     // 状态
@@ -112,7 +130,12 @@ public class JavaClawBotGUI extends JFrame {
     private final String cliChatId = "direct";
 
     public JavaClawBotGUI() {
+        this(false);
+    }
+
+    public JavaClawBotGUI(boolean gatewayMode) {
         super("javaclawbot");
+        this.gatewayMode = gatewayMode;
         initializeWindow();
         initializeUI();
         initializeCore();
@@ -206,12 +229,17 @@ public class JavaClawBotGUI extends JFrame {
         stylePrimaryButton(onboardButton, 110, 38);
         onboardButton.addActionListener(e -> runOnboard());
 
+        gatewayButton = new JButton("启动 Gateway");
+        styleSecondaryButton(gatewayButton, 120, 38);
+        gatewayButton.addActionListener(e -> toggleGateway());
+
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         right.setOpaque(false);
         right.add(statusCard);
         right.add(statusButton);
         right.add(clearButton);
         right.add(onboardButton);
+        right.add(gatewayButton);
 
         header.add(left, BorderLayout.WEST);
         header.add(right, BorderLayout.EAST);
@@ -752,6 +780,11 @@ public class JavaClawBotGUI extends JFrame {
     private void shutdown() {
         running.set(false);
 
+        // Stop gateway components if running
+        if (gatewayRunning.get()) {
+            stopGateway();
+        }
+
         if (agentLoop != null) {
             try {
                 agentLoop.stop();
@@ -768,6 +801,208 @@ public class JavaClawBotGUI extends JFrame {
                 cron.stop();
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    // =========================
+    // Gateway Mode Methods
+    // =========================
+
+    /**
+     * Start gateway mode (HeartbeatService + ChannelManager)
+     */
+    private void startGateway() {
+        if (gatewayRunning.get()) {
+            appendSystem("Gateway 已在运行中");
+            return;
+        }
+
+        if (config == null) {
+            appendSystem("错误: 配置未初始化");
+            return;
+        }
+
+        // Check if channels are configured and show confirmation dialog
+        StringBuilder channelInfo = new StringBuilder();
+        boolean hasEnabledChannels = false;
+
+        var channelsConfig = config.getChannels();
+        if (channelsConfig != null) {
+            // Check Discord
+            if (channelsConfig.getDiscord() != null && channelsConfig.getDiscord().isEnabled()) {
+                hasEnabledChannels = true;
+                channelInfo.append("• Discord: 已启用\n");
+            }
+            // Check Telegram
+            if (channelsConfig.getTelegram() != null && channelsConfig.getTelegram().isEnabled()) {
+                hasEnabledChannels = true;
+                channelInfo.append("• Telegram: 已启用\n");
+            }
+            // Check WhatsApp
+            if (channelsConfig.getWhatsapp() != null && channelsConfig.getWhatsapp().isEnabled()) {
+                hasEnabledChannels = true;
+                channelInfo.append("• WhatsApp: 已启用\n");
+            }
+            // Check feishu
+            if (channelsConfig.getFeishu() != null && channelsConfig.getFeishu().isEnabled()) {
+                hasEnabledChannels = true;
+                channelInfo.append("• 飞书: 已启用\n");
+            }
+        }
+
+        // Show confirmation dialog
+        String message;
+        String title;
+        if (hasEnabledChannels) {
+            message = "检测到以下频道已配置并启用:\n\n" + channelInfo.toString() + "启动 Gateway 后将连接这些频道。\n\n是否确认启动 Gateway?";
+            title = "确认启动 Gateway";
+        } else {
+            message = "未检测到已启用的频道配置。\n\n请确认 channel 配置是否正确。\n\n是否仍要启动 Gateway?";
+            title = "频道配置确认";
+        }
+
+        int result = JOptionPane.showConfirmDialog(
+                this,
+                message,
+                title,
+                JOptionPane.YES_NO_OPTION,
+                JOptionPane.QUESTION_MESSAGE
+        );
+        if (result != JOptionPane.YES_OPTION) {
+            appendSystem("Gateway 启动已取消");
+            return;
+        }
+
+        // User confirmed, set hasEnabledChannels to true to proceed
+        hasEnabledChannels = true;
+
+        appendSystem("正在启动 Gateway...");
+        updateStatus("启动 Gateway...");
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                // Initialize MessageBus if not exists
+                if (bus == null) {
+                    bus = new MessageBus();
+                }
+
+                // Initialize ChannelManager
+                channels = new ChannelManager(config, bus);
+
+                // Select heartbeat target: prefer non-cli/system session
+                final AtomicReference<String> hbChannel = new AtomicReference<>("cli");
+                final AtomicReference<String> hbChatId = new AtomicReference<>("direct");
+                try {
+                    Set<String> enabled = new HashSet<>(channels.getEnabledChannels());
+                    for (Map<String, Object> s : sessionManager.listSessions()) {
+                        Object keyObj = s.get("key");
+                        if (!(keyObj instanceof String key)) continue;
+                        if (!key.contains(":")) continue;
+                        String[] parts = key.split(":", 2);
+                        String ch = parts[0];
+                        String cid = parts[1];
+                        if ("cli".equals(ch) || "system".equals(ch)) continue;
+                        if (enabled.contains(ch) && cid != null && !cid.isBlank()) {
+                            hbChannel.set(ch);
+                            hbChatId.set(cid);
+                            break;
+                        }
+                    }
+                } catch (Exception ignored) {}
+
+                // Initialize HeartbeatService
+                heartbeat = new HeartbeatService(
+                        config.getWorkspacePath(),
+                        provider,
+                        agentLoop.getModel(),
+                        tasks -> agentLoop.processDirect(
+                                tasks,
+                                "heartbeat",
+                                hbChannel.get(),
+                                hbChatId.get(),
+                                (c, toolHint) -> CompletableFuture.completedFuture(null)
+                        ).toCompletableFuture(),
+                        response -> {
+                            if ("cli".equals(hbChannel.get())) return CompletableFuture.completedFuture(null);
+                            return bus.publishOutbound(new OutboundMessage(
+                                    hbChannel.get(),
+                                    hbChatId.get(),
+                                    response != null ? response : "",
+                                    null,
+                                    null
+                            )).toCompletableFuture();
+                        },
+                        HeartbeatService.parseConfig(config)
+                );
+
+                // Start services
+                channels.startAll().toCompletableFuture().join();
+                heartbeat.start().toCompletableFuture().join();
+
+                gatewayRunning.set(true);
+
+                SwingUtilities.invokeLater(() -> {
+                    appendSystem("✓ Gateway 已启动");
+                    appendSystem("  - HeartbeatService: 运行中");
+                    appendSystem("  - ChannelManager: 运行中");
+                    updateStatus("Gateway 运行中");
+                    if (gatewayButton != null) {
+                        gatewayButton.setText("停止 Gateway");
+                    }
+                });
+
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() -> {
+                    appendSystem("Gateway 启动失败: " + e.getMessage());
+                    updateStatus("Gateway 启动失败");
+                });
+            }
+        });
+    }
+
+    /**
+     * Stop gateway mode
+     */
+    private void stopGateway() {
+        if (!gatewayRunning.get()) {
+            appendSystem("Gateway 未在运行");
+            return;
+        }
+
+        appendSystem("正在停止 Gateway...");
+
+        try {
+            if (heartbeat != null) {
+                heartbeat.stop();
+                heartbeat = null;
+            }
+
+            if (channels != null) {
+                channels.stopAll().toCompletableFuture().join();
+                channels = null;
+            }
+
+            gatewayRunning.set(false);
+
+            appendSystem("✓ Gateway 已停止");
+            updateStatus("就绪");
+            if (gatewayButton != null) {
+                gatewayButton.setText("启动 Gateway");
+            }
+
+        } catch (Exception e) {
+            appendSystem("Gateway 停止失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Toggle gateway mode
+     */
+    private void toggleGateway() {
+        if (gatewayRunning.get()) {
+            stopGateway();
+        } else {
+            startGateway();
         }
     }
 
