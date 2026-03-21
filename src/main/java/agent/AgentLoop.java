@@ -6,6 +6,7 @@ import agent.subagent.SessionsSpawnTool;
 import agent.subagent.SubagentManager;
 import agent.subagent.SubagentsControlTool;
 import agent.tool.*;
+import agent.tool.mcp.McpManager;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
@@ -67,9 +68,10 @@ public class AgentLoop {
     private final ToolRegistry sharedTools;
     private volatile boolean running = false;
     private final Map<String, ConfigSchema.MCPServerConfig> mcpServers;
-    private volatile boolean mcpConnected = false;
-    private volatile boolean mcpConnecting = false;
-    private final List<MCPClient> mcpClients = new CopyOnWriteArrayList<>();
+    /**
+     * MCP 动态工具管理器
+     */
+    private final McpManager mcpManager;
     private final Set<String> consolidating = ConcurrentHashMap.newKeySet();
     private final Set<CompletableFuture<?>> consolidationTasks = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, ReentrantLock> consolidationLocks = new ConcurrentHashMap<>();
@@ -139,6 +141,7 @@ public class AgentLoop {
                 this.reasoningEffort, braveApiKey, this.execConfig, restrictToWorkspace, null
         );
         this.mcpServers = (mcpServers != null) ? mcpServers : Map.of();
+        this.mcpManager = new McpManager(mcpServers, executor);
 
         this.memoryStore = new MemoryStore(workspace);
         // 注册工具
@@ -225,15 +228,19 @@ public class AgentLoop {
     /**
      * 构建当前请求的工具视图：
      * - sharedTools：全局共享、无上下文工具
+     * - mcpTools：动态 MCP 工具（运行期发现）
      * - localTools：当前请求独有、有上下文工具
+     *
+     * 优先级：
+     * local > mcp > shared
      */
     private ToolView buildRequestToolsAndSetContext(String sessionKy, String channel, String chatId, String messageId) {
         ToolRegistry localTools = new ToolRegistry();
 
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
-        // ========== 多 Agent / subagent 相关 ==========
 
+        // ========== 多 Agent / subagent 相关 ==========
         SessionsSpawnTool spawnTool = new agent.subagent.SessionsSpawnTool(
                 subagents.getRegistry(),
                 subagents.getAnnounceService(),
@@ -242,7 +249,6 @@ public class AgentLoop {
                 workspace,
                 bus
         );
-        // 设置上下文
         spawnTool.setContext(sessionKy, channel, chatId);
         localTools.register(spawnTool);
 
@@ -260,7 +266,10 @@ public class AgentLoop {
             localTools.register(cronTool);
         }
 
-        return new CompositeToolView(sharedTools, localTools);
+        // MCP 动态工具快照
+        ToolRegistry mcpTools = mcpManager.snapshotRegistry();
+
+        return new CompositeToolView(sharedTools, mcpTools, localTools);
     }
 
     public CronTool getCronTool() {
@@ -268,44 +277,14 @@ public class AgentLoop {
     }
 
     private CompletionStage<Void> connectMcp() {
-        if (mcpConnected || mcpConnecting || mcpServers.isEmpty()) {
-            return CompletableFuture.completedFuture(null);
-        }
-        mcpConnecting = true;
-        return CompletableFuture.runAsync(() -> {
-            try {
-                for (var entry : mcpServers.entrySet()) {
-                    String name = entry.getKey();
-                    ConfigSchema.MCPServerConfig cfg = entry.getValue();
-
-                    MCPClient client = new MCPClient(name, cfg, sharedTools);
-                    client.connect().toCompletableFuture().join();
-                    mcpClients.add(client);
-                }
-                mcpConnected = true;
-                log.info("MCP 服务器已连接: {}", mcpClients.size());
-            } catch (Exception e) {
-                log.warn("连接 MCP 服务器失败: {}", e.toString());
-                mcpConnected = false;
-            } finally {
-                mcpConnecting = false;
-            }
-        }, executor);
+        return mcpManager.ensureConnected().exceptionally(ex -> {
+            log.warn("MCP 初始化失败，本轮将继续但不包含 MCP 工具: {}", ex.toString());
+            return null;
+        });
     }
 
     public CompletionStage<Void> closeMcp() {
-        return CompletableFuture.runAsync(() -> {
-            for (MCPClient client : mcpClients) {
-                try {
-                    client.close();
-                } catch (Exception e) {
-                    log.warn("关闭 MCP 客户端失败: {}", e.toString());
-                }
-            }
-            mcpClients.clear();
-            mcpConnected = false;
-            mcpConnecting = false;
-        }, executor);
+        return mcpManager.closeAll();
     }
 
     private static String stripThink(String text) {
@@ -334,7 +313,7 @@ public class AgentLoop {
 
     public CompletableFuture<Void> run() {
         running = true;
-        connectMcp();
+        connectMcp().toCompletableFuture().join();
         log.info("Agent 循环已启动");
 
         while (running) {
@@ -1275,8 +1254,13 @@ public class AgentLoop {
         }
     }
     /**
-     * 对 sharedTools + request-local tools 的组合视图。
-     * local 同名工具优先覆盖 shared。
+     * 对多个 ToolRegistry 的组合视图。
+     *
+     * 约定：
+     * - 后面的 registry 优先级更高，会覆盖前面同名工具
+     * - 因此建议传入顺序：
+     *   shared, mcp, local
+     *   最终优先级：local > mcp > shared
      */
     private interface ToolView {
         List<Map<String, Object>> getDefinitions();
@@ -1285,64 +1269,66 @@ public class AgentLoop {
     }
 
     private static final class CompositeToolView implements ToolView {
-        private final ToolRegistry shared;
-        private final ToolRegistry local;
+        private final List<ToolRegistry> registries;
 
-        private CompositeToolView(ToolRegistry shared, ToolRegistry local) {
-            this.shared = shared;
-            this.local = local;
+        private CompositeToolView(ToolRegistry... registries) {
+            this.registries = Arrays.asList(registries);
         }
 
         @Override
         public List<Map<String, Object>> getDefinitions() {
-            List<Map<String, Object>> defs = new ArrayList<>();
-            defs.addAll(shared.getDefinitions());
+            LinkedHashMap<String, Map<String, Object>> merged = new LinkedHashMap<>();
 
-            // local 覆盖 shared 中同名工具定义
-            Map<String, Integer> sharedIndexes = new LinkedHashMap<>();
-            for (int i = 0; i < defs.size(); i++) {
-                Object fn = defs.get(i).get("function");
-                if (fn instanceof Map<?, ?> fnMap) {
-                    Object name = fnMap.get("name");
+            for (ToolRegistry registry : registries) {
+                if (registry == null) continue;
+
+                for (Map<String, Object> def : registry.getDefinitions()) {
+                    String name = extractToolName(def);
                     if (name != null) {
-                        sharedIndexes.put(String.valueOf(name), i);
+                        merged.put(name, def); // 后写覆盖前写
                     }
                 }
             }
 
-            for (Map<String, Object> localDef : local.getDefinitions()) {
-                String localName = null;
-                Object fn = localDef.get("function");
-                if (fn instanceof Map<?, ?> fnMap) {
-                    Object name = fnMap.get("name");
-                    if (name != null) {
-                        localName = String.valueOf(name);
-                    }
-                }
-
-                if (localName != null && sharedIndexes.containsKey(localName)) {
-                    defs.set(sharedIndexes.get(localName), localDef);
-                } else {
-                    defs.add(localDef);
-                }
-            }
-
-            return defs;
+            return new ArrayList<>(merged.values());
         }
 
         @Override
         public CompletionStage<String> execute(String name, Map<String, Object> args) {
-            Object localTool = local.get(name);
-            if (localTool != null) {
-                return local.execute(name, args);
+            for (int i = registries.size() - 1; i >= 0; i--) {
+                ToolRegistry registry = registries.get(i);
+                if (registry != null && registry.get(name) != null) {
+                    return registry.execute(name, args);
+                }
             }
-            return shared.execute(name, args);
+            return CompletableFuture.completedFuture(
+                    "Error: Tool '" + name + "' not found."
+            );
         }
 
         @Override
         public Object get(String name) {
-            Object localTool = local.get(name);
-            return localTool != null ? localTool : shared.get(name);
+            for (int i = registries.size() - 1; i >= 0; i--) {
+                ToolRegistry registry = registries.get(i);
+                if (registry != null) {
+                    Object tool = registry.get(name);
+                    if (tool != null) {
+                        return tool;
+                    }
+                }
+            }
+            return null;
+        }
+
+        @SuppressWarnings("unchecked")
+        private String extractToolName(Map<String, Object> def) {
+            if (def == null) return null;
+            Object fn = def.get("function");
+            if (fn instanceof Map<?, ?> map) {
+                Object name = map.get("name");
+                return name == null ? null : String.valueOf(name);
+            }
+            return null;
         }
     }
 

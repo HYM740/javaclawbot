@@ -54,7 +54,7 @@
         <picocli.version>4.7.6</picocli.version>
         <jline.version>3.25.1</jline.version>
         <lombok.version>1.18.42</lombok.version>
-        <jackson.version>2.16.1</jackson.version>
+<!--        <jackson.version>2.16.1</jackson.version>-->
         <logback.version>1.2.11</logback.version>
         <playwright.version>1.49.0</playwright.version>
     </properties>
@@ -65,11 +65,11 @@
             <artifactId>logback-classic</artifactId>
             <version>${logback.version}</version>
         </dependency>
-        <dependency>
+        <!--<dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
             <version>${jackson.version}</version>
-        </dependency>
+        </dependency>-->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -174,7 +174,18 @@
             <groupId>io.modelcontextprotocol.sdk</groupId>
             <artifactId>mcp</artifactId>
             <version>1.0.0</version>
+            <exclusions>
+                <exclusion>
+                    <artifactId>mcp-json-jackson3</artifactId>
+                    <groupId>io.modelcontextprotocol.sdk</groupId>
+                </exclusion>
+            </exclusions>
         </dependency>
+        <dependency>
+        <groupId>com.networknt</groupId>
+        <artifactId>json-schema-validator</artifactId>
+        <version>2.0.0</version>
+    </dependency>
 
         <dependency>
             <groupId>junit</groupId>
