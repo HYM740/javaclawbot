@@ -298,7 +298,7 @@ public class ContextBuilder {
 
         // 当前用户内容（文本 + 可选图片）
         // 是否需要引导，设置引导用户
-        /*if (isNeedBootstrap()) {
+        if (isNeedBootstrap()) {
             out.add(mapOf(
                     "role", "user",
                     "content", "用户现在是可能是第一次使用该程序，请按照引导程序流程引导用户,必须要在引导完成后回答用户消息，用户消息：" + buildUserContent(currentMessage, media)
@@ -308,12 +308,12 @@ public class ContextBuilder {
                     "role", "user",
                     "content", buildUserContent(currentMessage, media)
             ));
-        }*/
+        }
 
-        out.add(mapOf(
+        /*out.add(mapOf(
                 "role", "user",
                 "content", buildUserContent(currentMessage, media)
-        ));
+        ));*/
         return out;
     }
 

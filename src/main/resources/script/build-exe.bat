@@ -1,274 +1,292 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal EnableExtensions EnableDelayedExpansion
 
-REM ============================================
-REM JavaClawBot Windows EXE Packaging Script
-REM Debug Version - Path Checking Enabled
-REM ============================================
+title JavaClawBot Packaging Tool
 
 echo.
-echo ============================================
+echo =========================================================
 echo   JavaClawBot Windows EXE Packaging Tool
-echo   Debug Version
-echo ============================================
+echo   Ultra Stable English-Only Version
+echo =========================================================
 echo.
 
-REM ===== Basic paths =====
+REM =========================================================
+REM Configuration
+REM =========================================================
+
 set "JAVA_HOME=C:\Program Files\Java\jdk-17"
 set "JAVA_BIN=%JAVA_HOME%\bin"
 
 set "JAVA_CMD=%JAVA_BIN%\java.exe"
-set "JPACKAGE_CMD=%JAVA_BIN%\jpackage.exe"
-set "JDEPS_CMD=%JAVA_BIN%\jdeps.exe"
 set "JLINK_CMD=%JAVA_BIN%\jlink.exe"
+set "JPACKAGE_CMD=%JAVA_BIN%\jpackage.exe"
 
 set "APP_NAME=javaclawbot"
 set "APP_VERSION=1.0.0"
 set "VENDOR=JavaClawBot"
+set "DESCRIPTION=JavaClawBot - AI Assistant"
 
-set "JAR_FILE=D:\opencode_code\pkg_exe\javaclawbot.jar"
-set "OUTPUT_DIR=D:\opencode_code\pkg_exe\dist"
-set "JRE_DIR=D:\opencode_code\pkg_exe\jre"
-set "TEMP_PACKAGE_DIR=D:\opencode_code\pkg_exe\temp_package"
+set "MAIN_JAR_NAME=javaclawbot.jar"
+set "MAIN_CLASS=gui.JavaClawBotGUI"
 
-echo [DEBUG] Current working directory: %cd%
-echo [DEBUG] JAVA_HOME        = %JAVA_HOME%
-echo [DEBUG] JAVA_BIN         = %JAVA_BIN%
-echo [DEBUG] JAVA_CMD         = %JAVA_CMD%
-echo [DEBUG] JPACKAGE_CMD     = %JPACKAGE_CMD%
-echo [DEBUG] JDEPS_CMD        = %JDEPS_CMD%
-echo [DEBUG] JLINK_CMD        = %JLINK_CMD%
-echo [DEBUG] JAR_FILE         = %JAR_FILE%
-echo [DEBUG] OUTPUT_DIR       = %OUTPUT_DIR%
-echo [DEBUG] JRE_DIR          = %JRE_DIR%
-echo [DEBUG] TEMP_PACKAGE_DIR = %TEMP_PACKAGE_DIR%
+set "BASE_URL=D:\opencode_code\pkg_exe1"
+set "JAR_FILE=%BASE_URL%\javaclawbot.jar"
+set "OUTPUT_DIR=%BASE_URL%\dist"
+set "RUNTIME_DIR=%BASE_URL%\jre"
+set "TEMP_INPUT_DIR=%BASE_URL%\temp_package"
+
+REM =========================================================
+REM Ultra-stable module set
+REM =========================================================
+
+set "MODULES=java.se,java.net.http,jdk.unsupported,jdk.crypto.ec,jdk.localedata,jdk.charsets,jdk.zipfs,jdk.management,jdk.management.agent,jdk.jdwp.agent,jdk.jfr,jdk.jshell,jdk.httpserver,jdk.accessibility,jdk.attach,jdk.compiler,jdk.jartool,jdk.jdi,jdk.naming.dns,jdk.naming.rmi,jdk.net,jdk.security.auth,jdk.security.jgss,jdk.xml.dom"
+
+echo [DEBUG] Working directory : %cd%
+echo [DEBUG] JAVA_HOME         : %JAVA_HOME%
+echo [DEBUG] JAVA_BIN          : %JAVA_BIN%
+echo [DEBUG] JAVA_CMD          : %JAVA_CMD%
+echo [DEBUG] JLINK_CMD         : %JLINK_CMD%
+echo [DEBUG] JPACKAGE_CMD      : %JPACKAGE_CMD%
+echo [DEBUG] APP_NAME          : %APP_NAME%
+echo [DEBUG] APP_VERSION       : %APP_VERSION%
+echo [DEBUG] VENDOR            : %VENDOR%
+echo [DEBUG] DESCRIPTION       : %DESCRIPTION%
+echo [DEBUG] MAIN_JAR_NAME     : %MAIN_JAR_NAME%
+echo [DEBUG] MAIN_CLASS        : %MAIN_CLASS%
+echo [DEBUG] JAR_FILE          : %JAR_FILE%
+echo [DEBUG] OUTPUT_DIR        : %OUTPUT_DIR%
+echo [DEBUG] RUNTIME_DIR       : %RUNTIME_DIR%
+echo [DEBUG] TEMP_INPUT_DIR    : %TEMP_INPUT_DIR%
+echo [DEBUG] MODULES           : %MODULES%
 echo.
 
-echo [CHECK] Does JAVA_HOME exist?
-if exist "%JAVA_HOME%" (
-    echo [OK] Exists: %JAVA_HOME%
-) else (
-    echo [ERROR] Not found: %JAVA_HOME%
+REM =========================================================
+REM Validation
+REM =========================================================
+
+if not exist "%JAVA_HOME%" (
+    echo [ERROR] JAVA_HOME does not exist:
+    echo         %JAVA_HOME%
     pause
     exit /b 1
 )
-echo.
 
-echo [CHECK] Does JAVA_BIN exist?
-if exist "%JAVA_BIN%" (
-    echo [OK] Exists: %JAVA_BIN%
-) else (
-    echo [ERROR] Not found: %JAVA_BIN%
+if not exist "%JAVA_CMD%" (
+    echo [ERROR] java.exe was not found:
+    echo         %JAVA_CMD%
     pause
     exit /b 1
 )
-echo.
 
-echo [CHECK] Does java.exe exist?
-if exist "%JAVA_CMD%" (
-    echo [OK] Exists: %JAVA_CMD%
-) else (
-    echo [ERROR] Not found: %JAVA_CMD%
+if not exist "%JLINK_CMD%" (
+    echo [ERROR] jlink.exe was not found:
+    echo         %JLINK_CMD%
     pause
     exit /b 1
 )
-echo.
 
-echo [CHECK] Does jpackage.exe exist?
-if exist "%JPACKAGE_CMD%" (
-    echo [OK] Exists: %JPACKAGE_CMD%
-) else (
-    echo [ERROR] Not found: %JPACKAGE_CMD%
+if not exist "%JPACKAGE_CMD%" (
+    echo [ERROR] jpackage.exe was not found:
+    echo         %JPACKAGE_CMD%
     pause
     exit /b 1
 )
-echo.
 
-echo [CHECK] Does jdeps.exe exist?
-if exist "%JDEPS_CMD%" (
-    echo [OK] Exists: %JDEPS_CMD%
-) else (
-    echo [ERROR] Not found: %JDEPS_CMD%
+if not exist "%JAR_FILE%" (
+    echo [ERROR] Main JAR file was not found:
+    echo         %JAR_FILE%
     pause
     exit /b 1
 )
-echo.
 
-echo [CHECK] Does jlink.exe exist?
-if exist "%JLINK_CMD%" (
-    echo [OK] Exists: %JLINK_CMD%
-) else (
-    echo [ERROR] Not found: %JLINK_CMD%
-    pause
-    exit /b 1
-)
-echo.
-
-echo [CHECK] Does JAR file exist?
-if exist "%JAR_FILE%" (
-    echo [OK] Exists: %JAR_FILE%
-) else (
-    echo [ERROR] Not found: %JAR_FILE%
-    pause
-    exit /b 1
-)
-echo.
-
-echo [CHECK] Does JAR directory exist?
-for %%i in ("%JAR_FILE%") do set "JAR_DIR=%%~dpi"
-echo [DEBUG] JAR_DIR = !JAR_DIR!
-if exist "!JAR_DIR!" (
-    echo [OK] Exists: !JAR_DIR!
-) else (
-    echo [ERROR] Not found: !JAR_DIR!
-    pause
-    exit /b 1
-)
-echo.
-
-echo [CHECK] Does parent directory of OUTPUT_DIR exist?
-for %%i in ("%OUTPUT_DIR%") do set "OUTPUT_PARENT=%%~dpi"
-echo [DEBUG] OUTPUT_PARENT = !OUTPUT_PARENT!
-if exist "!OUTPUT_PARENT!" (
-    echo [OK] Exists: !OUTPUT_PARENT!
-) else (
-    echo [ERROR] Not found: !OUTPUT_PARENT!
-    pause
-    exit /b 1
-)
-echo.
-
-echo ============================================
+echo =========================================================
 echo Java version
-echo ============================================
-"%JAVA_CMD%" -version 2>&1
-echo.
-
-echo ============================================
-echo jpackage version
-echo ============================================
-"%JPACKAGE_CMD%" --version 2>&1
-echo.
-
-echo ============================================
-echo jdeps version
-echo ============================================
-"%JDEPS_CMD%" --version 2>&1
-echo.
-
-echo ============================================
-echo jlink version
-echo ============================================
-"%JLINK_CMD%" --version 2>&1
-echo.
-
-echo [DEBUG] Listing JDK bin directory:
-dir "%JAVA_BIN%"
-echo.
-
-echo [DEBUG] Listing package directory:
-dir "D:\opencode_code\pkg_exe"
-echo.
-
-REM ===== Prepare output directory =====
-echo [STEP] Preparing output directory...
-if exist "%OUTPUT_DIR%" (
-    echo [DEBUG] Removing old directory: %OUTPUT_DIR%
-    rmdir /s /q "%OUTPUT_DIR%"
+echo =========================================================
+"%JAVA_CMD%" -version
+if errorlevel 1 (
+    echo [ERROR] Failed to run java -version
+    pause
+    exit /b 1
 )
+echo.
+
+echo =========================================================
+echo jlink version
+echo =========================================================
+"%JLINK_CMD%" --version
+if errorlevel 1 (
+    echo [ERROR] Failed to run jlink --version
+    pause
+    exit /b 1
+)
+echo.
+
+echo =========================================================
+echo jpackage version
+echo =========================================================
+"%JPACKAGE_CMD%" --version
+if errorlevel 1 (
+    echo [ERROR] Failed to run jpackage --version
+    pause
+    exit /b 1
+)
+echo.
+
+REM =========================================================
+REM Force cleanup before packaging
+REM =========================================================
+
+echo [STEP] Cleaning old packaging directories...
+echo.
+
+if exist "%OUTPUT_DIR%" (
+    echo [INFO] Removing old output directory:
+    echo        %OUTPUT_DIR%
+    rmdir /s /q "%OUTPUT_DIR%"
+    if exist "%OUTPUT_DIR%" (
+        echo [ERROR] Failed to remove output directory.
+        echo [ERROR] Another process may still be using files in this folder.
+        echo [ERROR] Please close the installed app, installer, terminal, or Explorer window using it.
+        pause
+        exit /b 1
+    )
+    echo [OK] Output directory removed.
+    echo.
+)
+
+if exist "%RUNTIME_DIR%" (
+    echo [INFO] Removing old runtime directory:
+    echo        %RUNTIME_DIR%
+    rmdir /s /q "%RUNTIME_DIR%"
+    if exist "%RUNTIME_DIR%" (
+        echo [ERROR] Failed to remove runtime directory.
+        echo [ERROR] Another process may still be using files in this folder.
+        echo [ERROR] Please close any running app started from the packaged runtime.
+        pause
+        exit /b 1
+    )
+    echo [OK] Runtime directory removed.
+    echo.
+)
+
+if exist "%TEMP_INPUT_DIR%" (
+    echo [INFO] Removing old temp input directory:
+    echo        %TEMP_INPUT_DIR%
+    rmdir /s /q "%TEMP_INPUT_DIR%"
+    if exist "%TEMP_INPUT_DIR%" (
+        echo [ERROR] Failed to remove temp input directory.
+        echo [ERROR] Another process may still be using files in this folder.
+        pause
+        exit /b 1
+    )
+    echo [OK] Temp input directory removed.
+    echo.
+)
+
+REM =========================================================
+REM Recreate required directories
+REM =========================================================
+
+echo [STEP] Creating fresh output directory...
 mkdir "%OUTPUT_DIR%"
 if errorlevel 1 (
-    echo [ERROR] Failed to create output directory: %OUTPUT_DIR%
+    echo [ERROR] Failed to create output directory:
+    echo         %OUTPUT_DIR%
     pause
     exit /b 1
 )
-echo [OK] Output directory is ready: %OUTPUT_DIR%
+echo [OK] Output directory ready.
 echo.
 
-REM ===== Detect modules =====
-echo [STEP] Detecting required modules with jdeps...
-set "MODULES="
-for /f "delims=" %%i in ('"%JDEPS_CMD%" --print-module-deps --ignore-missing-deps "%JAR_FILE%" 2^>nul') do set "MODULES=%%i"
-
-echo [DEBUG] jdeps returned MODULES = %MODULES%
-if "%MODULES%"=="" (
-    echo [WARN] jdeps returned no modules, using default set
-    set "MODULES=java.base,java.desktop,java.logging,java.sql,java.naming,java.management,java.security.jgss,java.security.sasl,jdk.crypto.ec,jdk.unsupported"
+echo [STEP] Creating fresh temp input directory...
+mkdir "%TEMP_INPUT_DIR%"
+if errorlevel 1 (
+    echo [ERROR] Failed to create temp input directory:
+    echo         %TEMP_INPUT_DIR%
+    pause
+    exit /b 1
 )
-echo [INFO] Final modules: %MODULES%
+echo [OK] Temp input directory ready.
 echo.
 
-REM ===== Create runtime image =====
-echo [STEP] Creating custom runtime image...
-if exist "%JRE_DIR%" (
-    echo [DEBUG] Removing old runtime image: %JRE_DIR%
-    rmdir /s /q "%JRE_DIR%"
-)
+REM =========================================================
+REM Build runtime image
+REM =========================================================
 
-echo [DEBUG] Command to execute:
-echo "%JLINK_CMD%" --add-modules %MODULES% --output "%JRE_DIR%" --strip-debug --compress 2 --no-header-files --no-man-pages
+echo [STEP] Building custom runtime image...
+echo.
+echo [COMMAND]
+echo "%JLINK_CMD%" --add-modules %MODULES% --output "%RUNTIME_DIR%" --strip-debug --compress 2 --no-header-files --no-man-pages
 echo.
 
 "%JLINK_CMD%" ^
   --add-modules %MODULES% ^
-  --output "%JRE_DIR%" ^
+  --output "%RUNTIME_DIR%" ^
   --strip-debug ^
   --compress 2 ^
   --no-header-files ^
   --no-man-pages
 
 if errorlevel 1 (
-    echo [ERROR] jlink failed to create runtime image
-    echo [DEBUG] Target runtime directory: %JRE_DIR%
+    echo [ERROR] jlink failed to build the runtime image.
     pause
     exit /b 1
 )
 
-if exist "%JRE_DIR%\bin\java.exe" (
-    echo [OK] Runtime image created successfully: %JRE_DIR%\bin\java.exe
-) else (
-    echo [ERROR] java.exe not found after runtime creation: %JRE_DIR%\bin\java.exe
+if not exist "%RUNTIME_DIR%\bin\java.exe" (
+    echo [ERROR] Runtime image was created, but java.exe is missing:
+    echo         %RUNTIME_DIR%\bin\java.exe
     pause
     exit /b 1
 )
+
+echo [OK] Runtime image created successfully.
 echo.
 
-REM ===== Prepare temp package dir =====
-echo [STEP] Preparing temporary package directory...
-if exist "%TEMP_PACKAGE_DIR%" (
-    echo [DEBUG] Removing old temp directory: %TEMP_PACKAGE_DIR%
-    rmdir /s /q "%TEMP_PACKAGE_DIR%"
-)
-mkdir "%TEMP_PACKAGE_DIR%"
+REM =========================================================
+REM Copy main jar
+REM =========================================================
+
+echo [STEP] Copying main JAR...
+copy /y "%JAR_FILE%" "%TEMP_INPUT_DIR%\%MAIN_JAR_NAME%" >nul
 if errorlevel 1 (
-    echo [ERROR] Failed to create temp directory: %TEMP_PACKAGE_DIR%
+    echo [ERROR] Failed to copy main JAR into temporary input directory.
     pause
     exit /b 1
 )
-echo [OK] Temp directory created: %TEMP_PACKAGE_DIR%
+echo [OK] Main JAR copied successfully.
 echo.
 
-REM ===== Copy JAR =====
-echo [STEP] Copying JAR into temp directory...
-copy "%JAR_FILE%" "%TEMP_PACKAGE_DIR%\"
-if errorlevel 1 (
-    echo [ERROR] Failed to copy JAR
-    echo [DEBUG] Source: %JAR_FILE%
-    echo [DEBUG] Target: %TEMP_PACKAGE_DIR%\
-    pause
-    exit /b 1
+REM =========================================================
+REM Optional lib copy
+REM =========================================================
+
+for %%I in ("%JAR_FILE%") do set "JAR_PARENT=%%~dpI"
+
+if exist "!JAR_PARENT!lib" (
+    echo [STEP] Detected lib directory. Copying additional libraries...
+    xcopy "!JAR_PARENT!lib" "%TEMP_INPUT_DIR%\lib\" /E /I /Y >nul
+    if errorlevel 1 (
+        echo [ERROR] Failed to copy lib directory.
+        pause
+        exit /b 1
+    )
+    echo [OK] Additional libraries copied.
+    echo.
 )
-echo [OK] JAR copied successfully
+
+echo [INFO] Temporary input contents:
+dir "%TEMP_INPUT_DIR%"
 echo.
 
-echo [DEBUG] Listing temp package directory:
-dir "%TEMP_PACKAGE_DIR%"
-echo.
+REM =========================================================
+REM Run jpackage
+REM =========================================================
 
-REM ===== Run jpackage =====
 echo [STEP] Running jpackage...
-echo [DEBUG] Command to execute:
-echo "%JPACKAGE_CMD%" --type exe --name "%APP_NAME%" --app-version "%APP_VERSION%" --vendor "%VENDOR%" --description "JavaClawBot - AI Assistant" --input "%TEMP_PACKAGE_DIR%" --main-jar "javaclawbot.jar" --main-class "gui.JavaClawBotGUI" --runtime-image "%JRE_DIR%" --dest "%OUTPUT_DIR%" --win-console --win-dir-chooser --win-menu --win-shortcut --verbose
+echo.
+echo [COMMAND]
+echo "%JPACKAGE_CMD%" --type exe --name "%APP_NAME%" --app-version "%APP_VERSION%" --vendor "%VENDOR%" --description "%DESCRIPTION%" --input "%TEMP_INPUT_DIR%" --main-jar "%MAIN_JAR_NAME%" --main-class "%MAIN_CLASS%" --runtime-image "%RUNTIME_DIR%" --dest "%OUTPUT_DIR%" --win-console --win-dir-chooser --win-menu --win-shortcut --verbose
 echo.
 
 "%JPACKAGE_CMD%" ^
@@ -276,11 +294,11 @@ echo.
   --name "%APP_NAME%" ^
   --app-version "%APP_VERSION%" ^
   --vendor "%VENDOR%" ^
-  --description "JavaClawBot - AI Assistant" ^
-  --input "%TEMP_PACKAGE_DIR%" ^
-  --main-jar "javaclawbot.jar" ^
-  --main-class "gui.JavaClawBotGUI" ^
-  --runtime-image "%JRE_DIR%" ^
+  --description "%DESCRIPTION%" ^
+  --input "%TEMP_INPUT_DIR%" ^
+  --main-jar "%MAIN_JAR_NAME%" ^
+  --main-class "%MAIN_CLASS%" ^
+  --runtime-image "%RUNTIME_DIR%" ^
   --dest "%OUTPUT_DIR%" ^
   --win-console ^
   --win-dir-chooser ^
@@ -288,30 +306,41 @@ echo.
   --win-shortcut ^
   --verbose
 
-set "JPACKAGE_ERROR=%ERRORLEVEL%"
+set "JPACKAGE_EXIT=%ERRORLEVEL%"
 echo.
-echo [DEBUG] jpackage exit code: %JPACKAGE_ERROR%
+echo [INFO] jpackage exit code: %JPACKAGE_EXIT%
 echo.
 
-REM ===== Cleanup =====
-if exist "%TEMP_PACKAGE_DIR%" (
-    echo [DEBUG] Cleaning temp directory: %TEMP_PACKAGE_DIR%
-    rmdir /s /q "%TEMP_PACKAGE_DIR%"
+REM =========================================================
+REM Cleanup temp input
+REM =========================================================
+
+echo [STEP] Cleaning temporary input directory...
+if exist "%TEMP_INPUT_DIR%" (
+    rmdir /s /q "%TEMP_INPUT_DIR%"
+    if exist "%TEMP_INPUT_DIR%" (
+        echo [WARN] Temp input directory could not be fully removed:
+        echo        %TEMP_INPUT_DIR%
+    ) else (
+        echo [OK] Temp input directory removed.
+    )
+) else (
+    echo [OK] Temp input directory already removed.
 )
 echo.
 
-if not "%JPACKAGE_ERROR%"=="0" (
-    echo [ERROR] Packaging failed, exit code: %JPACKAGE_ERROR%
+if not "%JPACKAGE_EXIT%"=="0" (
+    echo [ERROR] Packaging failed.
     pause
-    exit /b 1
+    exit /b %JPACKAGE_EXIT%
 )
 
-echo ============================================
-echo Packaging completed
-echo ============================================
-echo Output directory: %OUTPUT_DIR%
+echo =========================================================
+echo Packaging completed successfully
+echo =========================================================
+echo Output directory:
+echo %OUTPUT_DIR%
 echo.
-
 dir "%OUTPUT_DIR%"
 echo.
 pause
