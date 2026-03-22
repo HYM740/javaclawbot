@@ -1,6 +1,7 @@
 package gui;
 
 import agent.AgentLoop;
+import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
 import channels.ChannelManager;
@@ -41,6 +42,8 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Matcher;
@@ -124,6 +127,20 @@ public class JavaClawBotGUI extends JFrame {
     private HeartbeatService heartbeat;
     private ChannelManager channels;
     private MessageBus bus;
+    private CompletableFuture<Void> busTask;
+    private CompletableFuture<Void> outboundTask;
+    private final AtomicBoolean busLoopRunning = new AtomicBoolean(false);
+    private final AtomicReference<CountDownLatch> turnLatchRef =
+            new AtomicReference<>(new CountDownLatch(0));
+    private final AtomicReference<String> turnResponseRef =
+            new AtomicReference<>(null);
+
+    private final java.util.concurrent.ExecutorService guiAgentExecutor =
+            java.util.concurrent.Executors.newFixedThreadPool(4, r -> {
+                Thread t = new Thread(r, "javaclawbot-gui-agent");
+                t.setDaemon(true);
+                return t;
+            });
 
     // =========================
     // Gateway 模式
@@ -434,10 +451,10 @@ public class JavaClawBotGUI extends JFrame {
             cron = new CronService(cronStorePath, null);
 
             sessionManager = new SessionManager(this.config.getWorkspacePath());
-            MessageBus bus = new MessageBus();
+            this.bus = new MessageBus();
 
             agentLoop = new AgentLoop(
-                    bus,
+                    this.bus,
                     provider,
                     this.config.getWorkspacePath(),
                     this.config.getAgents().getDefaults().getModel(),
@@ -457,6 +474,7 @@ public class JavaClawBotGUI extends JFrame {
             );
 
             running.set(true);
+            startBusInteractiveMode();
             refreshModelLabel();
             updateStatus("就绪");
         } catch (Exception e) {
@@ -999,6 +1017,92 @@ public class JavaClawBotGUI extends JFrame {
     }
 
     /**
+     * 启动 GUI 版 bus 交互模式
+     * 逻辑对齐 CLI 的 agent 非单次模式：
+     * 1) 后台常驻运行 agentLoop.run()
+     * 2) GUI 通过 bus.publishInbound() 发消息
+     * 3) GUI 后台消费 bus outbound，并把 progress / 最终回复分流
+     */
+    private void startBusInteractiveMode() {
+        if (busLoopRunning.get()) {
+            return;
+        }
+        if (bus == null || agentLoop == null) {
+            appendSystem("Bus 交互模式启动失败：bus 或 agentLoop 未初始化");
+            return;
+        }
+
+        busLoopRunning.set(true);
+
+        busTask = CompletableFuture.runAsync(() -> {
+            try {
+                agentLoop.run();
+            } catch (Exception e) {
+                SwingUtilities.invokeLater(() ->
+                        appendSystem("AgentLoop 运行失败: " + e.getMessage()));
+            }
+        }, guiAgentExecutor);
+
+        outboundTask = CompletableFuture.runAsync(() -> {
+            while (busLoopRunning.get()) {
+                try {
+                    OutboundMessage out = bus.consumeOutbound(1, java.util.concurrent.TimeUnit.SECONDS);
+                    if (out == null) continue;
+
+                    Map<String, Object> meta = out.getMetadata() != null ? out.getMetadata() : Map.of();
+                    boolean isProgress = Boolean.TRUE.equals(meta.get("_progress"));
+                    boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
+
+                    if (isProgress) {
+                        var ch = agentLoop.getChannelsConfig();
+                        if (ch != null && isToolHint && !ch.isSendToolHints()) continue;
+                        if (ch != null && !isToolHint && !ch.isSendProgress()) continue;
+
+                        String content = out.getContent() == null ? "" : out.getContent();
+                        SwingUtilities.invokeLater(() -> appendProgress(content));
+                        continue;
+                    }
+
+                    java.util.concurrent.CountDownLatch latch = turnLatchRef.get();
+                    if (latch != null && latch.getCount() > 0) {
+                        if (out.getContent() != null && !out.getContent().isBlank()) {
+                            turnResponseRef.compareAndSet(null, out.getContent());
+                        }
+                        latch.countDown();
+                    } else {
+                        if (out.getContent() != null && !out.getContent().isBlank()) {
+                            String content = out.getContent();
+                            SwingUtilities.invokeLater(() -> appendBot(content));
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }, guiAgentExecutor);
+    }
+
+    /**
+     * 停止 GUI 版 bus 交互模式
+     */
+    private void stopBusInteractiveMode() {
+        busLoopRunning.set(false);
+
+        CountDownLatch latch = turnLatchRef.get();
+        if (latch != null) {
+            while (latch.getCount() > 0) {
+                latch.countDown();
+            }
+        }
+
+        if (outboundTask != null) {
+            outboundTask.cancel(true);
+        }
+        if (busTask != null) {
+            busTask.cancel(true);
+        }
+    }
+
+    /**
      * 切换为“停止模式”
      * 按钮显示为正方形 ■，可点击发送 /stop
      */
@@ -1055,13 +1159,13 @@ public class JavaClawBotGUI extends JFrame {
 
     /**
      * 点击停止按钮后，发送一条 /stop
+     * 注意：这里也必须走 bus，不能再走 processDirect，避免两套通道并存。
      */
     private void sendStopCommand() {
         if (!processing.get()) {
             return;
         }
 
-        // 防止重复点
         if (!stopRequested.compareAndSet(false, true)) {
             return;
         }
@@ -1071,29 +1175,29 @@ public class JavaClawBotGUI extends JFrame {
 
         CompletableFuture.runAsync(() -> {
             try {
-                String resp = agentLoop.processDirect(
-                        "/stop",
-                        sessionId,
+                InboundMessage stopMsg = new InboundMessage(
                         cliChannel,
+                        "user",
                         cliChatId,
-                        (content, toolHint) -> CompletableFuture.completedFuture(null)
-                ).toCompletableFuture().join();
+                        "/stop",
+                        null,
+                        null
+                );
 
-                SwingUtilities.invokeLater(() -> {
-                    if (resp != null && !resp.isBlank()) {
-                        appendSystem(resp);
-                    } else {
-                        appendSystem("已发送 /stop");
-                    }
-                });
+                bus.publishInbound(stopMsg).toCompletableFuture().join();
             } catch (Exception e) {
-                SwingUtilities.invokeLater(() -> appendSystem("发送 /stop 失败: " + e.getMessage()));
+                SwingUtilities.invokeLater(() ->
+                        appendSystem("发送 /stop 失败: " + e.getMessage()));
             }
-        });
+        }, guiAgentExecutor);
     }
 
     /**
      * 发送消息
+     * 改为对齐 CLI agent 非单次交互模式：
+     * 1) GUI 只负责 publishInbound
+     * 2) AgentLoop.run() 常驻消费
+     * 3) 最终回复由 outbound 消费线程回填
      */
     private void sendMessage() {
         String message = inputArea.getText() == null ? "" : inputArea.getText().trim();
@@ -1101,8 +1205,12 @@ public class JavaClawBotGUI extends JFrame {
             return;
         }
 
-        // 正在处理时，不允许继续发普通消息
         if (processing.get()) {
+            return;
+        }
+
+        if (bus == null || agentLoop == null) {
+            appendSystem("错误: bus 或 agentLoop 尚未初始化");
             return;
         }
 
@@ -1116,20 +1224,36 @@ public class JavaClawBotGUI extends JFrame {
 
         CompletableFuture.runAsync(() -> {
             try {
-                String resp = agentLoop.processDirect(
-                        message,
-                        sessionId,
+                turnResponseRef.set(null);
+                java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+                turnLatchRef.set(latch);
+
+                InboundMessage in = new InboundMessage(
                         cliChannel,
+                        "user",
                         cliChatId,
-                        this::onProgress
-                ).toCompletableFuture().join();
+                        message,
+                        null,
+                        null
+                );
+
+                bus.publishInbound(in).toCompletableFuture().join();
+
+                boolean ok = latch.await(5, java.util.concurrent.TimeUnit.MINUTES);
+                String resp = turnResponseRef.get();
+                turnLatchRef.set(new java.util.concurrent.CountDownLatch(0));
 
                 SwingUtilities.invokeLater(() -> {
-                    if (resp != null && !resp.isBlank()) {
+                    if (!ok) {
+                        appendSystem("等待回复超时");
+                        updateStatus("超时");
+                    } else if (resp != null && !resp.isBlank()) {
                         appendBot(resp);
+                        updateStatus(stopRequested.get() ? "已停止" : "就绪");
+                    } else {
+                        updateStatus(stopRequested.get() ? "已停止" : "就绪");
                     }
 
-                    updateStatus(stopRequested.get() ? "已停止" : "就绪");
                     processing.set(false);
                     stopRequested.set(false);
                     exitStopMode();
@@ -1140,10 +1264,11 @@ public class JavaClawBotGUI extends JFrame {
                     updateStatus("错误");
                     processing.set(false);
                     stopRequested.set(false);
+                    turnLatchRef.set(new java.util.concurrent.CountDownLatch(0));
                     exitStopMode();
                 });
             }
-        });
+        }, guiAgentExecutor);
     }
 
     /**
@@ -1373,6 +1498,7 @@ public class JavaClawBotGUI extends JFrame {
 
     private void shutdown() {
         running.set(false);
+        stopBusInteractiveMode();
 
         // Stop gateway components if running
         if (gatewayRunning.get()) {
@@ -1396,6 +1522,11 @@ public class JavaClawBotGUI extends JFrame {
             } catch (Exception ignored) {
             }
         }
+        try {
+            guiAgentExecutor.shutdownNow();
+        } catch (Exception ignored) {
+        }
+
     }
 
     // =========================
