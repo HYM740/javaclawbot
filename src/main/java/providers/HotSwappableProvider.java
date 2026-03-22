@@ -11,20 +11,6 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * 可热切换 Provider
- *
- * 设计模式：
- * - Proxy：对 AgentLoop 隐藏 provider 热更新与 fallback 逻辑
- * - Strategy：fallback 规则由 FallbackStrategy 决定
- * - Snapshot：每次请求绑定一个一致的 provider 快照
- *
- * 核心行为：
- * 1. 每次 chat 前检查配置文件是否变化
- * 2. 若变化则尝试重建 provider 快照
- * 3. 若新配置有问题，则保留旧快照
- * 4. 委托 ModelFallbackManager 执行 fallback 逻辑
- */
 public final class HotSwappableProvider extends LLMProvider {
 
     private static final Logger log = LoggerFactory.getLogger(HotSwappableProvider.class);
@@ -33,9 +19,6 @@ public final class HotSwappableProvider extends LLMProvider {
     private final ModelFallbackManager fallbackManager;
     private final ReentrantLock rebuildLock = new ReentrantLock();
 
-    /**
-     * 当前生效的 provider 快照
-     */
     private volatile ProviderRuntimeSnapshot activeSnapshot;
 
     public HotSwappableProvider(ConfigReloader reloader) {
@@ -55,13 +38,14 @@ public final class HotSwappableProvider extends LLMProvider {
             String model,
             int maxTokens,
             double temperature,
-            String reasoningEffort
+            String reasoningEffort,
+            CancelChecker cancelChecker
     ) {
         ProviderRuntimeSnapshot snapshot = ensureLatestSnapshot();
-
-        // 委托 ModelFallbackManager 执行
         ModelFallbackManager.FallbackChain chain = snapshot.getFallbackChain();
-        return fallbackManager.executeWithFallback(chain, messages, tools, maxTokens, temperature, reasoningEffort);
+        return fallbackManager.executeWithFallback(
+                chain, messages, tools, maxTokens, temperature, reasoningEffort, cancelChecker
+        );
     }
 
     @Override
@@ -70,11 +54,6 @@ public final class HotSwappableProvider extends LLMProvider {
         return s != null ? s.getModel() : "default";
     }
 
-    /**
-     * 确保当前快照已刷新到最新配置
-     *
-     * 若重建失败，则继续使用旧快照
-     */
     private ProviderRuntimeSnapshot ensureLatestSnapshot() {
         boolean changed = false;
         try {
@@ -117,9 +96,6 @@ public final class HotSwappableProvider extends LLMProvider {
         }
     }
 
-    /**
-     * 构建快照
-     */
     private ProviderRuntimeSnapshot buildSnapshot(ConfigSchema.Config config, long version) {
         ModelFallbackManager.FallbackChain chain = fallbackManager.buildFallbackChain(config);
         return new ProviderRuntimeSnapshot(version, chain);

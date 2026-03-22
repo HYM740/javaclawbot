@@ -7,28 +7,12 @@ import providers.startegy.FallbackStrategy;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.Function;
+import java.util.concurrent.CompletionException;
 
-/**
- * 模型回退管理器
- *
- * 职责：
- * - 构建 fallback 链（从配置解析）
- * - 执行带回退的 LLM 调用
- * - 管理回退策略
- *
- * 设计模式：
- * - Strategy：回退策略由 FallbackStrategy 决定
- * - Chain of Responsibility：按链执行 provider/model
- */
 public final class ModelFallbackManager {
 
-    /**
-     * 回退链
-     *
-     * 不可变数据类，包含完整的 provider/model 链和回退策略
-     */
     public static final class FallbackChain {
         private final String primaryProviderName;
         private final String primaryModel;
@@ -53,33 +37,13 @@ public final class ModelFallbackManager {
             this.maxAttempts = Math.max(1, maxAttempts);
         }
 
-        public String getPrimaryProviderName() {
-            return primaryProviderName;
-        }
+        public String getPrimaryProviderName() { return primaryProviderName; }
+        public String getPrimaryModel() { return primaryModel; }
+        public LLMProvider getPrimary() { return primary; }
+        public List<NamedProvider> getFallbacks() { return fallbacks; }
+        public FallbackStrategy getStrategy() { return strategy; }
+        public int getMaxAttempts() { return maxAttempts; }
 
-        public String getPrimaryModel() {
-            return primaryModel;
-        }
-
-        public LLMProvider getPrimary() {
-            return primary;
-        }
-
-        public List<NamedProvider> getFallbacks() {
-            return fallbacks;
-        }
-
-        public FallbackStrategy getStrategy() {
-            return strategy;
-        }
-
-        public int getMaxAttempts() {
-            return maxAttempts;
-        }
-
-        /**
-         * 返回完整 provider/model 链
-         */
         public List<NamedProvider> fullChain() {
             List<NamedProvider> chain = new ArrayList<>();
             chain.add(new NamedProvider(primaryProviderName, primaryModel, primary));
@@ -87,17 +51,11 @@ public final class ModelFallbackManager {
             return chain;
         }
 
-        /**
-         * 链的总长度
-         */
         public int chainLength() {
             return 1 + fallbacks.size();
         }
     }
 
-    /**
-     * 带名称的 Provider 节点
-     */
     public static final class NamedProvider {
         private final String name;
         private final String model;
@@ -109,17 +67,9 @@ public final class ModelFallbackManager {
             this.provider = Objects.requireNonNull(provider, "provider");
         }
 
-        public String getName() {
-            return name;
-        }
-
-        public String getModel() {
-            return model;
-        }
-
-        public LLMProvider getProvider() {
-            return provider;
-        }
+        public String getName() { return name; }
+        public String getModel() { return model; }
+        public LLMProvider getProvider() { return provider; }
 
         @Override
         public String toString() {
@@ -127,59 +77,40 @@ public final class ModelFallbackManager {
         }
     }
 
-    /**
-     * LLM 调用参数
-     */
     public static final class ChatParams {
         private final List<java.util.Map<String, Object>> messages;
         private final List<java.util.Map<String, Object>> tools;
         private final int maxTokens;
         private final double temperature;
         private final String reasoningEffort;
+        private final CancelChecker cancelChecker;
 
         public ChatParams(
                 List<java.util.Map<String, Object>> messages,
                 List<java.util.Map<String, Object>> tools,
                 int maxTokens,
                 double temperature,
-                String reasoningEffort
+                String reasoningEffort,
+                CancelChecker cancelChecker
         ) {
             this.messages = messages;
             this.tools = tools;
             this.maxTokens = maxTokens;
             this.temperature = temperature;
             this.reasoningEffort = reasoningEffort;
+            this.cancelChecker = cancelChecker;
         }
 
-        public List<java.util.Map<String, Object>> getMessages() {
-            return messages;
-        }
-
-        public List<java.util.Map<String, Object>> getTools() {
-            return tools;
-        }
-
-        public int getMaxTokens() {
-            return maxTokens;
-        }
-
-        public double getTemperature() {
-            return temperature;
-        }
-
-        public String getReasoningEffort() {
-            return reasoningEffort;
-        }
+        public List<java.util.Map<String, Object>> getMessages() { return messages; }
+        public List<java.util.Map<String, Object>> getTools() { return tools; }
+        public int getMaxTokens() { return maxTokens; }
+        public double getTemperature() { return temperature; }
+        public String getReasoningEffort() { return reasoningEffort; }
+        public CancelChecker getCancelChecker() { return cancelChecker; }
     }
 
     private final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ModelFallbackManager.class);
 
-    /**
-     * 从配置构建回退链
-     *
-     * @param config 配置对象
-     * @return FallbackChain
-     */
     public FallbackChain buildFallbackChain(ConfigSchema.Config config) {
         Objects.requireNonNull(config, "config");
 
@@ -187,18 +118,15 @@ public final class ModelFallbackManager {
         String providerName = defaults.getProvider();
         String model = defaults.getModel();
 
-        // 创建 primary provider
         LLMProvider primaryProvider = ProviderFactory.createProvider(config, providerName, model);
         String primaryProviderName = ProviderFactory.resolveProviderName(config, providerName, model);
 
-        // 获取 fallback 配置
         ConfigSchema.FallbackConfig fallbackConfig = defaults.getFallback();
         FallbackStrategy strategy = FallbackStrategies.byMode(
                 fallbackConfig != null ? fallbackConfig.getMode() : "on_error"
         );
         int maxAttempts = fallbackConfig != null ? fallbackConfig.getMaxAttempts() : 3;
 
-        // 构建 fallback 节点
         List<NamedProvider> fallbacks = buildFallbackNodes(config, fallbackConfig);
 
         return new FallbackChain(
@@ -211,13 +139,6 @@ public final class ModelFallbackManager {
         );
     }
 
-    /**
-     * 执行带回退的 LLM 调用
-     *
-     * @param chain  回退链
-     * @param params 调用参数
-     * @return CompletableFuture<LLMResponse>
-     */
     public CompletableFuture<LLMResponse> executeWithFallback(FallbackChain chain, ChatParams params) {
         List<NamedProvider> fullChain = chain.fullChain();
         int maxAttempts = Math.min(chain.getMaxAttempts(), fullChain.size());
@@ -228,17 +149,21 @@ public final class ModelFallbackManager {
         return result;
     }
 
-    /**
-     * 执行带回退的 LLM 调用（简化版）
-     *
-     * @param chain           回退链
-     * @param messages        消息列表
-     * @param tools           工具列表
-     * @param maxTokens       最大 token
-     * @param temperature     温度
-     * @param reasoningEffort 推理努力
-     * @return CompletableFuture<LLMResponse>
-     */
+    public CompletableFuture<LLMResponse> executeWithFallback(
+            FallbackChain chain,
+            List<java.util.Map<String, Object>> messages,
+            List<java.util.Map<String, Object>> tools,
+            int maxTokens,
+            double temperature,
+            String reasoningEffort,
+            CancelChecker cancelChecker
+    ) {
+        ChatParams params = new ChatParams(
+                messages, tools, maxTokens, temperature, reasoningEffort, cancelChecker
+        );
+        return executeWithFallback(chain, params);
+    }
+
     public CompletableFuture<LLMResponse> executeWithFallback(
             FallbackChain chain,
             List<java.util.Map<String, Object>> messages,
@@ -247,13 +172,9 @@ public final class ModelFallbackManager {
             double temperature,
             String reasoningEffort
     ) {
-        ChatParams params = new ChatParams(messages, tools, maxTokens, temperature, reasoningEffort);
-        return executeWithFallback(chain, params);
+        return executeWithFallback(chain, messages, tools, maxTokens, temperature, reasoningEffort, null);
     }
 
-    /**
-     * 递归执行链中的每个节点
-     */
     private void invokeAt(
             FallbackChain chain,
             List<NamedProvider> fullChain,
@@ -262,6 +183,15 @@ public final class ModelFallbackManager {
             ChatParams params,
             CompletableFuture<LLMResponse> result
     ) {
+        if (result.isDone()) {
+            return;
+        }
+
+        if (params.getCancelChecker() != null && params.getCancelChecker().isCancelled()) {
+            result.completeExceptionally(new CancellationException("LLM fallback chain cancelled"));
+            return;
+        }
+
         if (index >= fullChain.size() || index >= maxAttempts) {
             result.complete(errorResponse("所有提供商/模型都失败或没有有效的提供商响应。"));
             return;
@@ -272,51 +202,72 @@ public final class ModelFallbackManager {
         String model = current.getModel();
         LLMProvider provider = current.getProvider();
 
-        provider.chatWithRetry(params.getMessages(), params.getTools(), model, params.getMaxTokens(), params.getTemperature(), params.getReasoningEffort())
-                .whenComplete((resp, ex) -> {
-                    boolean shouldFallback = chain.getStrategy().shouldFallback(resp, ex, index);
+        provider.chatWithRetry(
+                params.getMessages(),
+                params.getTools(),
+                model,
+                params.getMaxTokens(),
+                params.getTemperature(),
+                params.getReasoningEffort(),
+                params.getCancelChecker()
+        ).whenComplete((resp, ex) -> {
+            if (result.isDone()) {
+                return;
+            }
 
-                    if (!shouldFallback) {
-                        if (ex != null) {
-                            result.complete(errorResponse(ex.toString()));
-                        } else {
-                            result.complete(resp != null ? resp : errorResponse("提供商返回空响应。"));
-                        }
-                        return;
-                    }
+            if (params.getCancelChecker() != null && params.getCancelChecker().isCancelled()) {
+                result.completeExceptionally(new CancellationException("LLM fallback chain cancelled"));
+                return;
+            }
 
-                    // 已经没有更多 fallback 节点
-                    if (index + 1 >= fullChain.size() || index + 1 >= maxAttempts) {
-                        if (ex != null) {
-                            log.warn("Provider {} / {} failed and no more fallbacks. error={}",
-                                    providerName, model, ex.toString());
-                            result.complete(errorResponse(ex.toString()));
-                        } else {
-                            log.warn("Provider {} / {} produced fallback-worthy response and no more fallbacks.",
-                                    providerName, model);
-                            result.complete(resp != null ? resp : errorResponse("没有更多可用的回退。"));
-                        }
-                        return;
-                    }
+            Throwable root = (ex instanceof CompletionException && ex.getCause() != null)
+                    ? ex.getCause()
+                    : ex;
 
-                    NamedProvider next = fullChain.get(index + 1);
-                    String reason = ex != null ? ex.toString() : summarizeResponse(resp);
+            if (root instanceof CancellationException) {
+                result.completeExceptionally(root);
+                return;
+            }
 
-                    log.warn("Provider {} / {} failed or invalid, fallback to {} / {}. strategy={}, reason={}",
-                            providerName,
-                            model,
-                            next.getName(),
-                            next.getModel(),
-                            chain.getStrategy().name(),
-                            reason);
+            boolean shouldFallback = chain.getStrategy().shouldFallback(resp, ex, index);
 
-                    invokeAt(chain, fullChain, index + 1, maxAttempts, params, result);
-                });
+            if (!shouldFallback) {
+                if (ex != null) {
+                    result.complete(errorResponse(ex.toString()));
+                } else {
+                    result.complete(resp != null ? resp : errorResponse("提供商返回空响应。"));
+                }
+                return;
+            }
+
+            if (index + 1 >= fullChain.size() || index + 1 >= maxAttempts) {
+                if (ex != null) {
+                    log.warn("Provider {} / {} failed and no more fallbacks. error={}",
+                            providerName, model, ex.toString());
+                    result.complete(errorResponse(ex.toString()));
+                } else {
+                    log.warn("Provider {} / {} produced fallback-worthy response and no more fallbacks.",
+                            providerName, model);
+                    result.complete(resp != null ? resp : errorResponse("没有更多可用的回退。"));
+                }
+                return;
+            }
+
+            NamedProvider next = fullChain.get(index + 1);
+            String reason = ex != null ? ex.toString() : summarizeResponse(resp);
+
+            log.warn("Provider {} / {} failed or invalid, fallback to {} / {}. strategy={}, reason={}",
+                    providerName,
+                    model,
+                    next.getName(),
+                    next.getModel(),
+                    chain.getStrategy().name(),
+                    reason);
+
+            invokeAt(chain, fullChain, index + 1, maxAttempts, params, result);
+        });
     }
 
-    /**
-     * 构建 fallback 节点列表
-     */
     private List<NamedProvider> buildFallbackNodes(ConfigSchema.Config config, ConfigSchema.FallbackConfig fallbackConfig) {
         List<NamedProvider> fallbacks = new ArrayList<>();
 
@@ -344,18 +295,15 @@ public final class ModelFallbackManager {
                 continue;
             }
 
-            // 为每个 model 创建一个 fallback 节点
             for (String targetModel : models) {
                 if (targetModel == null || targetModel.isBlank()) {
                     continue;
                 }
 
                 try {
-                    // 获取或创建 provider 配置
                     String apiKey = target.getApiKey();
                     String apiBase = target.getApiBase();
 
-                    // 如果没有显式配置，从全局配置获取
                     if ((apiKey == null || apiKey.isBlank()) && (apiBase == null || apiBase.isBlank())) {
                         ConfigSchema.ProviderConfig pc = config.getProviders().getByName(targetProvider);
                         if (pc != null) {
@@ -364,8 +312,9 @@ public final class ModelFallbackManager {
                         }
                     }
 
-                    // 创建 provider 实例
-                    LLMProvider provider = ProviderFactory.createProviderWithConfig(targetProvider, apiKey, apiBase, targetModel);
+                    LLMProvider provider = ProviderFactory.createProviderWithConfig(
+                            targetProvider, apiKey, apiBase, targetModel
+                    );
 
                     fallbacks.add(new NamedProvider(targetProvider, targetModel, provider));
                 } catch (Exception e) {

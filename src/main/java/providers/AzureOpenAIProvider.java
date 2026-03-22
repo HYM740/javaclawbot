@@ -10,7 +10,9 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -137,7 +139,7 @@ public class AzureOpenAIProvider extends LLMProvider {
             String model,
             int maxTokens,
             double temperature,
-            String reasoningEffort
+            String reasoningEffort, CancelChecker cancelChecker
     ) {
         String deploymentName = (model != null && !model.isBlank()) ? model : defaultModel;
         String url = buildChatUrl(deploymentName);
@@ -158,6 +160,11 @@ public class AzureOpenAIProvider extends LLMProvider {
             ));
         }
 
+        // 是否取消
+        if (cancelChecker != null && cancelChecker.isCancelled()) {
+            return CompletableFuture.failedFuture(new CancellationException("HTTP request cancelled before send"));
+        }
+
         HttpRequest.Builder reqBuilder = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(60))
                 .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8));
@@ -168,40 +175,69 @@ public class AzureOpenAIProvider extends LLMProvider {
 
         HttpRequest req = reqBuilder.build();
 
-        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
-                .thenApply(resp -> {
-                    if (resp.statusCode() != 200) {
-                        return new LLMResponse(
-                                "Azure OpenAI API Error " + resp.statusCode() + ": " + resp.body(),
-                                null,
-                                "error",
-                                null,
-                                null,
-                                null
-                        );
-                    }
+        CompletableFuture<HttpResponse<String>> rawFuture =
+                http.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
-                    try {
-                        return parseResponse(MAPPER.readTree(resp.body()));
-                    } catch (Exception e) {
-                        return new LLMResponse(
-                                "解析 Azure OpenAI 响应失败: " + e.getMessage(),
-                                null,
-                                "error",
-                                null,
-                                null,
-                                null
-                        );
+        if (cancelChecker != null) {
+            CompletableFuture.runAsync(() -> {
+                while (!rawFuture.isDone()) {
+                    if (cancelChecker.isCancelled()) {
+                        rawFuture.cancel(true);
+                        break;
                     }
-                })
-                .exceptionally(ex -> new LLMResponse(
-                        "调用 Azure OpenAI 失败: " + rootMessage(ex),
+                    try {
+                        Thread.sleep(100);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        break;
+                    }
+                }
+            });
+        }
+
+        return rawFuture.thenApply(resp -> {
+            if (cancelChecker != null && cancelChecker.isCancelled()) {
+                throw new CompletionException(new CancellationException("HTTP request cancelled"));
+            }
+
+            if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                String msg = "Error: HTTP " + resp.statusCode() + " " + resp.body();
+                LLMResponse r = new LLMResponse();
+                r.setContent(msg);
+                r.setFinishReason("error");
+                return r;
+            }
+
+            try {
+                return parseResponse(MAPPER.readTree(resp.body()));
+            } catch (Exception e) {
+                return new LLMResponse(
+                        "解析 Azure OpenAI 响应失败: " + e.getMessage(),
                         null,
                         "error",
                         null,
                         null,
                         null
-                ));
+                );
+            }
+        }).exceptionally(ex -> {
+            Throwable root = (ex instanceof CompletionException && ex.getCause() != null)
+                    ? ex.getCause()
+                    : ex;
+
+            if (root instanceof CancellationException) {
+                throw new CompletionException(root);
+            }
+
+            return new LLMResponse(
+                    "调用 Azure OpenAI 失败: " + rootMessage(ex),
+                    null,
+                    "error",
+                    null,
+                    null,
+                    null
+            );
+        });
     }
 
     private LLMResponse parseResponse(JsonNode root) {

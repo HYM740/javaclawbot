@@ -18,6 +18,7 @@ import context.ContextWindowDiscovery;
 import corn.CronService;
 import memory.MemoryCompaction;
 import memory.MemoryStore;
+import org.glassfish.grizzly.utils.StateHolder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
@@ -93,6 +94,20 @@ public class AgentLoop {
      * 子代理执行器
      */
     private final LocalSubagentExecutor localExec;
+
+    /**
+     * 会话级停止标记
+     * key = sessionKey
+     * value = true 表示该会话当前被请求停止
+     */
+    private final ConcurrentHashMap<String, AtomicBoolean> stopFlags = new ConcurrentHashMap<>();
+
+    /**
+     * 当前会话挂起中的 LLM 请求/重试任务
+     * stop 时统一 cancel
+     */
+    private final ConcurrentHashMap<String, CopyOnWriteArrayList<CompletableFuture<?>>> activeLlmCalls =
+            new ConcurrentHashMap<>();
 
     public AgentLoop(
             MessageBus bus,
@@ -362,8 +377,37 @@ public class AgentLoop {
         log.info("Agent 循环正在停止");
     }
 
+
+    private boolean completeIfStopped(
+            String sessionKey,
+            State st,
+            CompletableFuture<RunResult> out,
+            List<String> toolsUsed,
+            List<Map<String, Object>> messages,
+            UsageAccumulator usageAcc
+    ) {
+        if (!isStopRequested(sessionKey)) {
+            return false;
+        }
+
+        if (st.done.compareAndSet(false, true)) {
+            out.complete(new RunResult(
+                    "已停止。",
+                    toolsUsed,
+                    messages,
+                    usageAcc.getTotal()
+            ));
+        }
+        return true;
+    }
+
     private CompletionStage<Void> handleStop(InboundMessage msg) {
         String sessionKey = msg.getSessionKey();
+
+        // 1) 标记会话停止，并取消底层 LLM 请求 future
+        requestStop(sessionKey);
+
+        // 2) 再取消外层任务
         List<CompletableFuture<?>> tasks = activeTasks.remove(sessionKey);
         int cancelled = 0;
 
@@ -639,7 +683,6 @@ public class AgentLoop {
         List<Map<String, Object>> messages = new ArrayList<>(initialMessages);
         List<String> toolsUsed = new ArrayList<>();
 
-        // 使用 usageTrackers 跟踪每个会话的 usage（对齐 OpenClaw）
         UsageAccumulator usageAcc = usageTrackers.computeIfAbsent(sessionKey, k -> new UsageAccumulator());
 
         ContextPruningSettings pruningSettings = ContextPruningSettings.DEFAULT;
@@ -649,19 +692,15 @@ public class AgentLoop {
         final int maxOverflowCompactionAttempts = 3;
         int[] overflowCompactionAttempts = {0};
 
-        class State {
-            int iteration = 0;
-            String finalContent = null;
-            final AtomicBoolean done = new AtomicBoolean(false);
-        }
         State st = new State();
 
-        // 每次对话最后2个必定是用户消息
         Map<String, Object> userMsg1 = initialMessages.get(initialMessages.size() - 1);
-        // 添加用户消息至历史的memory 形式为 YYYY-mm-dd.md
         String msg = getContextFromMap(userMsg1);
-        // 添加每日记忆
         memoryStore.appendToToday(msg);
+
+        if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
+            return out;
+        }
 
         Runnable step = new Runnable() {
             @Override
@@ -670,7 +709,9 @@ public class AgentLoop {
                     return;
                 }
 
-                String appendToHisMemory;
+                if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
+                    return;
+                }
 
                 AgentRuntimeSettings.Snapshot rs = runtimeSnapshot();
                 st.iteration++;
@@ -678,10 +719,7 @@ public class AgentLoop {
                     st.finalContent =
                             "错误，已达到最大工具调用迭代次数 (" + rs.maxIterations() + ")，任务未完成。请尝试将任务拆分为更小的步骤。";
                     st.done.set(true);
-                    appendToHisMemory = "系统错误：" + st.finalContent;
-                    // 添加至记忆
-                    memoryStore.appendToToday(appendToHisMemory);
-
+                    memoryStore.appendToToday("系统错误：" + st.finalContent);
                     out.complete(new RunResult(st.finalContent, toolsUsed, messages, usageAcc.getTotal()));
                     return;
                 }
@@ -697,20 +735,44 @@ public class AgentLoop {
                     messages.addAll(prunedMessages);
                 }
 
-                provider.chatWithRetry(
+                if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
+                    return;
+                }
+
+                CompletableFuture<providers.LLMResponse> llmFuture = provider.chatWithRetry(
                         messages,
                         tools.getDefinitions(),
                         rs.model(),
                         rs.maxTokens(),
                         rs.temperature(),
-                        rs.reasoningEffort()
-                ).whenComplete((resp, ex) -> {
+                        rs.reasoningEffort(),
+                        () -> isStopRequested(sessionKey)
+                ).toCompletableFuture();
+
+                registerLlmCall(sessionKey, llmFuture);
+
+                llmFuture.whenComplete((resp, ex) -> {
                     if (st.done.get()) {
                         return;
                     }
 
+                    if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
+                        return;
+                    }
+
                     if (ex != null) {
-                        String errorMsg = ex.getMessage() != null ? ex.getMessage() : ex.toString();
+                        Throwable root = (ex instanceof CompletionException && ex.getCause() != null)
+                                ? ex.getCause()
+                                : ex;
+
+                        if (root instanceof CancellationException || isStopRequested(sessionKey)) {
+                            if (st.done.compareAndSet(false, true)) {
+                                out.complete(new RunResult("已停止。", toolsUsed, messages, usageAcc.getTotal()));
+                            }
+                            return;
+                        }
+
+                        String errorMsg = root.getMessage() != null ? root.getMessage() : root.toString();
 
                         if (ContextOverflowDetector.isLikelyContextOverflowError(errorMsg)) {
                             log.warn("检测到上下文溢出: {}", errorMsg);
@@ -759,9 +821,12 @@ public class AgentLoop {
                         }
 
                         st.done.set(true);
-                        // 添加至记忆
                         memoryStore.appendToToday("系统错误：\n" + errorMsg);
-                        out.completeExceptionally(ex);
+                        out.completeExceptionally(root);
+                        return;
+                    }
+
+                    if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
                         return;
                     }
 
@@ -797,15 +862,31 @@ public class AgentLoop {
                         messages.clear();
                         messages.addAll(updated);
 
-                        executeToolCallsSequential(resp.getToolCalls(), toolsUsed, messages, tools)
+                        executeToolCallsSequential(sessionKey, resp.getToolCalls(), toolsUsed, messages, tools)
                                 .whenComplete((v, ex2) -> {
                                     if (st.done.get()) {
                                         return;
                                     }
+
+                                    if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
+                                        return;
+                                    }
+
                                     if (ex2 != null) {
+                                        Throwable root2 = (ex2 instanceof CompletionException && ex2.getCause() != null)
+                                                ? ex2.getCause()
+                                                : ex2;
+
+                                        if (root2 instanceof CancellationException || isStopRequested(sessionKey)) {
+                                            if (st.done.compareAndSet(false, true)) {
+                                                out.complete(new RunResult("已停止。", toolsUsed, messages, usageAcc.getTotal()));
+                                            }
+                                            return;
+                                        }
+
                                         st.done.set(true);
-                                        memoryStore.appendToToday("工具调用异常：\n" + ex2.getMessage());
-                                        out.completeExceptionally(ex2);
+                                        memoryStore.appendToToday("工具调用异常：\n" + root2.getMessage());
+                                        out.completeExceptionally(root2);
                                     } else {
                                         executor.execute(this);
                                     }
@@ -813,13 +894,10 @@ public class AgentLoop {
                         return;
                     }
 
-
                     log.info("思考: \n{}", resp.getReasoningContent());
                     String clean = stripThink(resp.getContent());
 
-                    // 添加至每日记忆
                     memoryStore.appendToToday("<思考>" + resp.getReasoningContent() + "</思考>" + "\n" + clean);
-
                     log.info("LLM 回复:\n{}", clean);
 
                     List<Map<String, Object>> updated = context.addAssistantMessage(
@@ -856,16 +934,26 @@ public class AgentLoop {
     }
 
     private CompletionStage<Void> executeToolCallsSequential(
+            String sessionKey,
             List<ToolCallRequest> toolCalls,
             List<String> toolsUsed,
             List<Map<String, Object>> messages,
             ToolView tools
     ) {
+        if (isStopRequested(sessionKey)) {
+            return CompletableFuture.failedFuture(new CancellationException("session stopped"));
+        }
+
         CompletionStage<Void> chain = CompletableFuture.completedFuture(null);
 
         for (var tc : toolCalls) {
             chain = chain.thenCompose(v -> {
+                if (isStopRequested(sessionKey)) {
+                    return CompletableFuture.failedFuture(new CancellationException("session stopped"));
+                }
+
                 toolsUsed.add(tc.getName());
+
                 try {
                     log.info("工具调用: {}({})", tc.getName(), safeTruncate(JsonUtil.toJson(tc.getArguments()), 200));
                 } catch (Exception ignored) {
@@ -873,20 +961,33 @@ public class AgentLoop {
 
                 return tools.execute(tc.getName(), tc.getArguments())
                         .thenAccept(result -> {
-                            List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), result);
+                            if (isStopRequested(sessionKey)) {
+                                throw new CancellationException("session stopped");
+                            }
 
-                            // 获取工具链路,追加只每日记忆中
+                            List<Map<String, Object>> updated =
+                                    context.addToolResult(messages, tc.getId(), tc.getName(), result);
+
                             memoryStore.appendToToday(GsonFactory.getGson().toJson(updated.get(updated.size() - 1)));
 
                             messages.clear();
                             messages.addAll(updated);
-                }).exceptionally(ex -> {
-                    String err = formatToolError(tc.getName(), ex);
-                    List<Map<String, Object>> updated = context.addToolResult(messages, tc.getId(), tc.getName(), err);
-                    messages.clear();
-                    messages.addAll(updated);
-                    return null;
-                });
+                        }).exceptionally(ex -> {
+                            Throwable root = (ex instanceof CompletionException && ex.getCause() != null)
+                                    ? ex.getCause()
+                                    : ex;
+
+                            if (root instanceof CancellationException || isStopRequested(sessionKey)) {
+                                throw new CompletionException(root);
+                            }
+
+                            String err = formatToolError(tc.getName(), ex);
+                            List<Map<String, Object>> updated =
+                                    context.addToolResult(messages, tc.getId(), tc.getName(), err);
+                            messages.clear();
+                            messages.addAll(updated);
+                            return null;
+                        });
             });
         }
 
@@ -1153,7 +1254,8 @@ public class AgentLoop {
                 model,
                 1024,
                 0.3,
-                null
+                null,
+                () -> false
         ).toCompletableFuture().join().getContent();
 
         if (summary == null || summary.isBlank()) {
@@ -1205,6 +1307,9 @@ public class AgentLoop {
         String effectiveChannel = channel != null ? channel : "cli";
         String effectiveChatId = chatId != null ? chatId : "direct";
 
+        // 清除停止标志
+        clearStopRequested(effectiveSessionKey);
+
         return queue.enqueue(
                 effectiveSessionKey,
                 () -> connectMcp()
@@ -1231,6 +1336,54 @@ public class AgentLoop {
 
     public String getModel() {
         return runtimeSnapshot().model();
+    }
+
+    private AtomicBoolean stopFlag(String sessionKey) {
+        return stopFlags.computeIfAbsent(sessionKey, k -> new AtomicBoolean(false));
+    }
+
+    private boolean isStopRequested(String sessionKey) {
+        AtomicBoolean f = stopFlags.get(sessionKey);
+        return f != null && f.get();
+    }
+
+    private void clearStopRequested(String sessionKey) {
+        AtomicBoolean f = stopFlags.get(sessionKey);
+        if (f != null) {
+            f.set(false);
+        }
+    }
+
+    private void requestStop(String sessionKey) {
+        stopFlag(sessionKey).set(true);
+
+        List<CompletableFuture<?>> calls = activeLlmCalls.remove(sessionKey);
+        if (calls != null) {
+            for (CompletableFuture<?> f : calls) {
+                try {
+                    if (f != null && !f.isDone()) {
+                        f.cancel(true);
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
+
+    private void registerLlmCall(String sessionKey, CompletableFuture<?> future) {
+        activeLlmCalls
+                .computeIfAbsent(sessionKey, k -> new CopyOnWriteArrayList<>())
+                .add(future);
+
+        future.whenComplete((v, ex) -> {
+            CopyOnWriteArrayList<CompletableFuture<?>> list = activeLlmCalls.get(sessionKey);
+            if (list != null) {
+                list.remove(future);
+                if (list.isEmpty()) {
+                    activeLlmCalls.remove(sessionKey, list);
+                }
+            }
+        });
     }
 
     public interface ProgressCallback {
