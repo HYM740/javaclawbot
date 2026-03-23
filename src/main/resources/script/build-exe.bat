@@ -42,7 +42,8 @@ REM =========================================================
 set "JAVA_OPT_1=-Dfile.encoding=UTF-8"
 set "JAVA_OPT_2=-Dsun.jnu.encoding=UTF-8"
 set "JAVA_OPT_3=-Duser.language=en"
-set "JAVA_OPT_4=-Duser.country=US"
+set "JAVA_OPT_4=-Duser.country=CN"
+set "JAVA_OPT_5=-Duser.timezone=Asia/Shanghai"
 
 REM =========================================================
 REM Ultra-stable module set
@@ -317,6 +318,7 @@ echo.
   --java-options "%JAVA_OPT_2%" ^
   --java-options "%JAVA_OPT_3%" ^
   --java-options "%JAVA_OPT_4%" ^
+  --java-options "%JAVA_OPT_5%" ^
   --win-console ^
   --win-dir-chooser ^
   --win-menu ^
