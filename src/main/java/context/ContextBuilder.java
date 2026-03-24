@@ -120,6 +120,9 @@ public class ContextBuilder {
         String skillName = commandQueueManager.isLoadedByUserMsg(userMsg);
         if (StrUtil.isNotBlank(skillName)) {
             userMsg = userMsg.replace("/" + skillName, "").trim();
+
+            // 加载已经加载的技能说明
+            userMsg = "active skill: " + skillName + "\n\nARGUMENTS: " + userMsg;
             results[0] = userMsg;
             results[1] = false;
             return results;
