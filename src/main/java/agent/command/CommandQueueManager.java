@@ -2,6 +2,7 @@ package agent.command;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.collection.CollectionUtil;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import skills.SkillsLoader;
 
@@ -22,9 +23,13 @@ public class CommandQueueManager {
     private final Queue<LocalCommand> localQueue = new ConcurrentLinkedQueue<>();
     private final Queue<SkillCommand> skillQueue = new ConcurrentLinkedQueue<>();
 
+    @Getter
+    private final List<String> alwaysSkills = new ArrayList<>();
+
     /**
      * 已加载的技能
      */
+    @Getter
     private Set<String> loadSkills = Collections.synchronizedSet(new LinkedHashSet<>());
 
     public String isLoadedByUserMsg(String msg) {
@@ -184,6 +189,17 @@ public class CommandQueueManager {
 
         // 加载到已加载的技能中
         loadSkills.addAll(alwaysSkills);
+        // 常驻技能缓存
+        alwaysSkills.addAll(alwaysSkills);
         return result;
+    }
+
+    /**
+     * 输出最后一个加载的技能
+     * @return
+     */
+    public String lastLoadSkill() {
+        return CollUtil.getLast(loadSkills);
+
     }
 }

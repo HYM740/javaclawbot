@@ -116,16 +116,37 @@ public class ContextBuilder {
     public Object[] loadSkillByPrefix(String userMsg) {
         Object[] results = new Object[2];
 
+        // 技能前缀
+        String alwaysSkillPrefix = """
+                always skill: %s\n\n
+                """;
+
+        String activeSkillPrefix = """
+                active skill: %s\n\n
+                """;
+        List<String> alwaysSkills = commandQueueManager.getAlwaysSkills();
+
+        // 常驻技能说明
+        String alwaysSkillsStr = "";
+        // 加载常驻技能说明
+        if (CollUtil.isNotEmpty(alwaysSkills)) {
+            alwaysSkillsStr = alwaysSkillPrefix.formatted(String.join(", ", alwaysSkills));
+        }
+
         // 常驻和已加载技能判断
         String skillName = commandQueueManager.isLoadedByUserMsg(userMsg);
+
         if (StrUtil.isNotBlank(skillName)) {
             userMsg = userMsg.replace("/" + skillName, "").trim();
-
             // 加载已经加载的技能说明
-            userMsg = "active skill: " + skillName + "\n\nARGUMENTS: " + userMsg;
+            userMsg = alwaysSkillsStr + activeSkillPrefix.formatted(skillName) + "ARGUMENTS: " + userMsg;
+
             results[0] = userMsg;
             results[1] = false;
             return results;
+        }else if (StrUtil.isNotBlank(commandQueueManager.lastLoadSkill())) {
+            // 默认加载最后一个 加载的技能说明
+            userMsg = alwaysSkillsStr + activeSkillPrefix.formatted(commandQueueManager.lastLoadSkill()) + "ARGUMENTS: " + userMsg;
         }
 
         // 如果以上条件都不满足则查询所有技能
@@ -141,14 +162,14 @@ public class ContextBuilder {
                 for (ContentBlock block : list) {
                     sb.append(block.getText()).append("\n");
                 }
-                userMsg = sb + "\n\nARGUMENTS: " + userMsg;
+                userMsg = alwaysSkillsStr + sb + "\n\nARGUMENTS: " + userMsg;
                 results[0] = userMsg;
                 results[1] = true;
                 return results;
             }
         }
 
-        results[0] = userMsg;
+        results[0] = alwaysSkillsStr + userMsg;
         results[1] = false;
         return results;
     }
