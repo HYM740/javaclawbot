@@ -136,7 +136,7 @@ public class SubagentPersistence {
     private volatile boolean dirty = false;
 
     public SubagentPersistence(Path workspace) {
-        this.storePath = workspace.resolve(".javaclawbot").resolve("subagent-store.json");
+        this.storePath = workspace.resolve("memory").resolve("subagent").resolve("subagent-store.json");
         load();
     }
 
