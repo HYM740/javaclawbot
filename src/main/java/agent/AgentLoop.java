@@ -531,7 +531,7 @@ public class AgentLoop {
             String output = "历史会话完成压缩记忆, 新会话已开始";
             commandManager.addLocalCommand(new LocalCommand(cmd, output));
             // 发给用户
-            bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "历史会话正在压缩和记忆,请稍等片刻,等待压缩完成! 😊",
+            bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "历史会话正在压缩和记忆,请稍等片刻,等待压缩完成!完成后会通知您 😊",
                     List.of(),
                     Map.of()));
             return handleNewCommand(msg, session);
