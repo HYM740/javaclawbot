@@ -1,7 +1,12 @@
 package agent.command;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.NoArgsConstructor;
+
 import java.util.List;
 
+@Builder
 public class LocalCommand extends AbstractCommand {
 
     @FunctionalInterface
@@ -15,6 +20,11 @@ public class LocalCommand extends AbstractCommand {
         super(name, message, args);
         this.executor = executor;
     }
+    public LocalCommand(String name, String output) {
+        super(name, name, "");
+        this.output = output;
+        this.executor = null;
+    }
 
     public LocalCommand(String name, String message, Executor executor) {
         this(name, message, "", executor);
@@ -27,7 +37,7 @@ public class LocalCommand extends AbstractCommand {
 
     @Override
     public String execute() {
-        this.output = executor.execute(name, message, args);
+        // this.output = executor.execute(name, message, args);
         return this.output;
     }
 

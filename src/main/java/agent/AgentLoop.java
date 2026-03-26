@@ -1,6 +1,7 @@
 package agent;
 
 import agent.command.CommandQueueManager;
+import agent.command.LocalCommand;
 import agent.subagent.LocalSubagentExecutor;
 import agent.subagent.SessionsSpawnTool;
 import agent.subagent.SubagentManager;
@@ -63,6 +64,8 @@ public class AgentLoop {
     private final AgentRuntimeSettings runtimeSettings;
     private final ExecutorService executor;
     private final MemoryStore memoryStore;
+    private final CommandQueueManager commandManager;
+    private final SkillsLoader skillsLoader;
     /**
      * 全局共享工具
      */
@@ -157,6 +160,10 @@ public class AgentLoop {
         // 注册工具
         this.sharedTools = new ToolRegistry();
 
+        // 技能工具
+        this.skillsLoader = new SkillsLoader(workspace);
+        this.commandManager = new CommandQueueManager(skillsLoader);
+
         registerSharedTools();
 
         int maxConcurrent = 4;
@@ -218,10 +225,7 @@ public class AgentLoop {
         sharedTools.register(new WebSearchTool(braveApiKey, null));
         sharedTools.register(new WebFetchTool(null));
 
-        // 技能工具
-        SkillsLoader skillsLoader = new SkillsLoader(workspace);
-        CommandQueueManager queueManager = new CommandQueueManager(skillsLoader);
-        sharedTools.register(new SkillTool(queueManager, skillsLoader));
+        sharedTools.register(new SkillTool(commandManager, skillsLoader));
         //sharedTools.register(new UninstallSkillTool(skillsLoader));
 
         // 记忆搜索工具
@@ -509,14 +513,22 @@ public class AgentLoop {
         String cmd = msg.getContent() == null ? "" : msg.getContent().trim().toLowerCase(Locale.ROOT);
 
         if ("/new".equals(cmd)) {
+            String output = "历史会话完成压缩记忆, 新会话已开始";
+            commandManager.addLocalCommand(new LocalCommand(cmd, output));
+            // 发给用户
+            bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "历史会话正在压缩和记忆,请稍等片刻,等待压缩完成! 😊",
+                    List.of(),
+                    Map.of()));
             return handleNewCommand(msg, session);
         }
 
         if ("/help".equals(cmd)) {
+            String output = "javaclawbot 命令:\n/new — 开始新对话\n/stop — 停止当前任务\n/help — 显示可用命令";
+            commandManager.addLocalCommand(new LocalCommand(cmd, output));
             return CompletableFuture.completedFuture(new OutboundMessage(
                     msg.getChannel(),
                     msg.getChatId(),
-                    "🐱 javaclawbot 命令:\n/new — 开始新对话\n/stop — 停止当前任务\n/help — 显示可用命令",
+                    output,
                     List.of(),
                     Map.of()
             ));
@@ -524,10 +536,12 @@ public class AgentLoop {
 
         if ("/mcp-reload".equals(cmd) || "/mcp-init".equals(cmd)) {
             mcpManager.refreshTools().toCompletableFuture().join();
+            String output = "🐱 MCP 插件已重新加载。";
+            commandManager.addLocalCommand(new LocalCommand(cmd, output));
             return CompletableFuture.completedFuture(new OutboundMessage(
                     msg.getChannel(),
                     msg.getChatId(),
-                    "🐱 MCP 插件已重新加载。",
+                    output,
                     List.of(),
                     Map.of()
             ));
