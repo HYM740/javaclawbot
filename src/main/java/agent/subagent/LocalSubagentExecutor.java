@@ -150,11 +150,14 @@ public class LocalSubagentExecutor implements SubagentExecutor {
                     }
 
                     // 调用LLM
+                    log.info("Subagent [{}] calling LLM, iteration {}", runId, i + 1);
                     LLMResponse response = chatWithRetry(
                             provider, messages, tools.getDefinitions(),
                             record.getModel() != null ? record.getModel() : provider.getDefaultModel(),
                             8192, 0.5, null
-                    ).toCompletableFuture().join();
+                    );
+                    log.info("Subagent [{}] LLM response received, hasToolCalls={}, contentLength={}",
+                            runId, response.hasToolCalls(), response.getContent() != null ? response.getContent().length() : 0);
 
                     if (response.hasToolCalls()) {
                         // 追加assistant消息
@@ -196,10 +199,10 @@ public class LocalSubagentExecutor implements SubagentExecutor {
             } finally {
                 terminateSignals.remove(runId);
             }
-        }, executor);
+        }, executor)
+                .whenComplete((v, ex) -> runningTasks.remove(runId));
 
         runningTasks.put(runId, future);
-        future.whenComplete((v, ex) -> runningTasks.remove(runId));
 
         return future;
     }
@@ -370,7 +373,7 @@ public class LocalSubagentExecutor implements SubagentExecutor {
     }
 
     @SuppressWarnings("unchecked")
-    private static CompletableFuture<LLMResponse> chatWithRetry(
+    private static LLMResponse chatWithRetry(
             LLMProvider provider,
             List<Map<String, Object>> messages,
             List<Map<String, Object>> tools,
@@ -379,23 +382,8 @@ public class LocalSubagentExecutor implements SubagentExecutor {
             double temperature,
             String reasoningEffort
     ) {
-        try {
             // 尝试6参数版本
-            Method m = provider.getClass().getMethod(
-                    "chat",
-                    List.class, List.class, String.class, int.class, double.class, String.class
-            );
-            Object r = m.invoke(provider, messages, tools, model, maxTokens, temperature, reasoningEffort);
-            if (r instanceof CompletableFuture<?> f) {
-                return (CompletableFuture<LLMResponse>) f;
-            }
-        } catch (NoSuchMethodException ignored) {
-        } catch (Exception e) {
-            log.debug("chat 6-param failed, falling back: {}", e.toString());
-        }
-
-        // 回退到5参数版本
-        return provider.chat(messages, tools, model, maxTokens, temperature);
+            return provider.chatWithRetry(messages, tools, model, maxTokens, temperature, reasoningEffort).toCompletableFuture().join();
     }
 
     /**

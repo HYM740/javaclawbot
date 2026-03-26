@@ -43,7 +43,7 @@ public class SessionsSpawnTool extends Tool {
 
     @Override
     public String description() {
-        return "Spawn an isolated sub-agent session. mode=\"run\" for one-shot, mode=\"session\" for persistent. Sub-agents inherit parent workspace.";
+        return "create sub-agent, Spawn an isolated sub-agent session. mode=\"run\" for one-shot, mode=\"session\" for persistent. Sub-agents inherit parent workspace.";
     }
 
     @Override

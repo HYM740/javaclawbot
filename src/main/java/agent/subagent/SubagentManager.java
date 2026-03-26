@@ -13,6 +13,7 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -83,13 +84,37 @@ public class SubagentManager {
 
         this.model = (model == null || model.isBlank()) ? provider.getDefaultModel() : model;
         this.temperature = (temperature == null) ? 0.7 : temperature;
-        this.maxTokens = (maxTokens == null) ? 4096 : maxTokens;
+        this.maxTokens = (maxTokens == null) ? 8192 : maxTokens;
         this.reasoningEffort = (reasoningEffort == null || reasoningEffort.isBlank()) ? null : reasoningEffort;
         this.braveApiKey = braveApiKey;
         this.execConfig = (execConfig == null) ? new ConfigSchema.ExecToolConfig() : execConfig;
         this.restrictToWorkspace = restrictToWorkspace;
 
-        this.executor = (executor != null) ? executor : ForkJoinPool.commonPool();
+        if (executor instanceof ExecutorService es) {
+            this.executor = es;
+        } else if (executor != null) {
+            this.executor = executor;
+        } else {
+            this.executor = new ThreadPoolExecutor(
+                    Runtime.getRuntime().availableProcessors(),
+                    Math.max(4, Runtime.getRuntime().availableProcessors()),
+                    60L,
+                    TimeUnit.SECONDS,
+                    new LinkedBlockingQueue<>(),
+                    new ThreadFactory() {
+                        private final ThreadFactory delegate = Executors.defaultThreadFactory();
+                        private final AtomicInteger idx = new AtomicInteger(1);
+
+                        @Override
+                        public Thread newThread(Runnable r) {
+                            Thread t = delegate.newThread(r);
+                            t.setName("subagent-" + idx.getAndIncrement());
+                            t.setDaemon(false); // 关键：不要是 daemon
+                            return t;
+                        }
+                    }
+            );
+        }
 
         // 初始化核心组件
         this.registry = SubagentRegistry.getInstance();
@@ -178,7 +203,7 @@ public class SubagentManager {
         // 构建子Agent系统提示词
         SubagentSystemPromptBuilder.Params promptParams = new SubagentSystemPromptBuilder.Params()
                 .task(task)
-                .task(displayLabel)
+                .label(displayLabel)
                 .requesterSessionKey(requesterKey)
                 .requesterChannel(originChannel)
                 .childSessionKey(childSessionKey)
@@ -253,6 +278,7 @@ public class SubagentManager {
         result.put("note", "自动公告是推送模式。启动子代理后，不要调用list、 sessions_list、sessions_history、exec sleep 或任何查询子代理状态工具。等待完成事件作为用户消息到达。");
         result.put("text", String.format("子代理 [%s] 已启动 (id: %s)。完成时会通知您。", displayLabel, runId));
 
+        log.info("子代理已启动, 结果:{}", result);
         return CompletableFuture.completedFuture(toJson(result));
     }
 

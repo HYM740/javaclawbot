@@ -249,9 +249,11 @@ public class AgentLoop {
         // ========== 多 Agent / subagent 相关 ==========
         SessionsSpawnTool spawnTool = new agent.subagent.SessionsSpawnTool(subagents);
         spawnTool.setContext(sessionKy, channel, chatId);
+        localTools.register(spawnTool);
 
         SubagentsControlTool subagentsControlTool = new SubagentsControlTool(subagents);
         localTools.register(subagentsControlTool);
+
 
         // CronTool 带 channel/chatId 上下文，也做成每请求独立
         if (cronService != null) {
@@ -512,7 +514,7 @@ public class AgentLoop {
         }
 
         if ("/mcp-reload".equals(cmd) || "/mcp-init".equals(cmd)) {
-            connectMcp().toCompletableFuture().join();
+            mcpManager.refreshTools().toCompletableFuture().join();
             return CompletableFuture.completedFuture(new OutboundMessage(
                     msg.getChannel(),
                     msg.getChatId(),
