@@ -97,6 +97,8 @@ public class ContextBuilder {
         parts.add(bootstrapLoader.loadSoul());
         // 加载用户说明
         parts.add(bootstrapLoader.loadUser());
+        // 加载用户说明
+        parts.add(bootstrapLoader.loadTool());
 
         // by zcw 3/19 无需加载其他文件了,改为手动指定加载
         /*List<BootstrapFile> bootstrapFiles = bootstrapLoader.resolveBootstrapFiles();
@@ -339,6 +341,10 @@ public class ContextBuilder {
                 "content", buildUserContent(currentMessage, media)
         ));*/
         return out;
+    }
+
+    private Object loadTool() {
+        return null;
     }
 
     /**

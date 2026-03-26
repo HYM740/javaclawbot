@@ -33,6 +33,7 @@ import skills.SkillsLoader;
 import utils.GsonFactory;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -77,7 +78,20 @@ public class AgentLoop {
      * MCP 动态工具管理器
      */
     private final McpManager mcpManager;
+    /**
+     * 正在压缩的会话
+     */
     private final Set<String> consolidating = ConcurrentHashMap.newKeySet();
+    /**
+     * 独立的压缩线程池，不和主 AgentLoop 共用
+     */
+    private final ExecutorService consolidationExecutor =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "memory-consolidation");
+                t.setDaemon(true);
+                return t;
+            });
+
     private final Set<CompletableFuture<?>> consolidationTasks = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, ReentrantLock> consolidationLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<CompletableFuture<?>>> activeTasks = new ConcurrentHashMap<>();
@@ -494,7 +508,7 @@ public class AgentLoop {
             );
 
             return runAgentLoop(sessionKy, initial, requestTools, null).thenApply(rr -> {
-                saveTurn(session, rr.messages, 1 + history.size());
+                saveTurn(session, rr.messages, 2 + history.size());
                 sessions.save(session);
                 return new OutboundMessage(
                         channel,
@@ -549,8 +563,10 @@ public class AgentLoop {
         }
 
         int useMemoryWindow = currentMemoryWindow();
+        /*
         int unconsolidated = session.getMessages().size() - session.getLastConsolidated();
-        if (unconsolidated >= useMemoryWindow && !consolidating.contains(session.getKey())) {
+        // 大于窗口大小的 2/3 开始压缩上下文窗口
+        if (unconsolidated >= (useMemoryWindow * 0.7) && !consolidating.contains(session.getKey())) {
             consolidating.add(session.getKey());
             ReentrantLock lock = getConsolidationLock(session.getKey());
             CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
@@ -559,13 +575,19 @@ public class AgentLoop {
                     consolidateMemory(session, false).toCompletableFuture().join();
                 } finally {
                     consolidating.remove(session.getKey());
-                    if (lock.isHeldByCurrentThread()) lock.unlock();
+                    // 释放锁
+                    if (lock.isHeldByCurrentThread()) {
+                        lock.unlock();
+                    }
+
+                    // 删除锁标志
                     pruneConsolidationLock(session.getKey(), lock);
                 }
             }, executor);
+            // 压缩任务钩子添加
             consolidationTasks.add(f);
             f.whenComplete((v, ex) -> consolidationTasks.remove(f));
-        }
+        }*/
 
         ToolView requestTools = buildRequestToolsAndSetContext(
                 sessionKey, msg.getChannel(),
@@ -610,8 +632,8 @@ public class AgentLoop {
                     ? rr.finalContent
                     : "处理完成但没有响应内容。";
 
-            saveTurn(session, rr.messages, 1 + history.size());
-            sessions.save(session);
+            // 尝试压缩和保存session
+            tryScheduleConsolidation(session, rr.messages, 2 + history.size());
 
             var msgTool = requestTools.get("message");
             if (msgTool instanceof MessageTool m && m.isSentInTurn()) {
@@ -626,6 +648,63 @@ public class AgentLoop {
                     msg.getMetadata() != null ? msg.getMetadata() : Map.of()
             );
         });
+    }
+
+    /**
+     * 尝试压缩上下文
+     * @param session
+     * @param skip
+     */
+    private void tryScheduleConsolidation(Session session, List<Map<String, Object>> messages, int skip) {
+        String sessionKey = session.getKey();
+        int unconsolidated = session.getMessages().size() - session.getLastConsolidated();
+
+        // 阈值提高，别太早触发
+        int threshold = Math.max(20, (int) Math.ceil(currentMemoryWindow() * 0.9));
+        if (unconsolidated < threshold) {
+            return;
+        }
+
+        // 已经在压缩中就直接跳过
+        if (!consolidating.add(sessionKey)) {
+            return;
+        }
+
+        ReentrantLock lock = getConsolidationLock(sessionKey);
+
+        CompletableFuture
+                .runAsync(() -> {
+                    boolean locked = false;
+                    try {
+                        // 不阻塞等锁，拿不到就放弃这次，避免和热路径抢
+                        locked = lock.tryLock();
+                        if (!locked) {
+                            return;
+                        }
+
+                        // 双检，避免排队期间消息状态已变化
+                        int latestUnconsolidated = session.getMessages().size() - session.getLastConsolidated();
+                        int latestThreshold = Math.max(20, (int) Math.ceil(currentMemoryWindow() * 0.9));
+                        if (latestUnconsolidated < latestThreshold) {
+                            return;
+                        }
+
+                        // 这里只在专用线程池中阻塞，不影响主对话线程池
+                        consolidateMemory(session, false).toCompletableFuture().join();
+
+                        // 压缩完成后, 保存session
+                        saveTurn(session, messages, skip);
+                        sessions.save(session);
+                    } catch (Exception e) {
+                        log.warn("会话压缩失败, sessionKey={}", sessionKey, e);
+                    } finally {
+                        consolidating.remove(sessionKey);
+                        if (locked) {
+                            lock.unlock();
+                        }
+                        pruneConsolidationLock(sessionKey, lock);
+                    }
+                }, consolidationExecutor);
     }
 
     private CompletionStage<OutboundMessage> handleNewCommand(InboundMessage msg, Session session) {
@@ -711,8 +790,9 @@ public class AgentLoop {
         State st = new State();
 
         Map<String, Object> userMsg1 = initialMessages.get(initialMessages.size() - 1);
-        String msg = getContextFromMap(userMsg1);
-        memoryStore.appendToToday(msg);
+
+        // 添加原始日志
+        memoryStore.appendToToday(GsonFactory.getGson().toJson(userMsg1));
 
         if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
             return out;
@@ -735,7 +815,14 @@ public class AgentLoop {
                     st.finalContent =
                             "错误，已达到最大工具调用迭代次数 (" + rs.maxIterations() + ")，任务未完成。请尝试将任务拆分为更小的步骤。";
                     st.done.set(true);
-                    memoryStore.appendToToday("系统错误：" + st.finalContent);
+
+                    // 添加原始日志
+                    Map<String, Object> systemMsg = new HashMap<>();
+                    systemMsg.put("role", "agent_system");
+                    systemMsg.put("content", st.finalContent);
+                    systemMsg.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    memoryStore.appendToToday(GsonFactory.getGson().toJson(systemMsg));
+
                     out.complete(new RunResult(st.finalContent, toolsUsed, messages, usageAcc.getTotal()));
                     return;
                 }
@@ -837,7 +924,14 @@ public class AgentLoop {
                         }
 
                         st.done.set(true);
-                        memoryStore.appendToToday("系统错误：\n" + errorMsg);
+
+                        // 添加原始日志
+                        Map<String, Object> systemMsg = new HashMap<>();
+                        systemMsg.put("role", "agent_system");
+                        systemMsg.put("content", errorMsg);
+                        systemMsg.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                        memoryStore.appendToToday(GsonFactory.getGson().toJson(systemMsg));
+
                         out.completeExceptionally(root);
                         return;
                     }
@@ -901,7 +995,15 @@ public class AgentLoop {
                                         }
 
                                         st.done.set(true);
-                                        memoryStore.appendToToday("工具调用异常：\n" + root2.getMessage());
+
+
+                                        // 添加原始日志
+                                        Map<String, Object> systemMsg = new HashMap<>();
+                                        systemMsg.put("role", "agent_system");
+                                        systemMsg.put("content", "工具调用异常：\n" + root2.getMessage());
+                                        systemMsg.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                                        memoryStore.appendToToday(GsonFactory.getGson().toJson(systemMsg));
+
                                         out.completeExceptionally(root2);
                                     } else {
                                         executor.execute(this);
@@ -913,7 +1015,14 @@ public class AgentLoop {
                     log.info("思考: \n{}", resp.getReasoningContent());
                     String clean = stripThink(resp.getContent());
 
-                    memoryStore.appendToToday("<思考>" + resp.getReasoningContent() + "</思考>" + "\n" + clean);
+                    // 添加原始日志
+                    Map<String, Object> assistant = new HashMap<>();
+                    assistant.put("role", "assistant");
+                    assistant.put("content", clean);
+                    assistant.put("reasoning_content", resp.getReasoningContent());
+                    assistant.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    memoryStore.appendToToday(GsonFactory.getGson().toJson(assistant));
+
                     log.info("LLM 回复:\n{}", clean);
 
                     List<Map<String, Object>> updated = context.addAssistantMessage(

@@ -288,4 +288,8 @@ public class BootstrapLoader {
     public String loadUser() {
         return doGetContent("USER.md");
     }
+
+    public String loadTool() {
+        return doGetContent("TOOLS.md");
+    }
 }

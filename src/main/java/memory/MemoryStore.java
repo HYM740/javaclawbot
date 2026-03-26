@@ -106,11 +106,10 @@ public class MemoryStore {
             )) {
                 String real = rstrip(content);
                 String findContent = """
-                        %s
                         ```
                         %s
                         ```\n\n
-                        """.formatted(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")), real);
+                        """.formatted( real);
                 w.write(findContent);
                 //w.newLine();
                 //w.newLine();
@@ -261,6 +260,7 @@ public class MemoryStore {
 
     // ==================== 对话历史压缩 ====================
 
+
     /**
      * 将旧消息压缩到 MEMORY.md
      *
@@ -305,11 +305,13 @@ public class MemoryStore {
 
             // 消息不足以产生"可压缩区间"
             if (session.getMessages().size() <= keepCount) {
+                log.info("消息不足以产生'可压缩区间'，因此不进行压缩");
                 return CompletableFuture.completedFuture(true);
             }
 
             // 没有新增可压缩内容
             if (session.getMessages().size() - session.getLastConsolidated() <= 0) {
+                log.info("没有新增可压缩内容，因此不进行压缩");
                 return CompletableFuture.completedFuture(true);
             }
 
