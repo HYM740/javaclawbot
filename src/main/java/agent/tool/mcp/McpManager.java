@@ -191,7 +191,7 @@ public class McpManager {
 
             currentConnectFuture = CompletableFuture.runAsync(() -> {
                 // 1) 实时读取配置文件
-                ConfigSchema.Config config = ConfigIO.loadConfig(workspace);
+                ConfigSchema.Config config = ConfigIO.loadConfig(ConfigIO.getConfigPath(workspace));
 
                 Map<String, ConfigSchema.MCPServerConfig> latestServers =
                         config != null
