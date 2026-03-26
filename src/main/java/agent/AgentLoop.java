@@ -331,6 +331,9 @@ public class AgentLoop {
                 continue;
             }
 
+            // 新任务开始前清理 stop 标记
+            clearStopRequested(msg.getSessionKey());
+
             CompletableFuture<Void> task = dispatch(msg);
             activeTasks.computeIfAbsent(msg.getSessionKey(), k -> new CopyOnWriteArrayList<>()).add(task);
 
@@ -469,6 +472,9 @@ public class AgentLoop {
 
     private CompletionStage<OutboundMessage> processMessage(InboundMessage msg, String sessionKeyOverride, ProgressCallback onProgress) {
         if ("system".equals(msg.getChannel())) {
+            // 新任务开始前清理 stop 标记
+            clearStopRequested(msg.getSessionKey());
+
             String chat = msg.getChatId();
             String channel = (chat != null && chat.contains(":")) ? chat.split(":", 2)[0] : "cli";
             String chatId = (chat != null && chat.contains(":")) ? chat.split(":", 2)[1] : chat;
@@ -496,6 +502,9 @@ public class AgentLoop {
         }
 
         String sessionKey = (sessionKeyOverride != null) ? sessionKeyOverride : msg.getSessionKey();
+        // 新任务开始前清理 stop 标记
+        clearStopRequested(sessionKey);
+
         Session session = sessions.getOrCreate(sessionKey);
         String cmd = msg.getContent() == null ? "" : msg.getContent().trim().toLowerCase(Locale.ROOT);
 
