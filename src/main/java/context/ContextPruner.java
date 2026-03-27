@@ -45,7 +45,7 @@ public class ContextPruner {
         }
 
         // 计算字符窗口
-        int charWindow = contextWindowTokens * ContextPruningSettings.CHARS_PER_TOKEN_ESTIMATE;
+        int charWindow = (int) Math.floor(contextWindowTokens * ContextPruningSettings.CHARS_PER_TOKEN_ESTIMATE);
         if (charWindow <= 0) {
             return messages;
         }

@@ -563,31 +563,6 @@ public class AgentLoop {
         }
 
         int useMemoryWindow = currentMemoryWindow();
-        /*
-        int unconsolidated = session.getMessages().size() - session.getLastConsolidated();
-        // 大于窗口大小的 2/3 开始压缩上下文窗口
-        if (unconsolidated >= (useMemoryWindow * 0.7) && !consolidating.contains(session.getKey())) {
-            consolidating.add(session.getKey());
-            ReentrantLock lock = getConsolidationLock(session.getKey());
-            CompletableFuture<Void> f = CompletableFuture.runAsync(() -> {
-                try {
-                    lock.lock();
-                    consolidateMemory(session, false).toCompletableFuture().join();
-                } finally {
-                    consolidating.remove(session.getKey());
-                    // 释放锁
-                    if (lock.isHeldByCurrentThread()) {
-                        lock.unlock();
-                    }
-
-                    // 删除锁标志
-                    pruneConsolidationLock(session.getKey(), lock);
-                }
-            }, executor);
-            // 压缩任务钩子添加
-            consolidationTasks.add(f);
-            f.whenComplete((v, ex) -> consolidationTasks.remove(f));
-        }*/
 
         ToolView requestTools = buildRequestToolsAndSetContext(
                 sessionKey, msg.getChannel(),
@@ -838,10 +813,13 @@ public class AgentLoop {
                     messages.addAll(prunedMessages);
                 }
 
+                // 是否停止
                 if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
                     return;
                 }
 
+                // 通过llm执行上下文压缩
+                log.info("正在通过llm执行上下文压缩");
                 CompletableFuture<providers.LLMResponse> llmFuture = provider.chatWithRetry(
                         messages,
                         tools.getDefinitions(),
