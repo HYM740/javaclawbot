@@ -818,8 +818,6 @@ public class AgentLoop {
                     return;
                 }
 
-                // 通过llm执行上下文压缩
-                log.info("正在通过llm执行上下文压缩");
                 CompletableFuture<providers.LLMResponse> llmFuture = provider.chatWithRetry(
                         messages,
                         tools.getDefinitions(),
@@ -833,6 +831,8 @@ public class AgentLoop {
                 registerLlmCall(sessionKey, llmFuture);
 
                 llmFuture.whenComplete((resp, ex) -> {
+                    // 通过llm执行上下文压缩
+
                     if (st.done.get()) {
                         return;
                     }
