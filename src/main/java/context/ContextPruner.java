@@ -41,19 +41,19 @@ public class ContextPruner {
         }
 
         if (!settings.isEnabled() || contextWindowTokens <= 0) {
-            return messages;
+            return new ArrayList<>(messages);
         }
 
         // 计算字符窗口
         int charWindow = (int) Math.floor(contextWindowTokens * ContextPruningSettings.CHARS_PER_TOKEN_ESTIMATE);
         if (charWindow <= 0) {
-            return messages;
+            return new ArrayList<>(messages);
         }
 
         // 找到助手消息的截止索引
         int cutoffIndex = findAssistantCutoffIndex(messages, settings.getKeepLastAssistants());
         if (cutoffIndex == -1) {
-            return messages;
+            return new ArrayList<>(messages);
         }
 
         // 找到第一个用户消息的索引（保护初始身份读取）
@@ -72,7 +72,7 @@ public class ContextPruner {
 
         // 如果低于软修剪阈值，不需要修剪
         if (ratio < settings.getSoftTrimRatio()) {
-            return messages;
+            return new ArrayList<>(messages);
         }
 
         // 收集可修剪的工具结果索引
@@ -111,7 +111,9 @@ public class ContextPruner {
         int prunableToolChars = 0;
         for (int i : prunableToolIndexes) {
             Map<String, Object> msg = result.get(i);
-            if (msg == null) continue;
+            if (msg == null) {
+                continue;
+            }
             prunableToolChars += estimateMessageChars(msg);
         }
 

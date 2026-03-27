@@ -783,13 +783,11 @@ public class AgentLoop {
                 List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
                         messages, pruningSettings, contextWindow, null
                 );
-                if (prunedMessages != messages) {
-                    int beforeChars = ContextPruner.estimateContextChars(messages);
-                    int afterChars = ContextPruner.estimateContextChars(prunedMessages);
-                    log.debug("上下文已修剪: {} 字符 -> {} 字符", beforeChars, afterChars);
-                    messages.clear();
-                    messages.addAll(prunedMessages);
-                }
+                int beforeChars = ContextPruner.estimateContextChars(messages);
+                int afterChars = ContextPruner.estimateContextChars(prunedMessages);
+                log.debug("上下文已修剪: {} 字符 -> {} 字符", beforeChars, afterChars);
+                messages.clear();
+                messages.addAll(prunedMessages);
 
                 // 是否停止
                 if (completeIfStopped(sessionKey, st, out, toolsUsed, messages, usageAcc)) {
