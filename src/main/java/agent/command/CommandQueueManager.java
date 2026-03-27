@@ -73,6 +73,18 @@ public class CommandQueueManager {
         return command;
     }
 
+    /**
+     * 用户加载技能
+     * @param command
+     * @return
+     */
+    public SkillCommand addSkillCommandByTool(SkillCommand command) {
+        // 进入已加载的技能中
+        loadSkills.add(command.getName());
+        userLoadedSkills.add(command.getName());
+        return command;
+    }
+
     // ── 触发技能命令 → 返回 List<ContentBlock> ──
 
     /**

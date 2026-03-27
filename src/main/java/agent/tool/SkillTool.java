@@ -1,6 +1,7 @@
 package agent.tool;
 
 import agent.command.CommandQueueManager;
+import agent.command.ContentBlock;
 import agent.command.SkillCommand;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSON;
@@ -9,6 +10,7 @@ import utils.GsonFactory;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -43,7 +45,9 @@ public class SkillTool extends Tool {
                 - 当技能匹配用户请求时，这是阻塞性要求：在生成任何其他关于该任务的响应之前，必须先调用相关的技能工具
                 - 绝不要提到技能而不实际调用此工具
                 - 不要调用已在运行中的技能
-                - 如果在当前对话轮次中看到 过技能说明，说明技能已经加载过了,在对话轮次中会有体现,就无需使用load
+                - 如果技能名称在当前用户说明中存在,用户说明格式: 
+                    用户已指定使用的技能列表: xxx,xxx
+                说明技能已经加载过了,就无需使用load 具体技能说明在对话记录上下文中存在,如果不存在或者被裁剪,你需要重新加载
                 
                 参数说明：
                 - action: load | list | unload，默认 load
@@ -117,10 +121,10 @@ public class SkillTool extends Tool {
         }
 
         SkillCommand skillCommand = new SkillCommand(name, name, skillsLoader);
-        commandQueueManager.addSkillCommand(skillCommand);
+        commandQueueManager.addSkillCommandByTool(skillCommand);
 
         return CompletableFuture.completedFuture(
-                "技能已成功加载,帮助用户说明如何使用技能。技能说明如下:\n" + skillCommand.getSkillDesc() + "\n"
+                skillCommand.getOutput()
         );
     }
 
