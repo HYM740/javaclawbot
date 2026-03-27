@@ -1,8 +1,13 @@
 package utils;
 
+import providers.ToolCallRequest;
+
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * javaclawbot 工具方法
@@ -37,6 +42,33 @@ public final class Helpers {
      */
     public static Path getDataPath() {
         return ensureDir(Path.of(System.getProperty("user.home"), ".javaclawbot"));
+    }
+
+    private static final Pattern THINK_BLOCK = Pattern.compile("\\<think\\>.*?\\<\\/think\\>", Pattern.DOTALL);
+
+
+    public static String stripThink(String text) {
+        if (text == null || text.isBlank()) return null;
+        String cleaned = THINK_BLOCK.matcher(text).replaceAll("").trim();
+        return cleaned.isBlank() ? null : cleaned;
+    }
+
+    public static String toolHint(List<ToolCallRequest> toolCalls) {
+        if (toolCalls == null || toolCalls.isEmpty()) return "";
+        List<String> parts = new ArrayList<>();
+        for (var tc : toolCalls) {
+            Object val = (tc.getArguments() != null && !tc.getArguments().isEmpty())
+                    ? tc.getArguments().values().iterator().next()
+                    : null;
+            if (!(val instanceof String s)) {
+                parts.add(tc.getName());
+            } else {
+                parts.add(s.length() > 40
+                        ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")"
+                        : tc.getName() + "(\"" + s + "\")");
+            }
+        }
+        return String.join(", ", parts);
     }
 
     /**

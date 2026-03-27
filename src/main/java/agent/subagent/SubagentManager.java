@@ -185,6 +185,8 @@ public class SubagentManager {
         SubagentRunRecord record = new SubagentRunRecord(
                 runId,
                 childSessionKey,
+                originChannel,
+                originChatId,
                 requesterKey,
                 displayLabel,
                 task,

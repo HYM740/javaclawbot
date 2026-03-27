@@ -35,6 +35,8 @@ public class SubagentPersistence {
     public static class PersistedRunRecord {
         public String runId;
         public String childSessionKey;
+        public String originChannel;
+        public String originChatId;
         public String requesterSessionKey;
         public String label;
         public String task;
@@ -58,6 +60,8 @@ public class SubagentPersistence {
         public PersistedRunRecord(SubagentRunRecord record) {
             this.runId = record.getRunId();
             this.childSessionKey = record.getChildSessionKey();
+            this.originChannel = record.getOriginChannel();
+            this.originChatId = record.getOriginChatId();
             this.requesterSessionKey = record.getRequesterSessionKey();
             this.label = record.getLabel();
             this.task = record.getTask();
@@ -82,6 +86,8 @@ public class SubagentPersistence {
             SubagentRunRecord record = new SubagentRunRecord(
                     runId,
                     childSessionKey,
+                    originChannel,
+                    originChatId,
                     requesterSessionKey,
                     label,
                     task,
@@ -206,6 +212,7 @@ public class SubagentPersistence {
         }
         memoryCache.put(record.getRunId(), record);
         dirty = true;
+        save();
     }
 
     /**
@@ -217,6 +224,7 @@ public class SubagentPersistence {
         }
         memoryCache.put(record.getRunId(), record);
         dirty = true;
+        save();
     }
 
     /**
@@ -232,6 +240,7 @@ public class SubagentPersistence {
     public void removeRecord(String runId) {
         memoryCache.remove(runId);
         dirty = true;
+        save();
     }
 
     /**

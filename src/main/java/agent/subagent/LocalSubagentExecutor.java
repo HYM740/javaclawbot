@@ -1,5 +1,6 @@
 package agent.subagent;
 
+import agent.ProgressCallback;
 import agent.tool.ExecTool;
 import agent.tool.FileSystemTools;
 import agent.tool.ToolRegistry;
@@ -19,6 +20,10 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
+
+import static agent.AgentLoop.toolHint;
+import static utils.Helpers.stripThink;
+import static utils.Helpers.toolHint;
 
 /**
  * 本地子Agent执行器
@@ -108,6 +113,12 @@ public class LocalSubagentExecutor implements SubagentExecutor {
     public CompletionStage<SubagentExecutionResult> execute(SubagentRunRecord record, String systemPrompt) {
         String runId = record.getRunId();
 
+        ProgressCallback onProgress = (content, toolHit) -> {
+            String msg = "  ↳ " + "子代理 [" + runId+ " ]: " + (content == null ? "" : content);
+            // 发布通知
+            messageBus.publishOutbound(new bus.OutboundMessage(record.getOriginChannel(), record.getOriginChatId(), msg, List.of(), Map.of()));
+        } ;
+
         // 创建终止信号
         AtomicBoolean terminateSignal = new AtomicBoolean(false);
         terminateSignals.put(runId, terminateSignal);
@@ -115,7 +126,6 @@ public class LocalSubagentExecutor implements SubagentExecutor {
         // 创建执行任务
         CompletableFuture<SubagentExecutionResult> future = CompletableFuture.supplyAsync(() -> {
             long startTime = System.currentTimeMillis();
-            int toolCallsCount = 0;
 
             try {
                 // 标记开始
@@ -156,10 +166,15 @@ public class LocalSubagentExecutor implements SubagentExecutor {
                             record.getModel() != null ? record.getModel() : provider.getDefaultModel(),
                             8192, 0.5, null
                     );
-                    log.info("Subagent [{}] LLM response received, hasToolCalls={}, contentLength={}",
-                            runId, response.hasToolCalls(), response.getContent() != null ? response.getContent().length() : 0);
 
                     if (response.hasToolCalls()) {
+                        String clean = stripThink(response.getContent());
+                        if (clean != null) {
+                            onProgress.onProgress(clean, false);
+                        }
+                        // 工具调用发布通知
+                        onProgress.onProgress(toolHint(response.getToolCalls()), true);
+
                         // 追加assistant消息
                         messages.add(buildAssistantMessage(response));
 
@@ -167,7 +182,6 @@ public class LocalSubagentExecutor implements SubagentExecutor {
                         for (ToolCallRequest tc : response.getToolCalls()) {
                             if (terminateSignal.get()) break;
 
-                            toolCallsCount++;
                             String result = tools.execute(tc.getName(), tc.getArguments())
                                     .toCompletableFuture()
                                     .join();
@@ -180,6 +194,13 @@ public class LocalSubagentExecutor implements SubagentExecutor {
 
                     // 没有工具调用，获取最终结果
                     finalResult = response.getContent();
+
+                    // 输出至用户channel
+                    String clean = stripThink(response.getContent());
+                    if (clean != null) {
+                        onProgress.onProgress(clean, false);
+                    }
+
                     outcome = SubagentOutcome.ok();
                     break;
                 }
@@ -192,6 +213,7 @@ public class LocalSubagentExecutor implements SubagentExecutor {
                 return new SubagentExecutionResult(outcome, finalResult);
 
             } catch (CancellationException e) {
+                log.error("Subagent [{}] cancelled", runId);
                 return new SubagentExecutionResult(SubagentOutcome.error("cancelled"), null);
             } catch (Exception e) {
                 log.error("Subagent execution error: {}", runId, e);

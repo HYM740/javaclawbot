@@ -452,8 +452,12 @@ public class Commands implements Runnable {
 
             CompletionStage<Void> onProgress(String content, boolean toolHint) {
                 var ch = agentLoop.getChannelsConfig();
-                if (ch != null && toolHint && !ch.isSendToolHints()) return CompletableFuture.completedFuture(null);
-                if (ch != null && !toolHint && !ch.isSendProgress()) return CompletableFuture.completedFuture(null);
+                if (ch != null && toolHint && !ch.isSendToolHints()) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                if (ch != null && !toolHint && !ch.isSendProgress()) {
+                    return CompletableFuture.completedFuture(null);
+                }
                 System.out.println("  ↳ " + (content == null ? "" : content));
                 return CompletableFuture.completedFuture(null);
             }

@@ -211,7 +211,7 @@ public class SubagentSystemPromptBuilder {
 
         lines.add("Convert this completion into a concise internal orchestration update for your parent agent in your own words.");
         lines.add("Keep this internal context private (don't mention system/log/stats/session details).");
-        lines.add("If this result is duplicate or no update is needed, reply ONLY: NO_REPLY.");
+        lines.add("请通知用户当前所有任务状态");
 
         return String.join("\n", lines);
     }

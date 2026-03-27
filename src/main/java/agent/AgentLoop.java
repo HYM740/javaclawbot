@@ -40,10 +40,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Pattern;
 
+import static utils.Helpers.stripThink;
+import static utils.Helpers.toolHint;
+
 public class AgentLoop {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLoop.class);
-    private static final Pattern THINK_BLOCK = Pattern.compile("\\<think\\>.*?\\<\\/think\\>", Pattern.DOTALL);
     private static final int TOOL_RESULT_MAX_CHARS = 100_000;
 
     private final MessageBus bus;
@@ -304,30 +306,6 @@ public class AgentLoop {
 
     public CompletionStage<Void> closeMcp() {
         return mcpManager.closeAll();
-    }
-
-    private static String stripThink(String text) {
-        if (text == null || text.isBlank()) return null;
-        String cleaned = THINK_BLOCK.matcher(text).replaceAll("").trim();
-        return cleaned.isBlank() ? null : cleaned;
-    }
-
-    private static String toolHint(List<ToolCallRequest> toolCalls) {
-        if (toolCalls == null || toolCalls.isEmpty()) return "";
-        List<String> parts = new ArrayList<>();
-        for (var tc : toolCalls) {
-            Object val = (tc.getArguments() != null && !tc.getArguments().isEmpty())
-                    ? tc.getArguments().values().iterator().next()
-                    : null;
-            if (!(val instanceof String s)) {
-                parts.add(tc.getName());
-            } else {
-                parts.add(s.length() > 40
-                        ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")"
-                        : tc.getName() + "(\"" + s + "\")");
-            }
-        }
-        return String.join(", ", parts);
     }
 
     public CompletableFuture<Void> run() {
@@ -931,7 +909,7 @@ public class AgentLoop {
                         for (var tc : resp.getToolCalls()) {
                             Map<String, Object> fn = new LinkedHashMap<>();
                             fn.put("name", tc.getName());
-                            fn.put("arguments", JsonUtil.toJson(tc.getArguments()));
+                            fn.put("arguments", GsonFactory.toJson(tc.getArguments()));
 
                             Map<String, Object> call = new LinkedHashMap<>();
                             call.put("id", tc.getId());
@@ -1058,7 +1036,7 @@ public class AgentLoop {
                 toolsUsed.add(tc.getName());
 
                 try {
-                    log.info("工具调用: {}({})", tc.getName(), safeTruncate(JsonUtil.toJson(tc.getArguments()), 200));
+                    log.info("工具调用: {}({})", tc.getName(), safeTruncate(GsonFactory.toJson(tc.getArguments()), 200));
                 } catch (Exception ignored) {
                 }
 
@@ -1487,121 +1465,5 @@ public class AgentLoop {
                 }
             }
         });
-    }
-
-    public interface ProgressCallback {
-        void onProgress(String content, boolean toolHint);
-    }
-
-    public static class RunResult {
-        public final String finalContent;
-        public final List<String> toolsUsed;
-        public final List<Map<String, Object>> messages;
-        public final Usage usage;
-
-        public RunResult(String finalContent, List<String> toolsUsed, List<Map<String, Object>> messages) {
-            this.finalContent = finalContent;
-            this.toolsUsed = toolsUsed;
-            this.messages = messages;
-            this.usage = new Usage();
-        }
-
-        public RunResult(String finalContent, List<String> toolsUsed, List<Map<String, Object>> messages, Usage usage) {
-            this.finalContent = finalContent;
-            this.toolsUsed = toolsUsed;
-            this.messages = messages;
-            this.usage = usage != null ? usage : new Usage();
-        }
-    }
-    /**
-     * 对多个 ToolRegistry 的组合视图。
-     *
-     * 约定：
-     * - 后面的 registry 优先级更高，会覆盖前面同名工具
-     * - 因此建议传入顺序：
-     *   shared, mcp, local
-     *   最终优先级：local > mcp > shared
-     */
-    private interface ToolView {
-        List<Map<String, Object>> getDefinitions();
-        CompletionStage<String> execute(String name, Map<String, Object> args);
-        Object get(String name);
-    }
-
-    private static final class CompositeToolView implements ToolView {
-        private final List<ToolRegistry> registries;
-
-        private CompositeToolView(ToolRegistry... registries) {
-            this.registries = Arrays.asList(registries);
-        }
-
-        @Override
-        public List<Map<String, Object>> getDefinitions() {
-            LinkedHashMap<String, Map<String, Object>> merged = new LinkedHashMap<>();
-
-            for (ToolRegistry registry : registries) {
-                if (registry == null) continue;
-
-                for (Map<String, Object> def : registry.getDefinitions()) {
-                    String name = extractToolName(def);
-                    if (name != null) {
-                        merged.put(name, def); // 后写覆盖前写
-                    }
-                }
-            }
-
-            return new ArrayList<>(merged.values());
-        }
-
-        @Override
-        public CompletionStage<String> execute(String name, Map<String, Object> args) {
-            for (int i = registries.size() - 1; i >= 0; i--) {
-                ToolRegistry registry = registries.get(i);
-                if (registry != null && registry.get(name) != null) {
-                    return registry.execute(name, args);
-                }
-            }
-            return CompletableFuture.completedFuture(
-                    "Error: Tool '" + name + "' not found."
-            );
-        }
-
-        @Override
-        public Object get(String name) {
-            for (int i = registries.size() - 1; i >= 0; i--) {
-                ToolRegistry registry = registries.get(i);
-                if (registry != null) {
-                    Object tool = registry.get(name);
-                    if (tool != null) {
-                        return tool;
-                    }
-                }
-            }
-            return null;
-        }
-
-        @SuppressWarnings("unchecked")
-        private String extractToolName(Map<String, Object> def) {
-            if (def == null) return null;
-            Object fn = def.get("function");
-            if (fn instanceof Map<?, ?> map) {
-                Object name = map.get("name");
-                return name == null ? null : String.valueOf(name);
-            }
-            return null;
-        }
-    }
-
-    static class JsonUtil {
-        private static final com.fasterxml.jackson.databind.ObjectMapper M =
-                new com.fasterxml.jackson.databind.ObjectMapper();
-
-        static String toJson(Object o) {
-            try {
-                return M.writeValueAsString(o);
-            } catch (Exception e) {
-                return String.valueOf(o);
-            }
-        }
     }
 }

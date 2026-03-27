@@ -28,6 +28,16 @@ public class SubagentRunRecord {
     /** 子会话标识 */
     private final String childSessionKey;
 
+    /**
+     * 通道
+     */
+    private final String originChannel;
+
+    /**
+     * 原聊天id
+     */
+    private final String originChatId;
+
     /** 父会话标识（请求者） */
     private final String requesterSessionKey;
 
@@ -89,6 +99,8 @@ public class SubagentRunRecord {
     public SubagentRunRecord(
             String runId,
             String childSessionKey,
+            String originChannel,
+            String originChatId,
             String requesterSessionKey,
             String label,
             String task,
@@ -98,6 +110,8 @@ public class SubagentRunRecord {
     ) {
         this.runId = runId;
         this.childSessionKey = childSessionKey;
+        this.originChannel = originChannel;
+        this.originChatId = originChatId;
         this.requesterSessionKey = requesterSessionKey;
         this.label = label;
         this.task = task;

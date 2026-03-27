@@ -49,7 +49,7 @@ public class SubagentAnnounceService {
      * @return 发送结果
      */
     public CompletionStage<Void> announceCompletion(SubagentRunRecord record) {
-        log.debug("公告子代理完成: {}, 具体信息:{}", record.getRunId(), GsonFactory.getGson().toJson(record));
+        log.info("公告子代理完成: {}, 具体信息:{}", record.getRunId(), GsonFactory.getGson().toJson(record));
         if (record == null) {
             return CompletableFuture.completedFuture(null);
         }
@@ -87,7 +87,6 @@ public class SubagentAnnounceService {
                 )
         );
 
-        log.info("公告子代理完成: {} -> {}", record.getRunId(), requesterSessionKey);
 
         // 发布到消息总线
         return messageBus.publishInbound(msg);
