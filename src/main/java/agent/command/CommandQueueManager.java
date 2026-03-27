@@ -1,13 +1,10 @@
 package agent.command;
 
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.collection.CollectionUtil;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import skills.SkillsLoader;
 
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -24,7 +21,10 @@ public class CommandQueueManager {
     private final Queue<SkillCommand> skillQueue = new ConcurrentLinkedQueue<>();
 
     @Getter
-    private final List<String> alwaysSkills = new ArrayList<>();
+    private final Set<String> alwaysSkills = new HashSet<>();
+
+    @Getter
+    private final Set<String> userLoadedSkills = new HashSet<>();
 
     /**
      * 已加载的技能
@@ -59,11 +59,17 @@ public class CommandQueueManager {
         return command;
     }
 
+    /**
+     * 用户加载技能
+     * @param command
+     * @return
+     */
     public SkillCommand addSkillCommand(SkillCommand command) {
         skillQueue.offer(command);
 
         // 进入已加载的技能中
         loadSkills.add(command.getName());
+        userLoadedSkills.add(command.getName());
         return command;
     }
 
@@ -201,5 +207,23 @@ public class CommandQueueManager {
     public String lastLoadSkill() {
         return CollUtil.getLast(loadSkills);
 
+    }
+
+    public String unloadUserSkill(String name) {
+        if (alwaysSkills.contains(name)) {
+            return "常驻技能不能卸载";
+        }
+
+        if (userLoadedSkills.contains(name)) {
+            userLoadedSkills.remove(name);
+            loadSkills.remove(name);
+            return "技能" + name + """
+                    已被卸载，下次对话中,用户已加载技能列表中不会显示该技能,请忽略对话轮次中该技能的说明, 就不会出现该技能，直到你重新加载
+                    **重要提示: 用户说明已加载的技能格式如下:  **
+                    用户已指定使用的技能列表: xxx, xxxx
+                    """;
+        }
+
+        return null;
     }
 }

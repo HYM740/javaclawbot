@@ -1,9 +1,6 @@
 package skills;
 
-import cli.RuntimeComponents;
-import com.google.gson.Gson;
-import config.ConfigReloader;
-import lombok.Getter;
+import agent.command.CommandQueueManager;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
@@ -63,6 +60,32 @@ public class SkillsLoader {
     public List<String> listSkillNames(boolean filterUnavailable) {
         return listSkills(filterUnavailable).stream().map(s -> (String) s.get("name")).toList();
     }
+
+    /**
+     * 列出指定path下的所有技能
+     * @return 技能信息列表，每项包含：name、path、source
+     */
+    public List<Map<String, String>> listSkills(Path skillPath) {
+        List<Map<String, String>> skills = new ArrayList<>();
+
+        // 工作区技能（优先级最高）
+        if (Files.exists(skillPath) && Files.isDirectory(skillPath)) {
+            try (DirectoryStream<Path> ds = Files.newDirectoryStream(workspaceSkills)) {
+                for (Path skillDir : ds) {
+                    if (Files.isDirectory(skillDir)) {
+                        Path skillFile = skillDir.resolve("SKILL.md");
+                        if (Files.exists(skillFile) && Files.isRegularFile(skillFile)) {
+                            skills.add(skillInfo(skillDir.getFileName().toString(), skillFile, "workspace"));
+                        }
+                    }
+                }
+            } catch (IOException ignored) {
+                // 列表获取失败时保持“尽力而为”的行为
+            }
+        }
+        return skills;
+    }
+
 
     /**
      * 列出所有技能

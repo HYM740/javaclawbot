@@ -120,37 +120,26 @@ public class ContextBuilder {
     public Object[] loadSkillByPrefix(String userMsg) {
         Object[] results = new Object[2];
 
-        // 技能前缀
-        String alwaysSkillPrefix = """
-                always skill: %s\n\n
-                """;
-
         String activeSkillPrefix = """
-                active skill: %s\n\n
+                **重要提示**: 
+                - 用户已加载的技能(指用户在常驻技能之外额外加载的技能)
+                - 已加载的技能在付给你与用户的对话记录中已列出技能说明,如果对话中详细说明不存在,请使用工具`skill`加载该技能,包含在标签
+                
+                用户已指定使用的技能列表: %s\n\n
                 """;
-        List<String> alwaysSkills = commandQueueManager.getAlwaysSkills();
-
-        // 常驻技能说明
-        String alwaysSkillsStr = "";
-        // 加载常驻技能说明
-        if (CollUtil.isNotEmpty(alwaysSkills)) {
-            alwaysSkillsStr = alwaysSkillPrefix.formatted(String.join(", ", alwaysSkills));
-        }
 
         // 常驻和已加载技能判断
         String skillName = commandQueueManager.isLoadedByUserMsg(userMsg);
-
+        Set<String> userLoadedSkills = commandQueueManager.getUserLoadedSkills();
+        String formatted = activeSkillPrefix.formatted(userLoadedSkills);
         if (StrUtil.isNotBlank(skillName)) {
             userMsg = userMsg.replace("/" + skillName, "").trim();
             // 加载已经加载的技能说明
-            userMsg = alwaysSkillsStr + activeSkillPrefix.formatted(skillName) + "ARGUMENTS: " + userMsg;
+            userMsg = formatted + "\n\nARGUMENTS: " + userMsg;
 
             results[0] = userMsg;
             results[1] = false;
             return results;
-        }else if (StrUtil.isNotBlank(commandQueueManager.lastLoadSkill())) {
-            // 默认加载最后一个 加载的技能说明
-            userMsg = alwaysSkillsStr + activeSkillPrefix.formatted(commandQueueManager.lastLoadSkill()) + "ARGUMENTS: " + userMsg;
         }
 
         // 如果以上条件都不满足则查询所有技能
@@ -166,14 +155,14 @@ public class ContextBuilder {
                 for (ContentBlock block : list) {
                     sb.append(block.getText()).append("\n");
                 }
-                userMsg = alwaysSkillsStr + sb + "\n\nARGUMENTS: " + userMsg;
+                userMsg =  formatted + sb + "\n\nARGUMENTS: " + userMsg;
                 results[0] = userMsg;
                 results[1] = true;
                 return results;
             }
         }
 
-        results[0] = alwaysSkillsStr + userMsg;
+        results[0] = userMsg;
         results[1] = false;
         return results;
     }
@@ -304,7 +293,7 @@ public class ContextBuilder {
         if (isNeedBootstrap()) {
             out.add(mapOf(
                     "role", "user",
-                    "content", "用户现在是可能是第一次使用该程序，请按照引导程序流程引导用户,必须要在引导完成后回答用户消息，用户消息：" + buildUserContent(currentMessage, media)
+                    "content", "用户现在是可能是第一次使用该程序，请按照引导程序流程引导用户,必须要在引导完成后回答用户消息，用户消息：\n\n" + buildUserContent(currentMessage, media)
             ));
         }else {
             out.add(mapOf(
