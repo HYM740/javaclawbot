@@ -518,6 +518,8 @@ public class BootstrapLoader {
         ProcessBuilder pb = new ProcessBuilder("python", path.toAbsolutePath().toString());
         pb.directory(workspace.toFile());
         pb.redirectErrorStream(true);
+        // 设置 PYTHONIOENCODING 环境变量，确保 Python 输出 UTF-8
+        pb.environment().put("PYTHONIOENCODING", "utf-8");
 
         Process process = pb.start();
         String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

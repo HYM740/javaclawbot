@@ -33,6 +33,13 @@ public class AgentDefaults {
     private String reasoningEffort = null;
 
     /**
+     * 是否启用思考模式（保留推理内容）
+     * - true: 保留 reasoning_content 和 <think> 标签内容到历史对话上下文
+     * - false: 移除推理内容（默认）
+     */
+    private boolean enableThink = false;
+
+    /**
      * 全局最大并发数（对齐 OpenClaw maxConcurrent）
      */
     private int maxConcurrent = 4;

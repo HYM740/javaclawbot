@@ -66,6 +66,10 @@ public class AgentLoop {
     private final ExecToolConfig execConfig;
     private final CronService cronService;
     private final boolean restrictToWorkspace;
+    /**
+     * 是否启用思考模式（保留推理内容）
+     */
+    private final boolean enableThink;
     private final ContextBuilder context;
     private final SessionManager sessions;
     private final SubagentManager subagents;
@@ -163,6 +167,14 @@ public class AgentLoop {
         this.restrictToWorkspace = restrictToWorkspace;
         this.runtimeSettings = runtimeSettings;
 
+        // 从配置中读取 enableThink
+        boolean thinkEnabled = false;
+        if (runtimeSettings != null) {
+            var cfg = runtimeSettings.getCurrentConfig();
+            thinkEnabled = cfg.getAgents().getDefaults().isEnableThink();
+        }
+        this.enableThink = thinkEnabled;
+
         this.sessions = (sessionManager != null) ? sessionManager : new SessionManager(workspace);
         this.executor = new ThreadPoolExecutor(
                 Runtime.getRuntime().availableProcessors(),
@@ -216,7 +228,7 @@ public class AgentLoop {
         }
         return new AgentRuntimeSettings.Snapshot(
                 workspace, model, maxIterations, temperature, maxTokens, memoryWindow,
-                reasoningEffort, braveApiKey, execConfig, restrictToWorkspace, mcpServers, channelsConfig
+                reasoningEffort, enableThink, braveApiKey, execConfig, restrictToWorkspace, mcpServers, channelsConfig
         );
     }
 
@@ -937,7 +949,8 @@ public class AgentLoop {
 
                     if (resp.hasToolCalls()) {
                         if (onProgress != null) {
-                            String clean = stripThink(resp.getContent());
+                            // 根据 enableThink 决定是否移除  标签
+                            String clean = enableThink ? resp.getContent() : stripThink(resp.getContent());
                             if (clean != null) onProgress.onProgress(clean, false);
                             onProgress.onProgress(toolHint(resp.getToolCalls()), true);
                         }
@@ -1006,7 +1019,8 @@ public class AgentLoop {
                     }
 
                     log.info("思考: \n{}", resp.getReasoningContent());
-                    String clean = stripThink(resp.getContent());
+                    // 根据 enableThink 决定是否移除  标签
+                    String clean = enableThink ? resp.getContent() : stripThink(resp.getContent());
 
                     // 添加原始日志
                     Map<String, Object> assistant = new HashMap<>();
@@ -1156,11 +1170,14 @@ public class AgentLoop {
             Map<String, Object> entry = new LinkedHashMap<>();
 
             // ── Step 1: 复制除 reasoning_content 之外的所有字段 ──
-            // reasoning_content 是模型的内部思维链，不需要保存到会话历史
+            // 根据 enableThink 决定是否保留 reasoning_content
+            // enableThink=true: 保留推理内容到历史对话上下文
+            // enableThink=false: 移除推理内容（默认行为）
             for (var e : m.entrySet()) {
-                if (!"reasoning_content".equals(e.getKey())) {
-                    entry.put(e.getKey(), e.getValue());
+                if (!enableThink && "reasoning_content".equals(e.getKey())) {
+                    continue;  // 跳过，不复制
                 }
+                entry.put(e.getKey(), e.getValue());
             }
 
             // 取出 role 和 content，后续判断用

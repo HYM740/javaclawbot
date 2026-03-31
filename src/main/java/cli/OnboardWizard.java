@@ -561,6 +561,11 @@ public final class OnboardWizard {
         } catch (IOException ignored) {
         }
 
+        try {
+            Files.createDirectories(workspace.resolve("plugins"));
+        } catch (IOException ignored) {
+        }
+
         Path memoryDir = workspace.resolve("memory");
         try {
             Files.createDirectories(memoryDir);
@@ -598,6 +603,11 @@ public final class OnboardWizard {
         } catch (IOException ignored) {
         }
 
+        try {
+            Files.createDirectories(workspace.resolve("plugins"));
+        } catch (IOException ignored) {
+        }
+
         Path memoryDir = workspace.resolve("memory");
         try {
             Files.createDirectories(memoryDir);
@@ -611,14 +621,6 @@ public final class OnboardWizard {
             } catch (IOException ignored) {
             }
         }
-
-        /*Path historyFile = memoryDir.resolve("HISTORY.md");
-        if (Files.notExists(historyFile)) {
-            try {
-                Files.writeString(historyFile, "", StandardCharsets.UTF_8);
-            } catch (IOException ignored) {
-            }
-        }*/
 
         createBootstrapIfNeeded(workspace);
 
