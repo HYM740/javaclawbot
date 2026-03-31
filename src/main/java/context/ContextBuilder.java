@@ -5,6 +5,8 @@ import agent.command.ContentBlock;
 import agent.command.SkillCommand;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
+import config.Config;
+import config.ConfigIO;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import memory.MemoryStore;
@@ -75,6 +77,11 @@ public class ContextBuilder {
      */
     public String buildSystemPrompt(List<String> skillNames) {
         return buildSystemPrompt(skillNames, null);
+    }
+
+    public boolean isDevelopment() {
+        Config config = ConfigIO.loadConfig(ConfigIO.getConfigPath(workspace));
+        return config.getAgents().getDefaults().isDevelopment();
     }
 
     /**
@@ -292,7 +299,7 @@ public class ContextBuilder {
 
         // 当前用户内容（文本 + 可选图片）
         // 是否需要引导，设置引导用户
-        if (isNeedBootstrap()) {
+        if (isNeedBootstrap() && !isDevelopment()) {
             out.add(mapOf(
                     "role", "user",
                     "content", "用户现在是可能是第一次使用该程序，请按照引导程序流程引导用户,必须要在引导完成后回答用户消息，用户消息：\n\n" + buildUserContent(currentMessage, media)

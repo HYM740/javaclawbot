@@ -190,18 +190,22 @@ public final class FileSystemTools {
 
                 // Detect target line ending: match existing file, or use system default for new files
                 String targetLineEnding;
+                Charset targetCharset;
                 if (Files.exists(filePath)) {
                     targetLineEnding = detectLineEnding(readFileSmart(filePath));
+                    targetCharset = detectFileCharset(filePath);
                 } else {
                     targetLineEnding = System.lineSeparator();
+                    targetCharset = StandardCharsets.UTF_8;  // 新文件默认 UTF-8
                 }
                 // Normalize incoming content to match target line ending
                 content = normalizeLineEndings(content, targetLineEnding);
 
                 if ("append".equalsIgnoreCase(mode)) {
-                    byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
+                    // 使用原文件编码追加
+                    byte[] bytes = content.getBytes(targetCharset);
                     Files.write(filePath, bytes, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                    return CompletableFuture.completedFuture("Successfully appended " + bytes.length + " bytes to " + filePath);
+                    return CompletableFuture.completedFuture("Successfully appended " + bytes.length + " bytes to " + filePath + " (charset=" + targetCharset.name() + ")");
                 }
 
                 String old = Files.exists(filePath) ? readFileSmart(filePath) : "";
@@ -228,12 +232,12 @@ public final class FileSystemTools {
                 Files.writeString(
                         filePath,
                         newContent,
-                        StandardCharsets.UTF_8,
+                        targetCharset,
                         StandardOpenOption.CREATE,
                         StandardOpenOption.TRUNCATE_EXISTING
                 );
 
-                return CompletableFuture.completedFuture("Successfully wrote to " + filePath + " (mode=" + mode + ")");
+                return CompletableFuture.completedFuture("Successfully wrote to " + filePath + " (mode=" + mode + ", charset=" + targetCharset.name() + ")");
             } catch (SecurityException se) {
                 return CompletableFuture.completedFuture("Error: " + se.getMessage());
             } catch (Exception e) {
@@ -368,6 +372,8 @@ public final class FileSystemTools {
                 if (!Files.exists(filePath)) return CompletableFuture.completedFuture("Error: File not found: " + path);
                 if (!Files.isRegularFile(filePath)) return CompletableFuture.completedFuture("Error: Not a file: " + path);
 
+                // 检测原文件编码
+                Charset fileCharset = detectFileCharset(filePath);
                 String original = readFileSmart(filePath);
                 String updated = original;
 
@@ -397,9 +403,9 @@ public final class FileSystemTools {
                     );
                 }
 
-                Files.writeString(filePath, updated, StandardCharsets.UTF_8, StandardOpenOption.TRUNCATE_EXISTING);
+                Files.writeString(filePath, updated, fileCharset, StandardOpenOption.TRUNCATE_EXISTING);
                 return CompletableFuture.completedFuture(
-                        "Successfully edited " + filePath + "\n"
+                        "Successfully edited " + filePath + " (charset=" + fileCharset.name() + ")\n"
                                 + String.join("\n", appliedNotes) + "\n\n"
                                 + diff
                 );
@@ -1556,7 +1562,36 @@ public final class FileSystemTools {
     }
 
     /**
-     * 智能解码：优先尝试 UTF-8，失败则回退到 GBK
+     * 检测文件编码
+     */
+    private static Charset detectCharset(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return StandardCharsets.UTF_8;  // 默认 UTF-8
+        }
+
+        // 先尝试 UTF-8
+        String utf8 = new String(bytes, StandardCharsets.UTF_8);
+        if (!containsReplacementChar(utf8, bytes)) {
+            return StandardCharsets.UTF_8;
+        }
+
+        // 回退到 GBK
+        return Charset.forName("GBK");
+    }
+
+    /**
+     * 检测文件编码
+     */
+    private static Charset detectFileCharset(Path filePath) throws Exception {
+        if (!Files.exists(filePath)) {
+            return StandardCharsets.UTF_8;  // 新文件默认 UTF-8
+        }
+        byte[] bytes = Files.readAllBytes(filePath);
+        return detectCharset(bytes);
+    }
+
+    /**
+     * 棺能解码：优先尝试 UTF-8，失败则回退到 GBK
      *
      * 解决 Windows 上中文编码问题：
      * - Windows 记事本默认保存为 GBK

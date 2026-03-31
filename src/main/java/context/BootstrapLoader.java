@@ -211,16 +211,6 @@ public class BootstrapLoader {
     /**
      * 完整的加载流程
      */
-    public List<BootstrapFile> resolveBootstrapFiles() {
-        List<BootstrapFile> files = loadAllFiles();
-        files = applyContextModeFilter(files);
-        files = applyCharLimits(files);
-        return files;
-    }
-
-    /**
-     * 完整的加载流程
-     */
     public BootstrapFile resolveFile(String name) {
         BootstrapFile file = loadFile(name);
         if (file == null) {
@@ -349,9 +339,7 @@ public class BootstrapLoader {
     }
 
     /**
-     * 加载插件
-     * <p>
-     * 扫描 workspace/plugins/ 目录下的 .js 和 .py 文件，
+     * 扫描 workspace/plugins/ 目录下的 .js、.mjs、.cjs 和 .py 文件，
      * 根据配置决定是否执行，按 priority 排序后依次执行，
      * 将所有执行结果拼接返回。
      *
@@ -413,7 +401,7 @@ public class BootstrapLoader {
                 String fileName = file.getFileName().toString();
                 String ext = getFileExtension(fileName).toLowerCase(Locale.ROOT);
 
-                if ("js".equals(ext) || "py".equals(ext)) {
+                if ("js".equals(ext) || "mjs".equals(ext) || "cjs".equals(ext) || "py".equals(ext)) {
                     String name = fileName.substring(0, fileName.lastIndexOf('.'));
                     plugins.add(new PluginEntry(name, file, ext));
                 }
@@ -446,8 +434,16 @@ public class BootstrapLoader {
     private String executePlugin(PluginEntry plugin) throws Exception {
         String ext = plugin.extension;
 
-        if ("js".equals(ext)) {
-            return executeJsPlugin(plugin.path);
+        if ("js".equals(ext) || "mjs".equals(ext) || "cjs".equals(ext)) {
+            String script = Files.readString(plugin.path, StandardCharsets.UTF_8);
+
+            boolean useNode = needsNodeJs(script) || "mjs".equals(ext) || "cjs".equals(ext);
+            if (!useNode) {
+                return executeGraalJsPlugin(plugin.path, script);
+            }
+
+            boolean esm = isEsmPlugin(ext, script);
+            return executeNodePlugin(plugin.path, script, esm);
         } else if ("py".equals(ext)) {
             return executePyPlugin(plugin.path);
         }
@@ -456,15 +452,137 @@ public class BootstrapLoader {
     }
 
     /**
-     * 执行 JS 插件（使用 GraalJS）
+     * 检测脚本是否需要 Node.js 执行
+     * - 包含 import/export ES6 模块语法
+     * - 包含 require() CommonJS 语法
+     * - 包含 Node.js 特定 API（process.env, __dirname 等）
+     */
+    private boolean needsNodeJs(String script) {
+        // ES6 模块语法
+        if (script.contains("import ") && script.contains(" from ")) return true;
+        if (script.contains("export ") && (script.contains("const ") || script.contains("function ") || script.contains("class "))) return true;
+        if (script.contains("export default")) return true;
+
+        // CommonJS 语法
+        if (script.contains("require(")) return true;
+        if (script.contains("module.exports")) return true;
+
+        // Node.js 特定 API
+        if (script.contains("process.env")) return true;
+        if (script.contains("__dirname")) return true;
+        if (script.contains("__filename")) return true;
+        if (script.contains("path.join") || script.contains("fs.") || script.contains("os.")) return true;
+
+        return false;
+    }
+
+    /**
+     * 判断是否应按 ESM 方式执行
+     */
+    private boolean isEsmPlugin(String ext, String script) {
+        if ("mjs".equals(ext)) return true;
+        if ("cjs".equals(ext)) return false;
+
+        // .js 时根据内容判断
+        if (script.contains("import ") && script.contains(" from ")) return true;
+        if (script.contains("export default")) return true;
+        if (script.contains("export ") &&
+                (script.contains("const ") || script.contains("function ") || script.contains("class "))) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * 执行 Node.js 插件（通过 subprocess）
+     *
+     * @param path   原始插件路径
+     * @param script 原始插件源码
+     * @param esm    是否按 ESM 方式执行
+     */
+    private String executeNodePlugin(Path path, String script, boolean esm) throws IOException, InterruptedException {
+        // 检查 node 是否可用
+        ProcessBuilder checkPb = new ProcessBuilder("node", "--version");
+        checkPb.redirectErrorStream(true);
+        Process checkProcess = checkPb.start();
+        int checkExit = checkProcess.waitFor();
+        if (checkExit != 0) {
+            warn("Node.js 未安装或不可用，无法执行插件 [" + path.getFileName() + "]");
+            return "";
+        }
+
+        // 根据模块类型生成包装脚本
+        String wrapperScript = buildNodeWrapperScript(script);
+
+        // ESM 用 .mjs，CommonJS 用 .cjs
+        Path tempScript = Files.createTempFile("plugin-", esm ? ".mjs" : ".cjs");
+        Files.writeString(tempScript, wrapperScript, StandardCharsets.UTF_8);
+
+        try {
+            ProcessBuilder pb = new ProcessBuilder("node", tempScript.toAbsolutePath().toString());
+            pb.directory(workspace.toFile());
+            pb.redirectErrorStream(true);
+
+            // 通过环境变量传递 workspace，避免 Windows 路径转义问题
+            pb.environment().put("JAVACLAWBOT_WORKSPACE",
+                    workspace.toAbsolutePath().normalize().toString());
+
+            Process process = pb.start();
+            String output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+            int exitCode = process.waitFor();
+
+            if (exitCode != 0) {
+                warn("Node.js 插件执行失败 [" + path.getFileName() + "]: exit code " + exitCode + "\n" + output);
+                return "";
+            }
+
+            return output.trim();
+        } finally {
+            Files.deleteIfExists(tempScript);
+        }
+    }
+
+    /**
+     * 构建 Node.js 包装脚本
+     *
+     * 说明：
+     * 1. 不再把 workspace 直接拼进 JS 字符串
+     * 2. 改为从环境变量 JAVACLAWBOT_WORKSPACE 读取
+     * 3. 保留 setResult 兼容能力
+     */
+    private String buildNodeWrapperScript(String originalScript) {
+        return """
+            // === JavaClawBot Node.js 插件包装器 ===
+            const workspace = process.env.JAVACLAWBOT_WORKSPACE ?? "";
+            const __javaclawbot_result = { value: null };
+
+            function setResult(value) {
+              __javaclawbot_result.value = value;
+            }
+
+            // 暴露到全局，便于某些脚本直接调用
+            globalThis.setResult = setResult;
+
+            // === 原始脚本 ===
+            """ + originalScript + """
+
+            // === 输出结果 ===
+            if (__javaclawbot_result.value !== null) {
+              console.log(__javaclawbot_result.value);
+            }
+            """;
+    }
+
+    /**
+     * 执行 GraalJS 插件（嵌入式 JS 引擎）
      * <p>
      * JS 脚本可以通过以下方式返回结果：
      * 1. 脚本最后一行表达式（自动返回）
      * 2. 设置全局变量 result
      * 3. 调用 setResult(value) 函数
      */
-    private String executeJsPlugin(Path path) throws IOException {
-        String script = Files.readString(path, StandardCharsets.UTF_8);
+    private String executeGraalJsPlugin(Path path, String script) throws IOException {
 
         try (Context context = Context.newBuilder("js")
                 .allowHostAccess(HostAccess.ALL)

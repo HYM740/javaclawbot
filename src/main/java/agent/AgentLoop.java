@@ -209,7 +209,7 @@ public class AgentLoop {
             var cfg = runtimeSettings.getCurrentConfig();
             maxConcurrent = cfg.getAgents().getDefaults().getMaxConcurrent();
         }
-        this.context = new ContextBuilder(workspace, runtimeSettings.getCurrentConfig().getAgents().getDefaults().getBootstrapConfig());
+        this.context = new ContextBuilder(workspace, currentConfig().getAgents().getDefaults().getBootstrapConfig());
         // AgentLoopQueue 使用独立线程池，避免 executeImmediately 中的 join() 阻塞共享线程池导致死锁
         this.queue = new AgentLoopQueue(maxConcurrent);
         this.cronToolFacade = (cronService != null) ? new CronTool(cronService) : null;
