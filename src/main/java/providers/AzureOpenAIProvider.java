@@ -84,7 +84,9 @@ public class AzureOpenAIProvider extends LLMProvider {
             List<Map<String, Object>> tools,
             int maxTokens,
             double temperature,
-            String reasoningEffort
+            String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody
     ) {
         Map<String, Object> payload = new LinkedHashMap<>();
 
@@ -102,6 +104,16 @@ public class AzureOpenAIProvider extends LLMProvider {
 
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             payload.put("reasoning_effort", reasoningEffort);
+        }
+
+        // 思考模式：think 非空时添加到请求体
+        if (think != null && !think.isEmpty()) {
+            payload.put("thinking", think);
+        }
+
+        // 额外请求参数：直接合并到请求体
+        if (extraBody != null && !extraBody.isEmpty()) {
+            payload.putAll(extraBody);
         }
 
         if (tools != null && !tools.isEmpty()) {
@@ -139,12 +151,15 @@ public class AzureOpenAIProvider extends LLMProvider {
             String model,
             int maxTokens,
             double temperature,
-            String reasoningEffort, CancelChecker cancelChecker
+            String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody,
+            CancelChecker cancelChecker
     ) {
         String deploymentName = (model != null && !model.isBlank()) ? model : defaultModel;
         String url = buildChatUrl(deploymentName);
         Map<String, String> headers = buildHeaders();
-        Map<String, Object> payload = preparePayload(deploymentName, messages, tools, maxTokens, temperature, reasoningEffort);
+        Map<String, Object> payload = preparePayload(deploymentName, messages, tools, maxTokens, temperature, reasoningEffort, think, extraBody);
 
         String body;
         try {

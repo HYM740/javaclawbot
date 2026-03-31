@@ -6,16 +6,20 @@ import config.agent.AgentDefaults;
 import config.provider.FallbackConfig;
 import config.provider.FallbackTarget;
 import config.provider.ProviderConfig;
+import lombok.Data;
+import lombok.extern.slf4j.Slf4j;
 import providers.startegy.FallbackStrategies;
 import providers.startegy.FallbackStrategy;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
+@Slf4j
 public final class ModelFallbackManager {
 
     public static final class FallbackChain {
@@ -61,6 +65,7 @@ public final class ModelFallbackManager {
         }
     }
 
+    @Slf4j
     public static final class NamedProvider {
         private final String name;
         private final String model;
@@ -82,39 +87,44 @@ public final class ModelFallbackManager {
         }
     }
 
+    @Data
     public static final class ChatParams {
         private final List<java.util.Map<String, Object>> messages;
         private final List<java.util.Map<String, Object>> tools;
+        private final String model;
         private final int maxTokens;
         private final double temperature;
         private final String reasoningEffort;
+        private final Map<String, Object> think;
+        private final Map<String, Object> extraBody;
         private final CancelChecker cancelChecker;
 
         public ChatParams(
                 List<java.util.Map<String, Object>> messages,
                 List<java.util.Map<String, Object>> tools,
+                String model,
                 int maxTokens,
                 double temperature,
                 String reasoningEffort,
+                Map<String, Object> think,
+                Map<String, Object> extraBody,
                 CancelChecker cancelChecker
         ) {
             this.messages = messages;
             this.tools = tools;
+            this.model = model;
             this.maxTokens = maxTokens;
             this.temperature = temperature;
             this.reasoningEffort = reasoningEffort;
+            this.think = think;
+            this.extraBody = extraBody;
             this.cancelChecker = cancelChecker;
         }
 
-        public List<java.util.Map<String, Object>> getMessages() { return messages; }
-        public List<java.util.Map<String, Object>> getTools() { return tools; }
-        public int getMaxTokens() { return maxTokens; }
-        public double getTemperature() { return temperature; }
-        public String getReasoningEffort() { return reasoningEffort; }
-        public CancelChecker getCancelChecker() { return cancelChecker; }
+
     }
 
-    private final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ModelFallbackManager.class);
+
 
     public FallbackChain buildFallbackChain(Config config) {
         Objects.requireNonNull(config, "config");
@@ -158,26 +168,18 @@ public final class ModelFallbackManager {
             FallbackChain chain,
             List<java.util.Map<String, Object>> messages,
             List<java.util.Map<String, Object>> tools,
+            String model,
             int maxTokens,
             double temperature,
             String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody,
             CancelChecker cancelChecker
     ) {
         ChatParams params = new ChatParams(
-                messages, tools, maxTokens, temperature, reasoningEffort, cancelChecker
+                messages, tools, model, maxTokens, temperature, reasoningEffort, think, extraBody, cancelChecker
         );
         return executeWithFallback(chain, params);
-    }
-
-    public CompletableFuture<LLMResponse> executeWithFallback(
-            FallbackChain chain,
-            List<java.util.Map<String, Object>> messages,
-            List<java.util.Map<String, Object>> tools,
-            int maxTokens,
-            double temperature,
-            String reasoningEffort
-    ) {
-        return executeWithFallback(chain, messages, tools, maxTokens, temperature, reasoningEffort, null);
     }
 
     private void invokeAt(
@@ -210,10 +212,12 @@ public final class ModelFallbackManager {
         provider.chatWithRetry(
                 params.getMessages(),
                 params.getTools(),
-                model,
+                params.getModel(),
                 params.getMaxTokens(),
                 params.getTemperature(),
                 params.getReasoningEffort(),
+                params.getThink(),
+                params.getExtraBody(),
                 params.getCancelChecker()
         ).whenComplete((resp, ex) -> {
             if (result.isDone()) {

@@ -2,12 +2,135 @@ package config.provider;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import config.provider.model.ModelConfig;
+import config.provider.model.ModelConfig.ModelType;
 import lombok.Data;
+
+import java.util.ArrayList;
+import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
 @Data
 public class ProvidersConfig {
+
+    public ProvidersConfig() {
+        initDefaultModelConfigs();
+    }
+
+    private void initDefaultModelConfigs() {
+        // OpenAI
+        openai.setModelConfigs(List.of(
+                model("gpt-4o", "gpt4o", ModelType.VISION, 16384),
+                model("gpt-4o-mini", "gpt4o-mini", ModelType.CHAT, 16384),
+                model("gpt-4-turbo", "gpt4-turbo", ModelType.VISION, 4096),
+                model("gpt-3.5-turbo", "gpt35", ModelType.CHAT, 4096),
+                model("o1", "o1", ModelType.CHAT, 100000),
+                model("o1-mini", "o1-mini", ModelType.CHAT, 65536),
+                model("o3-mini", "o3-mini", ModelType.CHAT, 100000)
+        ));
+
+        // Anthropic
+        anthropic.setModelConfigs(List.of(
+                model("claude-sonnet-4-20250514", "claude-sonnet-4", ModelType.VISION, 64000),
+                model("claude-3-5-sonnet-20241022", "claude-3.5-sonnet", ModelType.VISION, 8192),
+                model("claude-3-5-haiku-20241022", "claude-3.5-haiku", ModelType.CHAT, 8192),
+                model("claude-3-opus-20240229", "claude-3-opus", ModelType.VISION, 4096)
+        ));
+
+        // DeepSeek
+        deepseek.setModelConfigs(List.of(
+                model("deepseek-chat", "deepseek-chat", ModelType.CHAT, 8192),
+                model("deepseek-reasoner", "deepseek-reasoner", ModelType.CHAT, 8192)
+        ));
+
+        // 智谱 GLM (zhipu)
+        zhipu.setModelConfigs(List.of(
+                model("glm-4-plus", "glm-4-plus", ModelType.CHAT, 128000),
+                model("glm-4-0520", "glm-4", ModelType.CHAT, 128000),
+                model("glm-4-flash", "glm-4-flash", ModelType.CHAT, 128000),
+                model("glm-4v-plus", "glm-4v", ModelType.VISION, 8192)
+        ));
+
+        // 阿里云 DashScope (通义千问)
+        dashscope.setModelConfigs(List.of(
+                model("qwen-max", "qwen-max", ModelType.CHAT, 32768),
+                model("qwen-plus", "qwen-plus", ModelType.CHAT, 131072),
+                model("qwen-turbo", "qwen-turbo", ModelType.CHAT, 131072),
+                model("qwen-vl-max", "qwen-vl", ModelType.VISION, 8192),
+                model("qwen-long", "qwen-long", ModelType.CHAT, 1000000)
+        ));
+
+        // Groq
+        groq.setModelConfigs(List.of(
+                model("llama-3.3-70b-versatile", "llama-3.3-70b", ModelType.CHAT, 8192),
+                model("llama-3.1-8b-instant", "llama-3.1-8b", ModelType.CHAT, 8192),
+                model("mixtral-8x7b-32768", "mixtral-8x7b", ModelType.CHAT, 32768)
+        ));
+
+        // Google Gemini
+        gemini.setModelConfigs(List.of(
+                model("gemini-2.0-flash", "gemini-2.0-flash", ModelType.VISION, 8192),
+                model("gemini-1.5-pro", "gemini-1.5-pro", ModelType.VISION, 8192),
+                model("gemini-1.5-flash", "gemini-1.5-flash", ModelType.VISION, 8192),
+                model("gemini-1.0-pro", "gemini-pro", ModelType.CHAT, 8192)
+        ));
+
+        // Moonshot (月之暗面)
+        moonshot.setModelConfigs(List.of(
+                model("moonshot-v1-8k", "moonshot-v1-8k", ModelType.CHAT, 8192),
+                model("moonshot-v1-32k", "moonshot-v1-32k", ModelType.CHAT, 32768),
+                model("moonshot-v1-128k", "moonshot-v1-128k", ModelType.CHAT, 131072)
+        ));
+
+        // MiniMax
+        minimax.setModelConfigs(List.of(
+                model("abab6.5s-chat", "abab6.5s", ModelType.CHAT, 245760),
+                model("abab6.5g-chat", "abab6.5g", ModelType.CHAT, 245760),
+                model("abab6.5t-chat", "abab6.5t", ModelType.CHAT, 245760)
+        ));
+
+        // SiliconFlow (硅基流动)
+        siliconflow.setModelConfigs(List.of(
+                model("Qwen/Qwen2.5-72B-Instruct", "qwen2.5-72b", ModelType.CHAT, 8192),
+                model("deepseek-ai/DeepSeek-V3", "deepseek-v3", ModelType.CHAT, 8192),
+                model("meta-llama/Llama-3.3-70B-Instruct", "llama-3.3-70b", ModelType.CHAT, 8192)
+        ));
+
+        // OpenRouter
+        openrouter.setModelConfigs(List.of(
+                model("anthropic/claude-sonnet-4", "claude-sonnet-4", ModelType.VISION, 64000),
+                model("openai/gpt-4o", "gpt-4o", ModelType.VISION, 16384),
+                model("google/gemini-2.0-flash-exp:free", "gemini-2.0-flash-free", ModelType.VISION, 8192)
+        ));
+
+        // 火山引擎
+        volcengine.setModelConfigs(List.of(
+                model("doubao-pro-32k", "doubao-pro-32k", ModelType.CHAT, 32768),
+                model("doubao-pro-128k", "doubao-pro-128k", ModelType.CHAT, 131072),
+                model("doubao-lite-32k", "doubao-lite-32k", ModelType.CHAT, 32768)
+        ));
+
+        // AIHubMix
+        aihubmix.setModelConfigs(List.of(
+                model("gpt-4o", "gpt-4o", ModelType.VISION, 16384),
+                model("claude-sonnet-4-20250514", "claude-sonnet-4", ModelType.VISION, 64000),
+                model("gemini-2.0-flash", "gemini-2.0-flash", ModelType.VISION, 8192)
+        ));
+    }
+
+    private static ModelConfig model(String model, String alias, ModelType type, int maxTokens) {
+        ModelConfig config = new ModelConfig();
+        config.setModel(model);
+        config.setAlias(alias);
+        config.setType(type);
+        config.setMaxTokens(maxTokens);
+        return config;
+    }
+
+    /**
+     * 自定义模型
+     */
     private ProviderConfig custom = new ProviderConfig("http://localhost:8000/v1");
 
     private ProviderConfig anthropic =

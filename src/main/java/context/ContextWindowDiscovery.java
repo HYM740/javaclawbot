@@ -214,7 +214,7 @@ public class ContextWindowDiscovery {
         ProviderConfig providerConfig = config.getProviders().getByName(normalizeProviderId(provider));
         AtomicInteger contextWindow = new AtomicInteger(8192);
         for (ModelConfig modelConfig : providerConfig.getModelConfigs()) {
-            if (modelConfig.getName().equals(model)) {
+            if (modelConfig.getModel().equals(model)) {
                 contextWindow.set(modelConfig.getMaxTokens());
                 return contextWindow.get();
             }

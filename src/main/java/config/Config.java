@@ -4,12 +4,14 @@ package config;// =========================
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import config.agent.AgentDefaults;
 import config.agent.AgentsConfig;
 import config.channel.ChannelsConfig;
 import config.gateway.GatewayConfig;
 import config.plugin.PluginsConfig;
 import config.provider.ProviderConfig;
 import config.provider.ProvidersConfig;
+import config.provider.model.ModelConfig;
 import config.tool.ToolsConfig;
 import providers.ProviderRegistry;
 
@@ -98,9 +100,97 @@ public class Config {
         return r.name;
     }
 
+    /**
+     * 获取指定模型的 ModelConfig
+     * @param model
+     * @return
+     */
+    public ModelConfig obtainModelConfigByModel(String model) {
+        String providerName = this.getProviderName(model);
+        ModelConfig modelConfig = this.getModelConfig(providerName, model);
+        return modelConfig;
+    }
+
+    /**
+     * 获取指定模型的温度参数
+     * 参数优先级：ModelConfig > AgentDefaults
+     * @param model
+     * @return
+     */
+    public Double obtainTemperature(String model) {
+        ModelConfig modelConfig = obtainModelConfigByModel(model);
+        Double temperature = modelConfig != null && modelConfig.getTemperature() != null  && modelConfig.getContextWindow() > 0
+                ? modelConfig.getTemperature()
+                : getAgents().getDefaults().getTemperature();
+        return temperature;
+    }
+
+    /**
+     * 获取指定模型的最大令牌数
+     * 参数优先级：ModelConfig > AgentDefaults
+     * @param model
+     * @return
+     */
+    public int obtainMaxTokens(String model) {
+        ModelConfig modelConfig = obtainModelConfigByModel(model);
+        Integer maxTokens = modelConfig != null && modelConfig.getMaxTokens() != null  && modelConfig.getContextWindow() > 0
+                ? modelConfig.getMaxTokens()
+                : getAgents().getDefaults().getMaxTokens();
+        return maxTokens;
+    }
+
+    /**
+     * 获取指定模型的上下文窗口大小
+     * 参数优先级：ModelConfig > AgentDefaults
+     * @param model
+     * @return
+     */
+    public int obtainContextWindow(String model) {
+        ModelConfig modelConfig = obtainModelConfigByModel(model);
+        Integer contextWindow = modelConfig != null && modelConfig.getContextWindow() != null
+                ? modelConfig.getContextWindow()
+                : getAgents().getDefaults().getContextWindow();
+        return contextWindow;
+    }
+
     public String getApiKey(String model) {
         ProviderConfig p = getProvider(model);
         return (p != null) ? p.getApiKey() : null;
+    }
+
+    /**
+     * 获取指定模型的 ModelConfig
+     *
+     * @param providerName provider 名称
+     * @param modelName    模型名称
+     * @return ModelConfig，如果未找到返回 null
+     */
+    public ModelConfig getModelConfig(String providerName, String modelName) {
+        if (providerName == null || modelName == null) return null;
+
+        ProviderConfig providerConfig = providers.getByName(providerName);
+        if (providerConfig == null) return null;
+
+        if (providerConfig.getModelConfigs() != null) {
+            for (ModelConfig mc : providerConfig.getModelConfigs()) {
+                if (modelName.equals(mc.getModel())) {
+                    return mc;
+                }
+                // 支持别名匹配
+                if (modelName.equals(mc.getAlias())) {
+                    return mc;
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 获取指定模型的 ModelConfig（自动推断 provider）
+     */
+    public ModelConfig getModelConfig(String modelName) {
+        String providerName = getProviderName(modelName);
+        return getModelConfig(providerName, modelName);
     }
 
     public String getApiBase(String model) {

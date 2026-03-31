@@ -8,6 +8,7 @@ import bus.OutboundMessage;
 import config.Config;
 import config.ConfigIO;
 import config.ConfigReloader;
+import config.provider.model.ModelConfig;
 import corn.CronService;
 import providers.HotSwappableProvider;
 import providers.LLMProvider;
@@ -139,9 +140,10 @@ public final class AgentRuntime {
                 config.getWorkspacePath(),
                 config.getAgents().getDefaults().getModel(),
                 config.getAgents().getDefaults().getMaxToolIterations(),
-                config.getAgents().getDefaults().getTemperature(),
-                config.getAgents().getDefaults().getMaxTokens(),
+                config.obtainTemperature(provider.getDefaultModel()),
+                config.obtainMaxTokens(provider.getDefaultModel()),
                 config.getAgents().getDefaults().getMemoryWindow(),
+                config.obtainContextWindow(provider.getDefaultModel()),
                 config.getAgents().getDefaults().getReasoningEffort(),
                 config.getTools().getWeb().getSearch().getApiKey(),
                 config.getTools().getExec(),

@@ -52,6 +52,8 @@ public final class CustomProvider extends LLMProvider {
             int maxTokens,
             double temperature,
             String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody,
             CancelChecker cancelChecker
     ) {
         String useModel = (model == null || model.isBlank()) ? defaultModel : model;
@@ -64,6 +66,16 @@ public final class CustomProvider extends LLMProvider {
 
         if (reasoningEffort != null && !reasoningEffort.isBlank()) {
             body.put("reasoning_effort", reasoningEffort);
+        }
+
+        // 思考模式：think 非空时添加到请求体
+        if (think != null && !think.isEmpty()) {
+            body.put("thinking", think);
+        }
+
+        // 额外请求参数：直接合并到请求体
+        if (extraBody != null && !extraBody.isEmpty()) {
+            body.putAll(extraBody);
         }
 
         if (tools != null && !tools.isEmpty()) {
@@ -141,17 +153,6 @@ public final class CustomProvider extends LLMProvider {
 
             return errorResponse(root);
         });
-    }
-
-    @Override
-    public CompletableFuture<LLMResponse> chat(
-            List<Map<String, Object>> messages,
-            List<Map<String, Object>> tools,
-            String model,
-            int maxTokens,
-            double temperature
-    ) {
-        return chat(messages, tools, model, maxTokens, temperature, null, null);
     }
 
     // ===== 下面保留你原来的 parse / repair / 工具方法，不需要改 =====

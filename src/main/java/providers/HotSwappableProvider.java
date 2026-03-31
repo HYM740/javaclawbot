@@ -40,12 +40,14 @@ public final class HotSwappableProvider extends LLMProvider {
             int maxTokens,
             double temperature,
             String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody,
             CancelChecker cancelChecker
     ) {
         ProviderRuntimeSnapshot snapshot = ensureLatestSnapshot();
         ModelFallbackManager.FallbackChain chain = snapshot.getFallbackChain();
         return fallbackManager.executeWithFallback(
-                chain, messages, tools, maxTokens, temperature, reasoningEffort, cancelChecker
+                chain, messages, tools, model, maxTokens, temperature, reasoningEffort, think, extraBody, cancelChecker
         );
     }
 

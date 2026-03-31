@@ -140,7 +140,11 @@ public abstract class LLMProvider {
     }
 
     /**
-     * 发送对话请求（异步）
+     * 发送对话请求（异步）- 主方法
+     *
+     * @param think         思考参数（不同模型格式不同），如 {"type": "enabled", "clear_thinking": false}
+     *                      非null时会合并到请求 body 的 "thinking" 字段
+     * @param extraBody     额外请求参数，直接合并到请求 body 中
      */
     public abstract CompletableFuture<LLMResponse> chat(
             List<Map<String, Object>> messages,
@@ -149,25 +153,17 @@ public abstract class LLMProvider {
             int maxTokens,
             double temperature,
             String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody,
             CancelChecker cancelChecker
     );
 
-    /**
-     * 兼容旧签名
-     */
-    public CompletableFuture<LLMResponse> chat(
-            List<Map<String, Object>> messages,
-            List<Map<String, Object>> tools,
-            String model,
-            int maxTokens,
-            double temperature,
-            String reasoningEffort
-    ) {
-        return chat(messages, tools, model, maxTokens, temperature, reasoningEffort, null);
-    }
 
     public abstract String getDefaultModel();
 
+    /**
+     * 带重试的聊天请求（主方法）
+     */
     public CompletableFuture<LLMResponse> chatWithRetry(
             List<Map<String, Object>> messages,
             List<Map<String, Object>> tools,
@@ -175,13 +171,14 @@ public abstract class LLMProvider {
             int maxTokens,
             double temperature,
             String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody,
             CancelChecker cancelChecker
     ) {
         return chatWithRetryInternal(
-                messages, tools, model, maxTokens, temperature, reasoningEffort, 0, cancelChecker
+                messages, tools, model, maxTokens, temperature, reasoningEffort, think, extraBody, 0, cancelChecker
         );
     }
-
     /**
      * 兼容旧签名
      */
@@ -193,7 +190,7 @@ public abstract class LLMProvider {
             double temperature,
             String reasoningEffort
     ) {
-        return chatWithRetry(messages, tools, model, maxTokens, temperature, reasoningEffort, null);
+        return chatWithRetry(messages, tools, model, maxTokens, temperature, reasoningEffort, null, null, null);
     }
 
     private CompletableFuture<LLMResponse> chatWithRetryInternal(
@@ -203,6 +200,8 @@ public abstract class LLMProvider {
             int maxTokens,
             double temperature,
             String reasoningEffort,
+            Map<String, Object> think,
+            Map<String, Object> extraBody,
             int attempt,
             CancelChecker cancelChecker
     ) {
@@ -210,7 +209,7 @@ public abstract class LLMProvider {
             return CompletableFuture.failedFuture(new CancellationException("LLM request cancelled"));
         }
 
-        return chat(messages, tools, model, maxTokens, temperature, reasoningEffort, cancelChecker)
+        return chat(messages, tools, model, maxTokens, temperature, reasoningEffort, think, extraBody, cancelChecker)
                 .handle((response, ex) -> {
                     if (cancelChecker != null && cancelChecker.isCancelled()) {
                         throw new CompletionException(new CancellationException("LLM request cancelled"));
@@ -247,15 +246,17 @@ public abstract class LLMProvider {
                         return CompletableFuture.completedFuture(response);
                     }
 
-                    // 你这里原来把瞬态判断注释掉了，先保持原逻辑不变
-                    // if (!isTransientError(response.getContent())) { ... }
+                    // 瞬态判断
+                     if (!isTransientError(response.getContent())) {
+                         return CompletableFuture.completedFuture(response);
+                     }
 
                     if (attempt >= CHAT_RETRY_DELAYS.size()) {
                         if (cancelChecker != null && cancelChecker.isCancelled()) {
                             return CompletableFuture.failedFuture(new CancellationException("LLM request cancelled"));
                         }
 
-                        return chat(messages, tools, model, maxTokens, temperature, reasoningEffort, cancelChecker)
+                        return chat(messages, tools, model, maxTokens, temperature, reasoningEffort, think, extraBody, cancelChecker)
                                 .handle((resp, ex) -> {
                                     if (ex != null) {
                                         Throwable root = (ex instanceof CompletionException && ex.getCause() != null)
@@ -310,22 +311,13 @@ public abstract class LLMProvider {
 
                     return delayFuture.thenCompose(v ->
                             chatWithRetryInternal(
-                                    messages, tools, model, maxTokens, temperature, reasoningEffort,
+                                    messages, tools, model, maxTokens, temperature, reasoningEffort, think, extraBody,
                                     attempt + 1, cancelChecker
                             )
                     );
                 });
     }
 
-    public CompletableFuture<LLMResponse> chat(
-            List<Map<String, Object>> messages,
-            List<Map<String, Object>> tools,
-            String model,
-            int maxTokens,
-            double temperature
-    ) {
-        return chat(messages, tools, model, maxTokens, temperature, null, null);
-    }
 
     public CompletableFuture<LLMResponse> chatWithRetry(
             List<Map<String, Object>> messages,
@@ -334,6 +326,6 @@ public abstract class LLMProvider {
             int maxTokens,
             double temperature
     ) {
-        return chatWithRetry(messages, tools, model, maxTokens, temperature, null, null);
+        return chatWithRetry(messages, tools, model, maxTokens, temperature, null, null, null, null);
     }
 }

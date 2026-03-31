@@ -10,13 +10,16 @@ import agent.tool.mcp.McpManager;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
+import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.io.resource.ClassPathResource;
 import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
+import config.Config;
 import config.agent.AgentRuntimeSettings;
 import config.ConfigSchema;
 import config.channel.ChannelsConfig;
 import config.mcp.MCPServerConfig;
+import config.provider.model.ModelConfig;
 import config.tool.ExecToolConfig;
 import context.ContextBuilder;
 import context.ContextOverflowDetector;
@@ -50,7 +53,10 @@ import static utils.Helpers.toolHint;
 public class AgentLoop {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLoop.class);
-    private static final int TOOL_RESULT_MAX_CHARS = 100_000;
+    /**
+     * 工具返回结果最大字符数
+     */
+    private static final int TOOL_RESULT_MAX_CHARS = 10_000;
 
     private final MessageBus bus;
     private final ChannelsConfig channelsConfig;
@@ -60,6 +66,7 @@ public class AgentLoop {
     private final int maxIterations;
     private final double temperature;
     private final int maxTokens;
+    private final int contextWindow;
     private final int memoryWindow;
     private final String reasoningEffort;
     private final String braveApiKey;
@@ -140,6 +147,7 @@ public class AgentLoop {
             Integer maxIterations,
             Double temperature,
             Integer maxTokens,
+            Integer contextWindow,
             Integer memoryWindow,
             String reasoningEffort,
             String braveApiKey,
@@ -161,6 +169,7 @@ public class AgentLoop {
         this.maxTokens = (maxTokens != null) ? maxTokens : 4096;
         this.memoryWindow = (memoryWindow != null) ? memoryWindow : 100;
         this.reasoningEffort = reasoningEffort;
+        this.contextWindow = contextWindow;
         this.braveApiKey = braveApiKey;
         this.execConfig = (execConfig != null) ? execConfig : new ExecToolConfig();
         this.cronService = cronService;
@@ -227,8 +236,8 @@ public class AgentLoop {
             return runtimeSettings.snapshot();
         }
         return new AgentRuntimeSettings.Snapshot(
-                workspace, model, maxIterations, temperature, maxTokens, memoryWindow,
-                reasoningEffort, enableThink, braveApiKey, execConfig, restrictToWorkspace, mcpServers, channelsConfig
+                workspace, model, maxIterations, temperature, maxTokens, contextWindow, memoryWindow,
+                reasoningEffort, enableThink, null, null, braveApiKey, execConfig, restrictToWorkspace, mcpServers, channelsConfig
         );
     }
 
@@ -236,12 +245,21 @@ public class AgentLoop {
         return runtimeSnapshot().memoryWindow();
     }
 
+    private int currentContextWindow() {
+        return runtimeSnapshot().contentWindow();
+    }
+
     private int currentMaxTokens() {
         return runtimeSnapshot().maxTokens();
     }
 
+
     private ChannelsConfig currentChannelsConfig() {
         return runtimeSettings.getCurrentConfig().getChannels();
+    }
+
+    private Config currentConfig() {
+        return runtimeSettings.getCurrentConfig();
     }
 
 
@@ -786,7 +804,7 @@ public class AgentLoop {
 
         ContextPruningSettings pruningSettings = ContextPruningSettings.DEFAULT;
         int contextWindow = ContextWindowDiscovery.resolveContextTokensForModel(
-                null, model, null, currentMaxTokens(), runtimeSettings.getCurrentConfig());
+                null, model, null, this.contextWindow, runtimeSettings.getCurrentConfig());
 
         final int maxOverflowCompactionAttempts = 3;
         int[] overflowCompactionAttempts = {0};
@@ -845,6 +863,7 @@ public class AgentLoop {
                     return;
                 }
 
+                // 发起调用
                 CompletableFuture<providers.LLMResponse> llmFuture = provider.chatWithRetry(
                         messages,
                         tools.getDefinitions(),
@@ -852,6 +871,8 @@ public class AgentLoop {
                         rs.maxTokens(),
                         rs.temperature(),
                         rs.reasoningEffort(),
+                        rs.think(),
+                        rs.extraBody(),
                         () -> isStopRequested(sessionKey)
                 ).toCompletableFuture();
 
@@ -950,7 +971,7 @@ public class AgentLoop {
                     if (resp.hasToolCalls()) {
                         if (onProgress != null) {
                             // 根据 enableThink 决定是否移除  标签
-                            String clean = enableThink ? resp.getContent() : stripThink(resp.getContent());
+                            String clean =  enableThink ? resp.getContent() :stripThink(resp.getContent());
                             if (clean != null) onProgress.onProgress(clean, false);
                             onProgress.onProgress(toolHint(resp.getToolCalls()), true);
                         }
@@ -1169,14 +1190,9 @@ public class AgentLoop {
             // 用 LinkedHashMap 保证字段顺序与原始消息一致
             Map<String, Object> entry = new LinkedHashMap<>();
 
-            // ── Step 1: 复制除 reasoning_content 之外的所有字段 ──
-            // 根据 enableThink 决定是否保留 reasoning_content
-            // enableThink=true: 保留推理内容到历史对话上下文
-            // enableThink=false: 移除推理内容（默认行为）
+            // ── Step 1: 复制所有字段 ──
             for (var e : m.entrySet()) {
-                if (!enableThink && "reasoning_content".equals(e.getKey())) {
-                    continue;  // 跳过，不复制
-                }
+
                 entry.put(e.getKey(), e.getValue());
             }
 
@@ -1250,7 +1266,7 @@ public class AgentLoop {
                 session,
                 provider,
                 model,
-                currentMaxTokens(),
+                currentContextWindow(),
                 0.5,
                 archiveAll,
                 currentMemoryWindow()
@@ -1265,7 +1281,7 @@ public class AgentLoop {
                     return false;
                 }
 
-                int contextWindow = currentMaxTokens();
+                int contextWindow = currentContextWindow();
                 double maxHistoryShare = 0.5;
 
                 List<Map<String, Object>> historyMessages = new ArrayList<>(
@@ -1383,13 +1399,20 @@ public class AgentLoop {
             prompt.append("\n").append(String.join("\n", oversizedNotes)).append("\n");
         }
 
+        // 获取参数
+        ModelConfig modelConfig = currentConfig().getModelConfig(model);
+        Map<String, Object> think = modelConfig != null ? modelConfig.getThink() : null;
+        Map<String, Object> extraBody = modelConfig != null ? modelConfig.getExtraBody() : null;
+
         String summary = provider.chat(
                 List.of(Map.of("role", "user", "content", prompt.toString())),
                 List.of(),
                 model,
-                1024,
+                8912,
                 0.3,
                 null,
+                think,
+                extraBody,
                 () -> false
         ).toCompletableFuture().join().getContent();
 

@@ -105,7 +105,7 @@ public class MemoryCompaction {
      * @param maxTokens 每块最大 token 数
      * @return 分块后的消息列表
      */
-    public static List<List<Map<String, Object>>> chunkMessagesByMaxTokens(
+    public static List<List<Map<String, Object>>> chunkMessagesByContextWindow(
             List<Map<String, Object>> messages,
             int maxTokens
     ) {

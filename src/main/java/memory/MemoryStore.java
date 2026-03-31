@@ -1,7 +1,6 @@
 package memory;
 
 import agent.tool.FileSystemTools;
-import cn.hutool.core.date.DateUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -17,7 +16,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -284,7 +282,7 @@ public class MemoryStore {
             Session session,
             LLMProvider provider,
             String model,
-            int maxTokens,
+            int contextWindow,
             double temperature,
             boolean archiveAll,
             int memoryWindow
@@ -343,14 +341,14 @@ public class MemoryStore {
 
         // 分块压缩
         int estimatedTokens = MemoryCompaction.estimateMessagesTokens(repairedMessages);
-        int maxChunkTokens = maxTokens - MemoryCompaction.SUMMARIZATION_OVERHEAD_TOKENS;
+        int maxChunkTokens = contextWindow - MemoryCompaction.SUMMARIZATION_OVERHEAD_TOKENS;
 
         if (estimatedTokens > maxChunkTokens) {
             log.info("消息总 token 数 {} 超出最大分块数量限制 {}，启用分块压缩", estimatedTokens, maxChunkTokens);
-            return consolidateInChunks(session, repairedMessages, provider, model, maxTokens, temperature, archiveAll, keepCount);
+            return consolidateInChunks(session, repairedMessages, provider, model, contextWindow, temperature, archiveAll, keepCount);
         }
 
-        return consolidateSingleChunk(session, repairedMessages, provider, model, maxTokens, temperature, archiveAll, keepCount);
+        return consolidateSingleChunk(session, repairedMessages, provider, model, contextWindow, temperature, archiveAll, keepCount);
     }
 
     /**
@@ -361,7 +359,7 @@ public class MemoryStore {
             List<Map<String, Object>> messages,
             LLMProvider provider,
             String model,
-            int maxTokens,
+            int contextWindow,
             double temperature,
             boolean archiveAll,
             int keepCount
@@ -414,7 +412,7 @@ public class MemoryStore {
                 )
         );
 
-        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, maxTokens, temperature, null)
+        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, contextWindow, temperature, null)
                 .handle((resp, ex) -> {
                     if (ex != null) {
                         log.error("记忆压缩失败", ex);
@@ -437,17 +435,17 @@ public class MemoryStore {
             List<Map<String, Object>> messages,
             LLMProvider provider,
             String model,
-            int maxTokens,
+            int contextWindow,
             double temperature,
             boolean archiveAll,
             int keepCount
     ) {
         // 使用自适应分块比例
-        double adaptiveRatio = MemoryCompaction.computeAdaptiveChunkRatio(messages, maxTokens);
+        double adaptiveRatio = MemoryCompaction.computeAdaptiveChunkRatio(messages, contextWindow);
         int adaptiveMaxChunkTokens = Math.max(1, 
-                (int) Math.floor(maxTokens * adaptiveRatio) - MemoryCompaction.SUMMARIZATION_OVERHEAD_TOKENS);
+                (int) Math.floor(contextWindow * adaptiveRatio) - MemoryCompaction.SUMMARIZATION_OVERHEAD_TOKENS);
         
-        List<List<Map<String, Object>>> chunks = MemoryCompaction.chunkMessagesByMaxTokens(messages, adaptiveMaxChunkTokens);
+        List<List<Map<String, Object>>> chunks = MemoryCompaction.chunkMessagesByContextWindow(messages, adaptiveMaxChunkTokens);
 
         log.info("分块压缩：{} 个块", chunks.size());
 
@@ -459,7 +457,7 @@ public class MemoryStore {
                 if (!prevSuccess) {
                     return CompletableFuture.completedFuture(false);
                 }
-                return consolidateSingleChunkForPartial(chunk, provider, model, maxTokens, temperature)
+                return consolidateSingleChunkForPartial(chunk, provider, model, contextWindow, temperature)
                         .thenAccept(partialSummaries::add)
                         .thenApply(v -> true);
             });
@@ -477,7 +475,7 @@ public class MemoryStore {
                 session.setLastConsolidated(newLastConsolidated);
                 return CompletableFuture.completedFuture(true);
             }
-            return mergePartialSummaries(partialSummaries, provider, model, maxTokens, temperature)
+            return mergePartialSummaries(partialSummaries, provider, model, contextWindow, temperature)
                     .thenApply(merged -> {
                         if (merged) {
                             int newLastConsolidated = archiveAll ? 0 : (session.getMessages().size() - keepCount);
@@ -495,7 +493,7 @@ public class MemoryStore {
             List<Map<String, Object>> messages,
             LLMProvider provider,
             String model,
-            int maxTokens,
+            int contextWindow,
             double temperature
     ) {
         List<String> lines = new ArrayList<>();
@@ -520,7 +518,7 @@ public class MemoryStore {
                 Map.of("role", "user", "content", prompt)
         );
 
-        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, maxTokens, temperature, null)
+        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, contextWindow, temperature, null)
                 .thenApply(resp -> {
                     if (resp != null && resp.hasToolCalls() && !resp.getToolCalls().isEmpty()) {
                         var toolCall = resp.getToolCalls().get(0);
@@ -555,7 +553,7 @@ public class MemoryStore {
             List<String> partialSummaries,
             LLMProvider provider,
             String model,
-            int maxTokens,
+            int contextWindow,
             double temperature
     ) {
         String mergeInstructions = ""
@@ -585,7 +583,7 @@ public class MemoryStore {
                 Map.of("role", "user", "content", prompt.toString())
         );
 
-        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, maxTokens, temperature, null)
+        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, contextWindow, temperature, null)
                 .handle((resp, ex) -> {
                     if (ex != null) {
                         log.error("合并部分摘要失败", ex);
@@ -680,7 +678,7 @@ public class MemoryStore {
      *
      * @param provider     模型提供者
      * @param model        模型名
-     * @param maxTokens    最大 token 数
+     * @param contextWindow    最大 token 数
      * @param temperature  温度
      * @param recentDays   读取最近 N 天的每日文件
      * @param keepDays     保留最近 N 天的每日文件（超过的删除）
@@ -689,7 +687,7 @@ public class MemoryStore {
     public CompletableFuture<Boolean> heartbeatConsolidate(
             LLMProvider provider,
             String model,
-            int maxTokens,
+            int contextWindow,
             double temperature,
             int recentDays,
             int keepDays
@@ -743,7 +741,7 @@ public class MemoryStore {
                 )
         );
 
-        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, maxTokens, temperature, null)
+        return chatCompat(provider, msgList, SAVE_MEMORY_TOOL, model, contextWindow, temperature, null)
                 .handle((resp, ex) -> {
                     if (ex != null) {
                         log.error("心跳整理失败", ex);

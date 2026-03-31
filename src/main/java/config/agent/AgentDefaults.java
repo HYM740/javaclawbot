@@ -18,6 +18,10 @@ public class AgentDefaults {
     private String model = "glm-5";
     private String provider = "dashscope";
     private int maxTokens = 163840;
+    /**
+     * 上下文窗口token数量
+     */
+    private int contextWindow = 32000;
     private double temperature = 0.1;
     /**
      * 是否开发者
@@ -33,11 +37,11 @@ public class AgentDefaults {
     private String reasoningEffort = null;
 
     /**
-     * 是否启用思考模式（保留推理内容）
-     * - true: 保留 reasoning_content 和 <think> 标签内容到历史对话上下文
-     * - false: 移除推理内容（默认）
+     * 是否启用思考模式
+     * - true:
+     * - false:
      */
-    private boolean enableThink = false;
+    private boolean enableThink = true;
 
     /**
      * 全局最大并发数（对齐 OpenClaw maxConcurrent）
