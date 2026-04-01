@@ -39,31 +39,31 @@ zjkycode skills 覆盖默认系统提示行为，但**用户指令始终优先**
 
 ```dot
 digraph skill_flow {
-    "User message received" [shape=doublecircle];
-    "About to EnterPlanMode?" [shape=doublecircle];
-    "Already brainstormed?" [shape=diamond];
-    "Invoke brainstorming skill" [shape=box];
-    "Might any skill apply?" [shape=diamond];
-    "Invoke Skill tool" [shape=box];
-    "Announce: 'Using [skill] to [purpose]'" [shape=box];
-    "Has checklist?" [shape=diamond];
-    "Create TodoWrite todo per item" [shape=box];
-    "Follow skill exactly" [shape=box];
-    "Respond (including clarifications)" [shape=doublecircle];
+    "用户消息已收到" [shape=doublecircle];
+    "即将进入计划模式？" [shape=doublecircle];
+    "是否已进行头脑风暴？" [shape=diamond];
+    "调用头脑风暴技能" [shape=box];
+    "是否有任何技能可能适用？" [shape=diamond];
+    "调用技能工具" [shape=box];
+    "声明：'正在使用 [技能] 来 [目的]'" [shape=box];
+    "是否有检查清单？" [shape=diamond];
+    "为每一项创建 TodoWrite 待办事项" [shape=box];
+    "严格遵守技能执行" [shape=box];
+    "回复（包括澄清说明）" [shape=doublecircle];
 
-    "About to EnterPlanMode?" -> "Already brainstormed?";
-    "Already brainstormed?" -> "Invoke brainstorming skill" [label="no"];
-    "Already brainstormed?" -> "Might any skill apply?" [label="yes"];
-    "Invoke brainstorming skill" -> "Might any skill apply?";
+    "即将进入计划模式？" -> "是否已进行头脑风暴？";
+    "是否已进行头脑风暴？" -> "调用头脑风暴技能" [label="否"];
+    "是否已进行头脑风暴？" -> "是否有任何技能可能适用？" [label="是"];
+    "调用头脑风暴技能" -> "是否有任何技能可能适用？";
 
-    "User message received" -> "Might any skill apply?";
-    "Might any skill apply?" -> "Invoke Skill tool" [label="yes, even 1%"];
-    "Might any skill apply?" -> "Respond (including clarifications)" [label="definitely not"];
-    "Invoke Skill tool" -> "Announce: 'Using [skill] to [purpose]'";
-    "Announce: 'Using [skill] to [purpose]'" -> "Has checklist?";
-    "Has checklist?" -> "Create TodoWrite todo per item" [label="yes"];
-    "Has checklist?" -> "Follow skill exactly" [label="no"];
-    "Create TodoWrite todo per item" -> "Follow skill exactly";
+    "用户消息已收到" -> "是否有任何技能可能适用？";
+    "是否有任何技能可能适用？" -> "调用技能工具" [label="是，即使只有1%的可能"];
+    "是否有任何技能可能适用？" -> "回复（包括澄清说明）" [label="完全没有"];
+    "调用技能工具" -> "声明：'正在使用 [技能] 来 [目的]'";
+    "声明：'正在使用 [技能] 来 [目的]'" -> "是否有检查清单？";
+    "是否有检查清单？" -> "为每一项创建 TodoWrite 待办事项" [label="是"];
+    "是否有检查清单？" -> "严格遵守技能执行" [label="否"];
+    "为每一项创建 TodoWrite 待办事项" -> "严格遵守技能执行";
 }
 ```
 
