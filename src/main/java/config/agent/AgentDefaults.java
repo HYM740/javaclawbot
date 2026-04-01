@@ -62,6 +62,12 @@ public class AgentDefaults {
      */
     private BootstrapConfig bootstrapConfig = new BootstrapConfig();
 
+    /**
+     * 项目路径（开发者模式下读取项目的 CODE-AGENT.md 或 CLAUDE.md）
+     * 支持：1) 配置持久化；2) cwd 自动检测；3) /project 前缀指定
+     */
+    private String projectPath = null;
+
     public int getMaxConcurrent() {
         return maxConcurrent;
     }

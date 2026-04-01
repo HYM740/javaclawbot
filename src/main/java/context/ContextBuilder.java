@@ -43,6 +43,7 @@ public class ContextBuilder {
     private final SkillsLoader skills;
     private final BootstrapLoader bootstrapLoader;
     private final CommandQueueManager commandQueueManager;
+    private final ProjectContext projectContext;
     @Getter
     private final BootstrapConfig bootstrapConfig;
 
@@ -67,6 +68,7 @@ public class ContextBuilder {
         this.bootstrapConfig = bootstrapConfig != null ? bootstrapConfig : new BootstrapConfig();
         this.bootstrapLoader = new BootstrapLoader(workspace, this.bootstrapConfig, warnHandler);
         this.commandQueueManager = new CommandQueueManager(this.skills);
+        this.projectContext = new ProjectContext(workspace);
     }
 
     /**
@@ -100,6 +102,12 @@ public class ContextBuilder {
         // 可用技能说明
         parts.add(skills.buildSkillsSimpleSummary());
 
+        // 构建记忆
+        String context = buildMemoryContext();
+        if (context != null && !context.isBlank()) {
+            parts.add(context);
+        }
+
         // 配置身份
         parts.add(bootstrapLoader.loadIdentity());
         // 配置灵魂
@@ -110,16 +118,55 @@ public class ContextBuilder {
         parts.add(bootstrapLoader.loadTool());
 
         parts.add(bootstrapLoader.loadPlugin());
-
-        // by zcw 3/19 无需加载其他文件了,改为手动指定加载
-        /*List<BootstrapFile> bootstrapFiles = bootstrapLoader.resolveBootstrapFiles();
-        String bootstrap = bootstrapLoader.buildProjectContext(bootstrapFiles);
-        if (bootstrap != null && !bootstrap.isBlank()) {
-            parts.add(bootstrap);
-        }*/
-
         return String.join("\n\n---\n\n", parts);
     }
+
+    /**
+     * 处理 /project 前缀命令
+     *
+     * @param userMsg 用户消息
+     * @return Object[] {String处理后消息, Boolean是否处理了project命令}
+     */
+    public Object[] handleProjectPrefix(String userMsg) {
+        Object[] results = new Object[2];
+
+        if (userMsg == null || userMsg.isBlank()) {
+            results[0] = userMsg;
+            results[1] = false;
+            return results;
+        }
+
+        // 处理 /project <path>
+        if (userMsg.startsWith("/project ")) {
+            String pathArg = userMsg.substring("/project ".length()).trim();
+            projectContext.setProjectPath(pathArg);
+            results[0] = "已设置项目路径: " + (pathArg.isBlank() || "clear".equalsIgnoreCase(pathArg)
+                    ? "(已清除，将自动检测)"
+                    : projectContext.getProjectPath());
+            results[1] = true;
+            return results;
+        }
+
+        // 处理 /project clear
+        if (userMsg.equals("/project") || userMsg.equals("/project clear")) {
+            projectContext.setProjectPath(null);
+            results[0] = "已清除项目路径，将自动检测";
+            results[1] = true;
+            return results;
+        }
+
+        results[0] = userMsg;
+        results[1] = false;
+        return results;
+    }
+
+    /**
+     * 构建项目上下文（仅开发者模式）
+     */
+    public String buildProjectContext() {
+        return projectContext.buildProjectContext();
+    }
+
 
     /**
      * 通过用户消息的前缀加载技能
@@ -209,18 +256,25 @@ public class ContextBuilder {
     public String buildMemoryContext() {
         String mem = memory.readLongTermShort();
         StringBuilder sb = new StringBuilder();
+
+        String projectCtx = "";
+        if (isDevelopment()) {
+            // 构建项目上下文（仅开发者模式）
+            projectCtx = buildProjectContext();
+        }
         sb.append("""
                 <system-reminder>
-                在回答用户问题时，可以使用以下上下文：
+                在回答用户问题时，可以使用以下全局上下文：
                 # currentDate
                  今天的日期是 %s。
                 # 部分MEMORY.md内容 >200 行会被截断，阅读更多请使用 `read_file` 和 `memory_search`工具获取更详细的上下文
                  %s
                  
+                 %s
                  重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。
                  `memory/YYYY-MM-dd.md` 格式文件为原始相关记忆，切勿直接使用`read_file`阅读整个文件，优先使用memory_search 搜索最近上下文，再根据获取的行数阅读详细上下文
                  </system-reminder>
-                """.formatted(LocalDate.now(), mem));
+                """.formatted(LocalDate.now(), mem, projectCtx));
         return sb.toString();
     }
 
@@ -259,8 +313,7 @@ public class ContextBuilder {
 
         // 构建第2条用户消息, 该消息为常驻技能
         userBlocks.add(Map.of("type", "text", "text", loadResidentSkill()));
-        // 构建第3条用户消息, 该消息为内存上下文
-        userBlocks.add(Map.of("type", "text", "text", buildMemoryContext()));
+
         // 构建第4条用户消息, 该消息为本地命令描述
         userBlocks.add(Map.of("type", "text", "text", buildLocalCommandDesc()));
         out.add(mapOf(

@@ -574,10 +574,7 @@ public final class OnboardWizard {
 
         Path memoryFile = memoryDir.resolve("MEMORY.md");
         if (Files.notExists(memoryFile)) {
-            try {
-                Files.writeString(memoryFile, "", StandardCharsets.UTF_8);
-            } catch (IOException ignored) {
-            }
+            // 不在这里创建空文件，由 createWorkspaceTemplates() 从模板复制
         }
 
         /*Path historyFile = memoryDir.resolve("HISTORY.md");
@@ -616,10 +613,7 @@ public final class OnboardWizard {
 
         Path memoryFile = memoryDir.resolve("MEMORY.md");
         if (Files.notExists(memoryFile)) {
-            try {
-                Files.writeString(memoryFile, "", StandardCharsets.UTF_8);
-            } catch (IOException ignored) {
-            }
+            // 不在这里创建空文件，由 createWorkspaceTemplates() 从模板复制
         }
 
         createBootstrapIfNeeded(workspace);
@@ -630,6 +624,9 @@ public final class OnboardWizard {
         copyTemplateIfMissing(workspace, "USER.md");
         copyTemplateIfMissing(workspace, "IDENTITY.md");
         copyTemplateIfMissing(workspace, "HEARTBEAT.md");
+
+        // 复制 MEMORY.md 模板到 memory 目录
+        copyMemoryTemplate(workspace);
     }
 
     /**
@@ -652,6 +649,30 @@ public final class OnboardWizard {
             }
         } catch (Exception e) {
             System.err.println("  ⚠ Failed to create " + filename + ": " + e.getMessage());
+        }
+    }
+
+    /**
+     * 复制 MEMORY.md 模板到 memory 目录
+     */
+    private static void copyMemoryTemplate(Path workspace) {
+        Path memoryDir = workspace.resolve("memory");
+        Path memoryFile = memoryDir.resolve("MEMORY.md");
+
+        if (Files.exists(memoryFile)) {
+            return;
+        }
+
+        try (InputStream is = OnboardWizard.class.getClassLoader().getResourceAsStream("templates/memory/MEMORY.md")) {
+            if (is != null) {
+                String content = new String(is.readAllBytes(), StandardCharsets.UTF_8);
+                Files.writeString(memoryFile, content, StandardCharsets.UTF_8);
+                System.out.println("  ✓ Created: memory/MEMORY.md");
+            } else {
+                System.err.println("  ⚠ 模板不存在: templates/memory/MEMORY.md");
+            }
+        } catch (Exception e) {
+            System.err.println("  ⚠ Failed to create memory/MEMORY.md: " + e.getMessage());
         }
     }
 

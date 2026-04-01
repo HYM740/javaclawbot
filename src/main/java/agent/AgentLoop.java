@@ -569,7 +569,7 @@ public class AgentLoop {
         }
 
         if ("/help".equalsIgnoreCase(cmd)) {
-            String output = "javaclawbot 命令:\n/new — 开始新对话\n/stop — 停止当前任务\n/help — 显示可用命令";
+            String output = "javaclawbot 命令:\n/new — 开始新对话\n/stop — 停止当前任务\n/help — 显示可用命令\n/project <path> — 设置项目路径（开发者模式读取 CODE-AGENT.md/CLAUDE.md）\n/project clear — 清除项目路径";
             commandManager.addLocalCommand(new LocalCommand(cmd, output));
             return CompletableFuture.completedFuture(new OutboundMessage(
                     msg.getChannel(),
@@ -591,6 +591,15 @@ public class AgentLoop {
                     List.of(),
                     Map.of()
             ));
+        }
+
+        // 处理 /project 前缀命令
+        if (cmd.startsWith("/project")) {
+            Object[] result = context.handleProjectPrefix(msg.getContent());
+            String output = (String) result[0];
+            commandManager.addLocalCommand(new LocalCommand(cmd, output));
+            bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), output, List.of(), Map.of()));
+            return CompletableFuture.completedFuture(null);
         }
 
         int useMemoryWindow = currentMemoryWindow();
