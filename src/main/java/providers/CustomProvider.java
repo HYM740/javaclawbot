@@ -70,7 +70,7 @@ public final class CustomProvider extends LLMProvider {
 
         // 思考模式：think 非空时添加到请求体
         if (think != null && !think.isEmpty()) {
-            body.put("thinking", think);
+            body.putAll(think);
         }
 
         // 额外请求参数：直接合并到请求体

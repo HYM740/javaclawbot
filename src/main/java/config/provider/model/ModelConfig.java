@@ -6,6 +6,7 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -83,12 +84,12 @@ public class ModelConfig {
      * {"type": "enabled", "clear_thinking": false} = 智谱 GLM 格式
      * {"reasoning": true} = DeepSeek 格式
      */
-    private Map<String, Object> think;
+    private Map<String, Object> think = new HashMap<>();
 
     /**
      * 额外请求参数（直接合并到请求 body 中）
      * <p>
      * 例如：{"custom_param": "value"}
      */
-    private Map<String, Object> extraBody;
+    private Map<String, Object> extraBody = new HashMap<>();
 }
