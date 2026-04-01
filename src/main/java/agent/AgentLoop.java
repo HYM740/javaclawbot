@@ -193,8 +193,6 @@ public class AgentLoop {
         );
         this.mcpServers = (mcpServers != null) ? mcpServers : Map.of();
         this.mcpManager = new McpManager(workspace, mcpServers, executor);
-
-        this.memoryStore = new MemoryStore(workspace);
         // 注册工具
         this.sharedTools = new ToolRegistry();
 
@@ -210,6 +208,7 @@ public class AgentLoop {
             maxConcurrent = cfg.getAgents().getDefaults().getMaxConcurrent();
         }
         this.context = new ContextBuilder(workspace, currentConfig().getAgents().getDefaults().getBootstrapConfig());
+        this.memoryStore = new MemoryStore(workspace, context);
         // AgentLoopQueue 使用独立线程池，避免 executeImmediately 中的 join() 阻塞共享线程池导致死锁
         this.queue = new AgentLoopQueue(maxConcurrent);
         this.cronToolFacade = (cronService != null) ? new CronTool(cronService) : null;
