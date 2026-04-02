@@ -479,6 +479,9 @@ public class MemoryStore {
 - important_indices：特别重要的消息索引
 - patterns_detected：检测到的可复用模式（可选）
 - reasoning：简要说明删除理由
+
+## 额外说明
+用户对话记录已在对话上下文中提供 以 user/assistant 对话形式提供给你了
 """;
     }
 
@@ -533,40 +536,6 @@ public class MemoryStore {
             out.put(String.valueOf(e.getKey()), e.getValue());
         }
         return out;
-    }
-
-    private static Map<String, Object> parseToolCallArguments(ToolCallRequest toolCall) throws Exception {
-        Object argsObj = toolCall.getArguments();
-        if (argsObj instanceof String s) {
-            return MAPPER.readValue(s, new TypeReference<>() {});
-        } else if (argsObj instanceof Map<?, ?> m) {
-            return castToStringObjectMap(m);
-        }
-        throw new IllegalArgumentException("无法解析工具参数: " + (argsObj == null ? "null" : argsObj.getClass()));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<Integer> parseIntegerList(Object obj) {
-        if (obj == null) return null;
-        if (obj instanceof List<?> list) {
-            return list.stream()
-                    .filter(v -> v instanceof Number)
-                    .map(v -> ((Number) v).intValue())
-                    .toList();
-        }
-        return null;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<Map<String, Object>> parsePatterns(Object obj) {
-        if (obj == null) return null;
-        if (obj instanceof List<?> list) {
-            return list.stream()
-                    .filter(v -> v instanceof Map)
-                    .map(v -> (Map<String, Object>) v)
-                    .toList();
-        }
-        return null;
     }
 
     // ==================== 内部类 ====================

@@ -35,7 +35,7 @@ public class SkillTool extends Tool {
         return """
                 这个工具用于管理提供特定领域说明和工作流程的专业技能，帮助您高效地加载、列出和卸载技能。
                     支持动作：
-                    1.load - 加载指定技能（默认动作）。
+                    1.load - 加载指定技能（默认动作）。技能可能属于一个技能包下面的技能, 这种情况使用则需要指定: 技能包名称/技能名称,eg: zjkycode/brainstorming。
                     2.list - 列出指定路径下的所有技能。
                     3.unload - 卸载指定名称的技能。
                     4.reload - 强制重新加载已加载的技能（用于上下文裁剪后恢复完整技能内容）。
@@ -64,7 +64,7 @@ public class SkillTool extends Tool {
 
         Map<String, Object> name = new LinkedHashMap<>();
         name.put("type", "string");
-        name.put("description", "技能名称。load / unload / reload 时使用");
+        name.put("description", "技能名称, 技能可能属于一个技能包下面的技能, 这种情况使用则需要指定: 技能包名称/技能名称,eg: zjkycode/brainstorming。load / unload / reload 时使用");
 
         Map<String, Object> path = new LinkedHashMap<>();
         path.put("type", "string");
@@ -121,6 +121,11 @@ public class SkillTool extends Tool {
 
         SkillCommand skillCommand = new SkillCommand(name, name, skillsLoader);
         commandQueueManager.addSkillCommandByTool(skillCommand);
+
+        // 如果技能输出为空，则提示用户技能正在加载中
+        if (StrUtil.isBlank(skillCommand.getOutput())) {
+
+        }
 
         return CompletableFuture.completedFuture(
                 skillCommand.getOutput()

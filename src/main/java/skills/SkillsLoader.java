@@ -76,6 +76,8 @@ public class SkillsLoader {
                         Path skillFile = skillDir.resolve("SKILL.md");
                         if (Files.exists(skillFile) && Files.isRegularFile(skillFile)) {
                             skills.add(skillInfo(skillDir.getFileName().toString(), skillFile, "workspace"));
+                        }else {
+                            skills.addAll(listSkills(skillDir));
                         }
                     }
                 }
@@ -346,6 +348,14 @@ public class SkillsLoader {
         m.put("name", name);
         m.put("path", skillFile.toString());
         m.put("source", source);
+        return m;
+    }
+    private Map<String, String> skillInfo(String name, Path skillFile, String source,String desc) {
+        Map<String, String> m = new LinkedHashMap<>();
+        m.put("name", name);
+        m.put("path", skillFile.toString());
+        m.put("source", source);
+        m.put("desc", desc);
         return m;
     }
 

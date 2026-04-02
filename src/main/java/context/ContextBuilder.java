@@ -336,6 +336,10 @@ public class ContextBuilder {
         if (CollUtil.isNotEmpty(history)) {
             out.addAll(history);
         }
+        out.add(mapOf(
+                "role", "user",
+                "content", "开始执行"
+        ));
         return out;
     }
 
