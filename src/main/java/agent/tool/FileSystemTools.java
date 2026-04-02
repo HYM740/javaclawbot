@@ -35,7 +35,7 @@ import java.util.concurrent.CompletionStage;
  * 文件系统工具集合（对齐 MCP filesystem 的核心能力，并增强：
  *
  * 1) read_file：支持 head / tail / 指定范围行读取
- * 2) write_file：支持 overwrite / append / prepend / insert
+ * 2) Edit (write_file)：原子级复刻 Claude Code FileEditTool，支持 old_string / new_string / replace_all
  * 3) edit_file：支持 edits[] + dryRun
  * 4) list_dir：列目录
  * 5) read_word
@@ -59,6 +59,11 @@ public final class FileSystemTools {
     // ReadFileTool
     // ----------------------------
     public static final class ReadFileTool extends Tool {
+        /** 文件大小上限 (256KB) — 读前检查（对齐 Claude Code 的 MAX_OUTPUT_SIZE） */
+        private static final long MAX_FILE_SIZE_BYTES = 256L * 1024;
+        /** 输出字符上限 (~25K tokens ≈ 50K chars) — 读后检查 */
+        private static final int MAX_OUTPUT_CHARS = 50_000;
+
         private final Path workspace;
         private final Path allowedDir;
 
@@ -75,6 +80,12 @@ public final class FileSystemTools {
         @Override
         public String description() {
             return "Read the contents of a UTF-8 text file at the given path. Supports head/tail/start_line/end_line.";
+        }
+
+        /** 自行管理大小限制，不走通用持久化逻辑 */
+        @Override
+        public int maxResultSizeChars() {
+            return Integer.MAX_VALUE;
         }
 
         @Override
@@ -106,6 +117,8 @@ public final class FileSystemTools {
                 return CompletableFuture.completedFuture(validate);
             }
 
+            boolean hasLineLimit = head != null || tail != null || startLine != null || endLine != null;
+
             try {
                 Path filePath = PathUtil.resolvePath(path, workspace, allowedDir);
                 if (!Files.exists(filePath)) {
@@ -115,8 +128,32 @@ public final class FileSystemTools {
                     return CompletableFuture.completedFuture("Error: Not a file: " + path);
                 }
 
+                // 读前检查：无行限制时检查文件大小
+                if (!hasLineLimit) {
+                    long fileSize = Files.size(filePath);
+                    if (fileSize > MAX_FILE_SIZE_BYTES) {
+                        long totalLines = countLinesFast(filePath);
+                        return CompletableFuture.completedFuture(
+                                String.format("Error: File too large (%.1f KB, %d lines). " +
+                                        "Use start_line/end_line or head/tail parameters to read specific sections, " +
+                                        "e.g. start_line=1, end_line=200 for first 200 lines.",
+                                        fileSize / 1024.0, totalLines));
+                    }
+                }
+
                 String content = readFileSmart(filePath);
-                return CompletableFuture.completedFuture(applyLineWindow(content, head, tail, startLine, endLine));
+                content = applyLineWindow(content, head, tail, startLine, endLine);
+
+                // 读后检查：输出字符数
+                if (content.length() > MAX_OUTPUT_CHARS) {
+                    int lineCount = splitLinesPreserveNewline(content).size();
+                    return CompletableFuture.completedFuture(
+                            String.format("Error: Selected content too large (%d chars, %d lines). " +
+                                    "Use start_line/end_line to narrow the range.",
+                                    content.length(), lineCount));
+                }
+
+                return CompletableFuture.completedFuture(content);
 
             } catch (SecurityException se) {
                 return CompletableFuture.completedFuture("Error: " + se.getMessage());
@@ -124,10 +161,28 @@ public final class FileSystemTools {
                 return CompletableFuture.completedFuture("Error reading file: " + e.getMessage());
             }
         }
+
+        /** 快速统计文件行数（不加载全文） */
+        private static long countLinesFast(Path filePath) throws Exception {
+            try (var lines = Files.lines(filePath)) {
+                return lines.count();
+            }
+        }
     }
 
     // ----------------------------
-    // WriteFileTool (Enhanced)
+    // WriteFileTool — Atomic replication of Claude Code FileEditTool
+    //
+    // Original source: src/tools/FileEditTool/FileEditTool.ts + prompt.ts + utils.ts
+    //
+    // Replicates Claude Code's Edit tool behavior:
+    // - Performs exact string replacements in files
+    // - Supports old_string / new_string / replace_all parameters
+    // - Handles curly quote normalization via normalizeQuotes / findActualString / preserveQuoteStyle
+    // - Preserves original file encoding and line endings
+    // - Output matches mapToolResultToToolResultBlockParam:
+    //   "The file {path} has been updated successfully."
+    //   "The file {path} has been updated. All occurrences were successfully replaced."
     // ----------------------------
     public static final class WriteFileTool extends Tool {
         private final Path workspace;
@@ -140,192 +195,233 @@ public final class FileSystemTools {
 
         @Override
         public String name() {
-            return "write_file";
+            return "Edit";
         }
 
+        /**
+         * Atomic replication of Claude Code FileEditTool prompt.ts getEditToolDescription().
+         *
+         * Original source: src/tools/FileEditTool/prompt.ts → getEditToolDescription()
+         */
         @Override
         public String description() {
-            return "Write content to a file. Supports overwrite/append/prepend/insert.";
+            return String.join("\n", List.of(
+                "Performs exact string replacements in files.",
+                "",
+                "Usage:",
+                "- You must use your `read_file` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. ",
+                "- When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + tab. Everything after that is the actual file content to match. Never include any part of the line number prefix in the old_string or new_string.",
+                "- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.",
+                "- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.",
+                "- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.",
+                "- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance."
+            ));
         }
 
+        /**
+         * Atomic replication of Claude Code FileEditTool maxResultSizeChars = 100_000.
+         */
+        @Override
+        public int maxResultSizeChars() {
+            return 100_000;
+        }
+
+        /**
+         * Atomic replication of Claude Code FileEditTool input schema.
+         *
+         * Original source: src/tools/FileEditTool/types.ts → inputSchema
+         *
+         * Schema fields:
+         * - file_path (string, required): The absolute path to the file to modify
+         * - old_string (string, required): The text to replace
+         * - new_string (string, required): The text to replace it with (must be different from old_string)
+         * - replace_all (boolean, optional, default false): Replace all occurrences of old_string
+         */
         @Override
         public Map<String, Object> parameters() {
-            Map<String, Object> insertProps = new LinkedHashMap<>();
-            insertProps.put("char_offset", Map.of("type", "number", "description", "Insert at character offset (0-based)"));
-            insertProps.put("line", Map.of("type", "number", "description", "Insert at line (1-based)"));
-            insertProps.put("column", Map.of("type", "number", "description", "Insert at column (1-based)"));
-
             Map<String, Object> props = new LinkedHashMap<>();
-            props.put("path", Map.of("type", "string", "description", "The file path to write to"));
-            props.put("content", Map.of("type", "string", "description", "The content to write"));
-            props.put("mode", Map.of(
+            props.put("file_path", Map.of(
                     "type", "string",
-                    "description", "Write mode: overwrite | append | prepend | insert (default overwrite)",
-                    "enum", List.of("overwrite", "append", "prepend", "insert")
+                    "description", "The absolute path to the file to modify"
             ));
-            props.put("insert_at", Map.of(
-                    "type", "object",
-                    "description", "Required when mode=insert. Choose either char_offset or (line+column).",
-                    "properties", insertProps
+            props.put("old_string", Map.of(
+                    "type", "string",
+                    "description", "The text to replace"
+            ));
+            props.put("new_string", Map.of(
+                    "type", "string",
+                    "description", "The text to replace it with (must be different from old_string)"
+            ));
+            props.put("replace_all", Map.of(
+                    "type", "boolean",
+                    "description", "Replace all occurrences of old_string (default false)"
             ));
 
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("type", "object");
             schema.put("properties", props);
-            schema.put("required", List.of("path", "content"));
+            schema.put("required", List.of("file_path", "old_string", "new_string"));
             return schema;
         }
 
+        /**
+         * Atomic replication of Claude Code FileEditTool.call().
+         *
+         * Original source: src/tools/FileEditTool/FileEditTool.ts → call()
+         *
+         * Execution flow:
+         * 1. Extract parameters (file_path, old_string, new_string, replace_all)
+         * 2. Resolve file path, detect encoding
+         * 3. findActualString — exact match first, then quote-normalized match
+         * 4. preserveQuoteStyle — when file uses curly quotes but model provides straight quotes
+         * 5. Apply replacement (single or replaceAll)
+         * 6. Write back preserving original encoding and line endings
+         * 7. Return result matching mapToolResultToToolResultBlockParam format
+         */
         @Override
         public CompletionStage<String> execute(Map<String, Object> args) {
-            String path = asString(args.get("path"));
-            String content = asString(args.get("content"));
-            String mode = trimToNull(asString(args.get("mode")));
-            if (mode == null) mode = "overwrite";
+            String filePath = asString(args.get("file_path"));
+            String oldString = asString(args.get("old_string"));
+            String newString = asString(args.get("new_string"));
+            boolean replaceAll = asBool(args.get("replace_all"), false);
 
             try {
-                Path filePath = PathUtil.resolvePath(path, workspace, allowedDir);
-                Path parent = filePath.getParent();
-                if (parent != null) Files.createDirectories(parent);
+                Path resolvedPath = PathUtil.resolvePath(filePath, workspace, allowedDir);
 
-                // Detect target line ending: match existing file, or use LF for new files
-                // (LF is universal: Windows apps handle it, and it's native on Unix/macOS)
+                // --- Atomic replication of validateInput checks ---
+
+                // Check old_string === new_string
+                if (oldString.equals(newString)) {
+                    return CompletableFuture.completedFuture(
+                            "Error: No changes to make: old_string and new_string are exactly the same."
+                    );
+                }
+
+                // Read file content with encoding detection
+                String fileContent;
+                Charset fileCharset;
                 String targetLineEnding;
-                Charset targetCharset;
-                boolean preserveBom;  // 是否保留 UTF-8 BOM
+                boolean preserveBom;
 
-                if (Files.exists(filePath)) {
-                    byte[] existingBytes = Files.readAllBytes(filePath);
-                    targetLineEnding = detectLineEnding(smartDecode(existingBytes));
-                    targetCharset = detectCharset(existingBytes);
+                if (Files.exists(resolvedPath)) {
+                    byte[] existingBytes = Files.readAllBytes(resolvedPath);
+                    fileContent = smartDecode(existingBytes);
+                    fileCharset = detectCharset(existingBytes);
+                    targetLineEnding = detectLineEnding(fileContent);
                     preserveBom = hasUtf8Bom(existingBytes);
                 } else {
-                    // 新文件：使用 LF（跨平台兼容），UTF-8 无 BOM
-                    targetLineEnding = "\n";  // 强制 LF，跨平台兼容
-                    targetCharset = StandardCharsets.UTF_8;
-                    preserveBom = false;  // 新文件不添加 BOM
-                }
-                // Normalize incoming content to match target line ending
-                content = normalizeLineEndings(content, targetLineEnding);
-
-                if ("append".equalsIgnoreCase(mode)) {
-                    // 使用原文件编码追加（不重复写 BOM）
-                    byte[] bytes = content.getBytes(targetCharset);
-                    Files.write(filePath, bytes, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-                    return CompletableFuture.completedFuture("Successfully appended " + bytes.length + " bytes to " + filePath + " (charset=" + targetCharset.name() + ")");
+                    // File doesn't exist — only valid if old_string is empty (new file creation)
+                    if (!oldString.isEmpty()) {
+                        return CompletableFuture.completedFuture(
+                                "Error: File does not exist: " + filePath
+                        );
+                    }
+                    fileContent = "";
+                    fileCharset = StandardCharsets.UTF_8;
+                    targetLineEnding = "\n";
+                    preserveBom = false;
                 }
 
-                String old = Files.exists(filePath) ? readFileSmart(filePath) : "";
+                // Normalize line endings in file content to LF for matching
+                String normalizedContent = fileContent.replace("\r\n", "\n").replace("\r", "\n");
+                String normalizedOldString = oldString.replace("\r\n", "\n").replace("\r", "\n");
+                String normalizedNewString = newString.replace("\r\n", "\n").replace("\r", "\n");
 
-                String newContent;
-                if ("overwrite".equalsIgnoreCase(mode)) {
-                    newContent = content;
-                } else if ("prepend".equalsIgnoreCase(mode)) {
-                    newContent = content + old;
-                } else if ("insert".equalsIgnoreCase(mode)) {
-                    Object insertAtObj = args.get("insert_at");
-                    if (!(insertAtObj instanceof Map<?, ?> insertAt)) {
-                        return CompletableFuture.completedFuture("Error: mode=insert requires insert_at object");
+                // --- findActualString: exact match first, then quote-normalized match ---
+                String actualOldString = findActualString(normalizedContent, normalizedOldString);
+                if (actualOldString == null) {
+                    return CompletableFuture.completedFuture(
+                            "Error: String to replace not found in file.\nString: " + oldString
+                    );
+                }
+
+                // --- Check for multiple matches when replace_all is false ---
+                if (!replaceAll) {
+                    int matches = countMatches(normalizedContent, actualOldString);
+                    if (matches > 1) {
+                        return CompletableFuture.completedFuture(
+                                "Error: Found " + matches + " matches of the string to replace, but replace_all is false. " +
+                                        "To replace all occurrences, set replace_all to true. " +
+                                        "To replace only one occurrence, please provide more context to uniquely identify the instance.\n" +
+                                        "String: " + oldString
+                        );
                     }
-                    InsertPos pos = parseInsertPos(insertAt);
-                    if (pos == null) {
-                        return CompletableFuture.completedFuture("Error: insert_at must provide either char_offset or (line and column)");
-                    }
-                    newContent = insertInto(old, content, pos);
+                }
+
+                // --- preserveQuoteStyle: when file uses curly quotes but model provides straight quotes ---
+                String actualNewString = preserveQuoteStyle(
+                        normalizedOldString, actualOldString, normalizedNewString
+                );
+
+                // --- Apply the replacement ---
+                String updatedContent;
+                if (oldString.isEmpty()) {
+                    // New file creation
+                    updatedContent = actualNewString;
+                } else if (replaceAll) {
+                    updatedContent = normalizedContent.replace(actualOldString, actualNewString);
                 } else {
-                    return CompletableFuture.completedFuture("Error: unknown mode: " + mode);
+                    int idx = normalizedContent.indexOf(actualOldString);
+                    updatedContent = normalizedContent.substring(0, idx)
+                            + actualNewString
+                            + normalizedContent.substring(idx + actualOldString.length());
                 }
 
-                // 写入文件：如果需要保留 BOM，先写 BOM 再写内容
-                if (preserveBom && targetCharset == StandardCharsets.UTF_8) {
-                    // UTF-8 BOM: EF BB BF
+                // --- Write back preserving original encoding and line endings ---
+                // Normalize line endings back to target
+                String finalContent = normalizeLineEndings(updatedContent, targetLineEnding);
+
+                // Ensure parent directory exists
+                Path parent = resolvedPath.getParent();
+                if (parent != null) Files.createDirectories(parent);
+
+                // Write with BOM preservation
+                if (preserveBom && fileCharset == StandardCharsets.UTF_8) {
                     byte[] bomBytes = new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
-                    byte[] contentBytes = newContent.getBytes(StandardCharsets.UTF_8);
+                    byte[] contentBytes = finalContent.getBytes(StandardCharsets.UTF_8);
                     byte[] fullBytes = new byte[bomBytes.length + contentBytes.length];
                     System.arraycopy(bomBytes, 0, fullBytes, 0, bomBytes.length);
                     System.arraycopy(contentBytes, 0, fullBytes, bomBytes.length, contentBytes.length);
-                    Files.write(filePath, fullBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                    Files.write(resolvedPath, fullBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
                 } else {
                     Files.writeString(
-                            filePath,
-                            newContent,
-                            targetCharset,
+                            resolvedPath,
+                            finalContent,
+                            fileCharset,
                             StandardOpenOption.CREATE,
                             StandardOpenOption.TRUNCATE_EXISTING
                     );
                 }
 
-                String bomNote = preserveBom ? " (UTF-8 BOM preserved)" : "";
-                return CompletableFuture.completedFuture("Successfully wrote to " + filePath + " (mode=" + mode + ", charset=" + targetCharset.name() + ", lineEnding=" + lineEndingName(targetLineEnding) + bomNote + ")");
+                // --- Return result matching mapToolResultToToolResultBlockParam ---
+                if (replaceAll) {
+                    return CompletableFuture.completedFuture(
+                            "The file " + filePath + " has been updated. All occurrences were successfully replaced."
+                    );
+                }
+                return CompletableFuture.completedFuture(
+                        "The file " + filePath + " has been updated successfully."
+                );
+
             } catch (SecurityException se) {
                 return CompletableFuture.completedFuture("Error: " + se.getMessage());
             } catch (Exception e) {
-                return CompletableFuture.completedFuture("Error writing file: " + e.getMessage());
+                return CompletableFuture.completedFuture("Error editing file: " + e.getMessage());
             }
         }
 
-        /** 换行符名称 */
-        private static String lineEndingName(String le) {
-            if ("\r\n".equals(le)) return "CRLF";
-            if ("\n".equals(le)) return "LF";
-            if ("\r".equals(le)) return "CR";
-            return "unknown";
-        }
-
-        /** 插入定位：二选一，charOffset 或 line/column */
-        private static final class InsertPos {
-            final Integer charOffset; // 0-based
-            final Integer line;       // 1-based
-            final Integer column;     // 1-based
-
-            InsertPos(Integer charOffset, Integer line, Integer column) {
-                this.charOffset = charOffset;
-                this.line = line;
-                this.column = column;
+        /**
+         * Count non-overlapping occurrences of a substring.
+         */
+        private static int countMatches(String content, String search) {
+            if (search.isEmpty()) return 0;
+            int count = 0;
+            int idx = 0;
+            while ((idx = content.indexOf(search, idx)) >= 0) {
+                count++;
+                idx += search.length();
             }
-        }
-
-        private static InsertPos parseInsertPos(Map<?, ?> insertAt) {
-            Integer charOffset = asIntOrNull(insertAt.get("char_offset"));
-            Integer line = asIntOrNull(insertAt.get("line"));
-            Integer column = asIntOrNull(insertAt.get("column"));
-
-            if (charOffset != null) {
-                if (charOffset < 0) charOffset = 0;
-                return new InsertPos(charOffset, null, null);
-            }
-
-            if (line != null && column != null) {
-                if (line < 1) line = 1;
-                if (column < 1) column = 1;
-                return new InsertPos(null, line, column);
-            }
-            return null;
-        }
-
-        /** 按 InsertPos 插入（尽量稳健：越界自动夹紧） */
-        private static String insertInto(String base, String insert, InsertPos pos) {
-            if (insert == null) insert = "";
-            if (base == null) base = "";
-
-            if (pos.charOffset != null) {
-                int idx = Math.min(Math.max(0, pos.charOffset), base.length());
-                return base.substring(0, idx) + insert + base.substring(idx);
-            }
-
-            List<String> lines = splitLinesPreserveNewline(base);
-            int targetLine = Math.min(Math.max(1, pos.line), Math.max(1, lines.size()));
-
-            int offset = 0;
-            for (int i = 0; i < targetLine - 1 && i < lines.size(); i++) {
-                offset += lines.get(i).length();
-            }
-
-            String lineStr = (targetLine - 1 < lines.size()) ? lines.get(targetLine - 1) : "";
-            int col0 = Math.min(Math.max(0, pos.column - 1), lineStr.length());
-            int idx = Math.min(base.length(), offset + col0);
-
-            return base.substring(0, idx) + insert + base.substring(idx);
+            return count;
         }
     }
 
@@ -349,6 +445,12 @@ public final class FileSystemTools {
         @Override
         public String description() {
             return "Edit a file using edits[] (oldText->newText). Supports dryRun preview and multiple edits.";
+        }
+
+        /** 对齐 Claude Code FileEditTool.maxResultSizeChars = 100_000 */
+        @Override
+        public int maxResultSizeChars() {
+            return 100_000;
         }
 
         @Override
@@ -1761,6 +1863,189 @@ public final class FileSystemTools {
     private static String readFileSmart(Path filePath) throws Exception {
         byte[] bytes = Files.readAllBytes(filePath);
         return smartDecode(bytes);
+    }
+
+    // ========================================================================
+    // Atomic replication of Claude Code FileEditTool/utils.ts
+    //
+    // Original source: src/tools/FileEditTool/utils.ts
+    //
+    // Ported utility functions:
+    // - normalizeQuotes(): Convert curly quotes to straight quotes
+    // - findActualString(): Find matching string with fallback to quote normalization
+    // - preserveQuoteStyle(): Preserve curly quotes in replacement when file uses them
+    // ========================================================================
+
+    // Claude can't output curly quotes, so we define them as constants
+    // (aligned with Claude Code utils.ts LEFT/RIGHT_SINGLE/CURLY_QUOTE)
+    private static final char LEFT_SINGLE_CURLY_QUOTE  = '\u2018';  // '
+    private static final char RIGHT_SINGLE_CURLY_QUOTE = '\u2019';  // '
+    private static final char LEFT_DOUBLE_CURLY_QUOTE  = '\u201C';  // "
+    private static final char RIGHT_DOUBLE_CURLY_QUOTE = '\u201D';  // "
+
+    /**
+     * Atomic replication of Claude Code utils.ts normalizeQuotes().
+     *
+     * Normalizes quotes in a string by converting curly quotes to straight quotes.
+     *
+     * Original source: src/tools/FileEditTool/utils.ts → normalizeQuotes()
+     */
+    private static String normalizeQuotes(String str) {
+        if (str == null) return null;
+        return str
+                .replace(LEFT_SINGLE_CURLY_QUOTE, '\'')
+                .replace(RIGHT_SINGLE_CURLY_QUOTE, '\'')
+                .replace(LEFT_DOUBLE_CURLY_QUOTE, '"')
+                .replace(RIGHT_DOUBLE_CURLY_QUOTE, '"');
+    }
+
+    /**
+     * Atomic replication of Claude Code utils.ts findActualString().
+     *
+     * Finds the actual string in the file content that matches the search string,
+     * accounting for quote normalization.
+     *
+     * Original source: src/tools/FileEditTool/utils.ts → findActualString()
+     *
+     * @param fileContent  The file content to search in
+     * @param searchString The string to search for
+     * @return The actual string found in the file, or null if not found
+     */
+    private static String findActualString(String fileContent, String searchString) {
+        // First try exact match
+        if (fileContent.contains(searchString)) {
+            return searchString;
+        }
+
+        // Try with normalized quotes
+        String normalizedSearch = normalizeQuotes(searchString);
+        String normalizedFile = normalizeQuotes(fileContent);
+
+        int searchIndex = normalizedFile.indexOf(normalizedSearch);
+        if (searchIndex != -1) {
+            // Find the actual string in the file that matches
+            return fileContent.substring(searchIndex, searchIndex + searchString.length());
+        }
+
+        return null;
+    }
+
+    /**
+     * Atomic replication of Claude Code utils.ts preserveQuoteStyle().
+     *
+     * When old_string matched via quote normalization (curly quotes in file,
+     * straight quotes from model), apply the same curly quote style to new_string
+     * so the edit preserves the file's typography.
+     *
+     * Original source: src/tools/FileEditTool/utils.ts → preserveQuoteStyle()
+     *
+     * @param oldString      The original search string (from model, likely straight quotes)
+     * @param actualOldString The actual string found in the file (may have curly quotes)
+     * @param newString       The replacement string (from model)
+     * @return The new string with quote style preserved
+     */
+    private static String preserveQuoteStyle(String oldString, String actualOldString, String newString) {
+        // If they're the same, no normalization happened
+        if (oldString.equals(actualOldString)) {
+            return newString;
+        }
+
+        // Detect which curly quote types were in the file
+        boolean hasDoubleQuotes =
+                actualOldString.indexOf(LEFT_DOUBLE_CURLY_QUOTE) >= 0
+                        || actualOldString.indexOf(RIGHT_DOUBLE_CURLY_QUOTE) >= 0;
+        boolean hasSingleQuotes =
+                actualOldString.indexOf(LEFT_SINGLE_CURLY_QUOTE) >= 0
+                        || actualOldString.indexOf(RIGHT_SINGLE_CURLY_QUOTE) >= 0;
+
+        if (!hasDoubleQuotes && !hasSingleQuotes) {
+            return newString;
+        }
+
+        String result = newString;
+        if (hasDoubleQuotes) {
+            result = applyCurlyDoubleQuotes(result);
+        }
+        if (hasSingleQuotes) {
+            result = applyCurlySingleQuotes(result);
+        }
+
+        return result;
+    }
+
+    /**
+     * Atomic replication of Claude Code utils.ts isOpeningContext().
+     *
+     * Determines if a quote at the given position should be treated as an opening quote.
+     * A quote character preceded by whitespace, start of string, or opening punctuation
+     * is treated as an opening quote; otherwise it's a closing quote.
+     */
+    private static boolean isOpeningContext(char[] chars, int index) {
+        if (index == 0) {
+            return true;
+        }
+        char prev = chars[index - 1];
+        return prev == ' '
+                || prev == '\t'
+                || prev == '\n'
+                || prev == '\r'
+                || prev == '('
+                || prev == '['
+                || prev == '{'
+                || prev == '\u2014'  // em dash
+                || prev == '\u2013'; // en dash
+    }
+
+    /**
+     * Atomic replication of Claude Code utils.ts applyCurlyDoubleQuotes().
+     *
+     * Converts straight double quotes to curly double quotes based on context.
+     */
+    private static String applyCurlyDoubleQuotes(String str) {
+        char[] chars = str.toCharArray();
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < chars.length; i++) {
+            if (chars[i] == '"') {
+                result.append(isOpeningContext(chars, i)
+                        ? LEFT_DOUBLE_CURLY_QUOTE
+                        : RIGHT_DOUBLE_CURLY_QUOTE);
+            } else {
+                result.append(chars[i]);
+            }
+        }
+        return result.toString();
+    }
+
+    /**
+     * Atomic replication of Claude Code utils.ts applyCurlySingleQuotes().
+     *
+     * Converts straight single quotes to curly single quotes based on context.
+     * Handles apostrophes in contractions (e.g., "don't", "it's").
+     */
+    private static String applyCurlySingleQuotes(String str) {
+        char[] chars = str.toCharArray();
+        StringBuilder result = new StringBuilder();
+        for (int i = 0; i < chars.length; i++) {
+            if (chars[i] == '\'') {
+                // Don't convert apostrophes in contractions (e.g., "don't", "it's")
+                // An apostrophe between two letters is a contraction, not a quote
+                Character prev = (i > 0) ? chars[i - 1] : null;
+                Character next = (i < chars.length - 1) ? chars[i + 1] : null;
+                boolean prevIsLetter = (prev != null) && Character.isLetter(prev);
+                boolean nextIsLetter = (next != null) && Character.isLetter(next);
+                if (prevIsLetter && nextIsLetter) {
+                    // Apostrophe in a contraction — use right single curly quote
+                    result.append(RIGHT_SINGLE_CURLY_QUOTE);
+                } else {
+                    result.append(isOpeningContext(chars, i)
+                            ? LEFT_SINGLE_CURLY_QUOTE
+                            : RIGHT_SINGLE_CURLY_QUOTE);
+                }
+            } else {
+                result.append(chars[i]);
+            }
+        }
+        return result.toString();
     }
 
 }

@@ -21,4 +21,16 @@ public interface ToolView {
     Object get(String name);
 
     void addTool(Tool tool);
+
+    /**
+     * 获取指定工具的最大结果字符数。
+     * 如果工具不存在，返回默认值 50_000。
+     */
+    default int maxResultSizeChars(String name) {
+        Object tool = get(name);
+        if (tool instanceof Tool t) {
+            return t.maxResultSizeChars();
+        }
+        return 50_000;
+    }
 }

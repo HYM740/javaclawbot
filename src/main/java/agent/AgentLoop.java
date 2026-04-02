@@ -49,6 +49,7 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.nio.file.Files;
 
 import static utils.Helpers.stripThink;
 import static utils.Helpers.toolHint;
@@ -102,10 +103,14 @@ public class AgentLoop {
 
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<CompletableFuture<?>>> activeTasks = new ConcurrentHashMap<>();
 
-    /** Usage 累积器（按会话） */
+    /**
+     * Usage 累积器（按会话）
+     */
     private final ConcurrentHashMap<String, UsageAccumulator> usageTrackers = new ConcurrentHashMap<>();
 
-    /** 并发队列（对齐 OpenClaw Lane-aware FIFO） */
+    /**
+     * 并发队列（对齐 OpenClaw Lane-aware FIFO）
+     */
     private final AgentLoopQueue queue;
 
     /**
@@ -306,8 +311,9 @@ public class AgentLoop {
         // 记忆搜索工具
         sharedTools.register(new MemorySearchTool(workspace));
 
-        // 记忆读取工具,可复用read_file工具
-        // sharedTools.register(new MemoryGetTool(workspace));
+        // 搜索工具（对齐 Claude Code 的 Grep/Glob 工具）
+        sharedTools.register(new GrepTool(workspace, allowedDir));
+        sharedTools.register(new GlobTool(workspace, allowedDir));
 
     }
 
@@ -320,7 +326,7 @@ public class AgentLoop {
      * - sharedTools：全局共享、无上下文工具
      * - mcpTools：动态 MCP 工具（运行期发现）
      * - localTools：当前请求独有、有上下文工具
-     *
+     * <p>
      * 优先级：
      * local > mcp > shared
      */
@@ -352,12 +358,13 @@ public class AgentLoop {
 
         return new CompositeToolView(sharedTools, mcpTools, localTools);
     }
+
     /**
      * 构建当前请求的工具视图：
      * - sharedTools：全局共享、无上下文工具
      * - mcpTools：动态 MCP 工具（运行期发现）
      * - localTools：当前请求独有、有上下文工具
-     *
+     * <p>
      * 优先级：
      * local > mcp > shared
      */
@@ -372,12 +379,13 @@ public class AgentLoop {
 
         return new CompositeToolView(localTools);
     }
+
     /**
      * 构建当前请求的工具视图：
      * - sharedTools：全局共享、无上下文工具
      * - mcpTools：动态 MCP 工具（运行期发现）
      * - localTools：当前请求独有、有上下文工具
-     *
+     * <p>
      * 优先级：
      * local > mcp > shared
      */
@@ -404,11 +412,11 @@ public class AgentLoop {
         return mcpManager.ensureConnected()
                 .thenApply(v -> {
                     mcpManager.startAutoRefresh(20, TimeUnit.SECONDS);
-                    return (Void)null;
+                    return (Void) null;
                 }).exceptionally(ex -> {
-            log.warn("MCP 初始化失败，本轮将继续但不包含 MCP 工具: {}", ex.toString());
-            return null;
-        });
+                    log.warn("MCP 初始化失败，本轮将继续但不包含 MCP 工具: {}", ex.toString());
+                    return null;
+                });
     }
 
     public CompletionStage<Void> closeMcp() {
@@ -911,7 +919,7 @@ public class AgentLoop {
             if (metadata != null) {
                 metadata.put("userMsg", userMsg);
                 metadata.put("senderId", senderId);
-            }else {
+            } else {
                 compressMsg.setMetadata(new HashMap<>());
                 compressMsg.getMetadata().put("userMsg", userMsg);
                 compressMsg.getMetadata().put("senderId", senderId);
@@ -942,7 +950,7 @@ public class AgentLoop {
     }
 
     private static String extractMessageId(Map<String, Object> meta) {
-        if (CollUtil.isEmpty(meta)){
+        if (CollUtil.isEmpty(meta)) {
             return null;
         }
         Object msgId = meta.get("messageId");
@@ -950,7 +958,7 @@ public class AgentLoop {
             msgId = meta.get("message_id");
             return msgId == null ? null
                     : String.valueOf(msgId);
-        }else {
+        } else {
             return String.valueOf(msgId);
         }
 
@@ -1019,7 +1027,7 @@ public class AgentLoop {
                 // 检查是否需要执行硬压缩（阻塞 + 通知用户）
                 int estimatedChars = ContextPruner.estimateContextChars(messages);
                 // 当前上下文比例
-                double contextRatio = contextWindow > 0 ? (double)  estimatedChars / currentContextWindowChars() : 0;
+                double contextRatio = contextWindow > 0 ? (double) estimatedChars / currentContextWindowChars() : 0;
                 double consolidateThreshold = currentConsolidateThreshold();
 
                 if (contextRatio > consolidateThreshold) {
@@ -1117,7 +1125,7 @@ public class AgentLoop {
                     if (resp.hasToolCalls()) {
                         if (onProgress != null) {
                             // 移除思考标签
-                            String clean =  stripThink(resp.getContent());
+                            String clean = stripThink(resp.getContent());
                             if (clean != null) onProgress.onProgress(clean, false);
                             onProgress.onProgress(toolHint(resp.getToolCalls()), true);
                         }
@@ -1249,10 +1257,13 @@ public class AgentLoop {
                 }
 
                 return tools.execute(tc.getName(), tc.getArguments())
-                        .thenAccept(result -> {
+                        .thenAccept(rawResult -> {
                             if (isStopRequested(sessionKey)) {
                                 throw new CancellationException("session stopped");
                             }
+
+                            // 检查工具结果大小，过大则持久化到磁盘
+                            String result = maybePersistToolResult(tools, tc.getName(), tc.getId(), rawResult);
 
                             List<Map<String, Object>> updated =
                                     context.addToolResult(messages, tc.getId(), tc.getName(), result);
@@ -1300,17 +1311,80 @@ public class AgentLoop {
     }
 
     /**
+     * 工具结果预览大小（字符数）
+     */
+    private static final int TOOL_RESULT_PREVIEW_CHARS = 2_000;
+
+    /**
+     * 如果工具结果过大，持久化到磁盘并返回预览。
+     * 对齐 Claude Code 的 toolResultStorage 机制。
+     */
+    private String maybePersistToolResult(ToolView toolView, String toolName, String toolCallId, String result) {
+        if (result == null) return result;
+
+        // 获取工具实例
+        Object toolObj = toolView.get(toolName);
+        if (!(toolObj instanceof Tool tool)) return result;
+
+        int toolMaxChars = tool.maxResultSizeChars();
+        if (toolMaxChars <= 0) {
+            return result;
+        }
+
+        // 动态上限：根据上下文窗口按比例限制单个工具结果的最大字符数
+        // Claude Code 的限制针对 200K token 模型（30K bash ≈ 15% 上下文）
+        // 对于 32K token 模型需要等比缩小，避免单个工具结果占满上下文
+        // 公式：上下文总字符数 × 15%，至少保留 TOOL_RESULT_PREVIEW_CHARS
+        int contextChars = currentContextWindowChars();
+        int dynamicCap = Math.max(TOOL_RESULT_PREVIEW_CHARS, contextChars);
+        int effectiveMax = Math.min(toolMaxChars, dynamicCap);
+
+        if (result.length() <= effectiveMax) {
+            return result; // 不需要持久化
+        }
+
+        // 持久化到磁盘
+        try {
+            java.nio.file.Path resultDir = workspace.resolve(".tool-results");
+            Files.createDirectories(resultDir);
+            String fileName = (toolCallId != null && !toolCallId.isBlank())
+                    ? toolCallId
+                    : (toolName + "_" + System.currentTimeMillis());
+            java.nio.file.Path resultFile = resultDir.resolve(fileName + ".txt");
+            Files.writeString(resultFile, result);
+
+            // 返回预览
+            String preview = result.length() > TOOL_RESULT_PREVIEW_CHARS
+                    ? result.substring(0, TOOL_RESULT_PREVIEW_CHARS)
+                    : result;
+
+            return String.format(
+                    "<persisted-output>\n" +
+                            "Output too large (%d chars). Full output saved to: %s\n\n" +
+                            "Preview (first %d chars):\n%s\n...\n" +
+                            "</persisted-output>",
+                    result.length(), resultFile, TOOL_RESULT_PREVIEW_CHARS, preview);
+        } catch (Exception e) {
+            log.warn("持久化工具结果失败: {}", e.getMessage());
+            // 持久化失败，直接截断
+            int maxLen = Math.min(effectiveMax, result.length());
+            return result.substring(0, maxLen) + "\n... (truncated, " + (result.length() - maxLen) + " more chars)";
+        }
+    }
+
+
+    /**
      * saveTurn - 将本轮对话消息保存到 Session 中
-     *
+     * <p>
      * 整体流程：
-     *   1. 从 skip 位置开始遍历 messages（跳过已处理的历史消息）
-     *   2. 对每条消息做清洗：
-     *      - 去掉 reasoning_content（思维链，不需要持久化）
-     *      - 过滤掉空的 assistant 消息（既没有内容也没有 tool_calls）
-     *      - 截断过长的 tool 返回结果
-     *      - 将 user 消息中的 base64 图片替换为 "[image]" 文本（节省存储）
-     *   3. 给每条消息打上时间戳，追加到 session.messages 中
-     *   4. 更新 session 的 updatedAt 时间
+     * 1. 从 skip 位置开始遍历 messages（跳过已处理的历史消息）
+     * 2. 对每条消息做清洗：
+     * - 去掉 reasoning_content（思维链，不需要持久化）
+     * - 过滤掉空的 assistant 消息（既没有内容也没有 tool_calls）
+     * - 截断过长的 tool 返回结果
+     * - 将 user 消息中的 base64 图片替换为 "[image]" 文本（节省存储）
+     * 3. 给每条消息打上时间戳，追加到 session.messages 中
+     * 4. 更新 session 的 updatedAt 时间
      *
      * @param session  当前会话对象，最终消息会存入 session.getMessages()
      * @param messages 本轮对话的完整消息列表（包含 system/user/assistant/tool 等角色）

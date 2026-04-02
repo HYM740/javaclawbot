@@ -201,6 +201,15 @@ public abstract class Tool {
         return out;
     }
 
+    /**
+     * 工具结果最大字符数，超出后持久化到磁盘。
+     * 子类可覆写（如自行管理大小限制的工具可返回 Integer.MAX_VALUE）。
+     * 默认值 50,000 字符（对齐 Claude Code 的 DEFAULT_MAX_RESULT_SIZE_CHARS）。
+     */
+    public int maxResultSizeChars() {
+        return 50_000;
+    }
+
     /** Convenience: default execute() wrapper when you want to validate first. */
     public CompletionStage<String> executeValidated(Map<String, Object> args) {
         List<String> errors = validateParams(args == null ? Map.of() : args);
