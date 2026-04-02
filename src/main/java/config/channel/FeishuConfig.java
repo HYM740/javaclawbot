@@ -4,7 +4,9 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -18,6 +20,9 @@ public class FeishuConfig {
 
     // ✅ Python: react_emoji: str = "THUMBSUP"
     private String reactEmoji = "THUMBSUP";
+
+    // 用户账户信息存储
+    private Map<String, FeishuAccount> accounts = new HashMap<>();
 
     public boolean isEnabled() {
         return enabled;
@@ -73,5 +78,13 @@ public class FeishuConfig {
 
     public void setReactEmoji(String reactEmoji) {
         this.reactEmoji = reactEmoji;
+    }
+
+    public Map<String, FeishuAccount> getAccounts() {
+        return accounts;
+    }
+
+    public void setAccounts(Map<String, FeishuAccount> accounts) {
+        this.accounts = accounts != null ? accounts : new HashMap<>();
     }
 }

@@ -2,6 +2,7 @@ package config.channel;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import config.channel.EmailMonitorConfig;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
     @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -16,6 +17,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
         private MochatConfig mochat = new MochatConfig();
         private DingTalkConfig dingtalk = new DingTalkConfig();
         private EmailConfig email = new EmailConfig();
+        private EmailMonitorConfig emailMonitor = new EmailMonitorConfig();
         private SlackConfig slack = new SlackConfig();
         private QQConfig qq = new QQConfig();
 
@@ -48,6 +50,9 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 
         public EmailConfig getEmail() { return email; }
         public void setEmail(EmailConfig email) { this.email = (email != null) ? email : new EmailConfig(); }
+
+        public EmailMonitorConfig getEmailMonitor() { return emailMonitor; }
+        public void setEmailMonitor(EmailMonitorConfig emailMonitor) { this.emailMonitor = (emailMonitor != null) ? emailMonitor : new EmailMonitorConfig(); }
 
         public SlackConfig getSlack() { return slack; }
         public void setSlack(SlackConfig slack) { this.slack = (slack != null) ? slack : new SlackConfig(); }

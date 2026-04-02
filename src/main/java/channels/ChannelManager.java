@@ -8,6 +8,8 @@ import com.google.gson.Gson;
 import config.Config;
 import config.ConfigSchema;
 import config.channel.*;
+import monitor.EmailMonitorService;
+import providers.LLMProvider;
 
 import java.lang.reflect.Constructor;
 import java.util.*;
@@ -23,7 +25,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * - 启动出站派发器：从 MessageBus 取 OutboundMessage，按 channel 字段路由发送
  *
  * 设计要点：
- * - 使用“反射”按类名加载渠道，模拟 Python 的 try-import 行为：
+ * - 使用"反射"按类名加载渠道，模拟 Python 的 try-import 行为：
  *   类不存在/依赖未引入 => 仅记录 warning，不导致工程编译失败
  * - 出站派发器轮询 bus.consumeOutbound()，每次最多等待 1 秒，便于 stop 时快速退出
  */
@@ -33,9 +35,14 @@ public class ChannelManager {
     private final Config config;
     /** 消息总线 */
     private final MessageBus bus;
+    /** LLM 提供者 */
+    private final LLMProvider provider;
 
     /** 已启用渠道：name -> channel 实例 */
     private final Map<String, BaseChannel> channels = new ConcurrentHashMap<>();
+
+    /** 邮件监控服务 */
+    private EmailMonitorService emailMonitor;
 
     /** 出站派发器运行标记 */
     private final AtomicBoolean dispatcherRunning = new AtomicBoolean(false);
@@ -47,8 +54,13 @@ public class ChannelManager {
     /** 出站派发器任务句柄 */
     private volatile Future<?> dispatchFuture;
 
-    public ChannelManager(Config config, MessageBus bus) {
+    public ChannelManager(Config config, LLMProvider provider, MessageBus bus) {
         this.config = Objects.requireNonNull(config, "config 不能为空");
+        if (config.getChannels().getEmailMonitor().isEnabled()) {
+            this.provider = Objects.requireNonNull(provider, "provider 不能为空");
+        }else {
+            this.provider = provider;
+        }
         this.bus = Objects.requireNonNull(bus, "bus 不能为空");
 
         this.executor = Executors.newCachedThreadPool(r -> {
@@ -232,7 +244,7 @@ public class ChannelManager {
      * - 先启动派发器（持续运行）
      * - 再启动每个渠道（通常也是持续运行）
      *
-     * @return 异步完成（注意：渠道一般“常驻运行”，因此通常不会自然完成）
+     * @return 异步完成（注意：渠道一般"常驻运行"，因此通常不会自然完成）
      */
     public CompletionStage<Void> startAll() {
         if (channels.isEmpty()) {
@@ -262,7 +274,17 @@ public class ChannelManager {
         }
 
         // 等价 asyncio.gather(...): 全部启动任务完成（通常不会完成）
-        return CompletableFuture.allOf(starts.toArray(new CompletableFuture[0]));
+        CompletableFuture<Void> allChannelsStarted = CompletableFuture.allOf(starts.toArray(new CompletableFuture[0]));
+
+        // 启动邮件监控服务
+        EmailMonitorConfig monitorConfig = config.getChannels().getEmailMonitor();
+        if (monitorConfig != null && monitorConfig.isEnabled()) {
+            emailMonitor = new EmailMonitorService(config, provider, bus);
+            emailMonitor.start();
+            logInfo("Email monitor service started");
+        }
+
+        return allChannelsStarted;
     }
 
     /**
@@ -271,6 +293,12 @@ public class ChannelManager {
     public CompletionStage<Void> stopAll() {
         return CompletableFuture.runAsync(() -> {
             logInfo("Stopping all channels...");
+
+            // 停止邮件监控服务
+            if (emailMonitor != null) {
+                emailMonitor.stop();
+                emailMonitor = null;
+            }
 
             // 停止派发器
             stopOutboundDispatcher();

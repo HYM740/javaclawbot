@@ -249,7 +249,7 @@ public final class GatewayRuntime {
             }
         });
 
-        this.channels = new ChannelManager(config, bus);
+        this.channels = new ChannelManager(config, provider, bus);
 
         final AtomicReference<String> hbChannel = new AtomicReference<>("cli");
         final AtomicReference<String> hbChatId = new AtomicReference<>("direct");

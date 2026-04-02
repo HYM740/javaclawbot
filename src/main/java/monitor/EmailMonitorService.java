@@ -22,6 +22,7 @@ public class EmailMonitorService {
     private static final Logger log = LoggerFactory.getLogger(EmailMonitorService.class);
     
     private final EmailMonitorConfig config;
+    private final MessageBus bus;
     private final EmailPoller poller;
     private final MailAnalyzer analyzer;
     private final NotificationDispatcher dispatcher;
@@ -31,6 +32,7 @@ public class EmailMonitorService {
 
     public EmailMonitorService(Config appConfig, LLMProvider provider, MessageBus bus) {
         this.config = appConfig.getChannels().getEmailMonitor();
+        this.bus = bus;
         
         this.poller = new EmailPoller(config);
         this.analyzer = new MailAnalyzer(provider, config);
@@ -142,7 +144,10 @@ public class EmailMonitorService {
 
     private CompletableFuture<Void> sendMessage(OutboundMessage message) {
         log.info("Sending message to {}: {}", message.getChannel(), message.getChatId());
-        // TODO: 集成 MessageBus 发送
+        
+        // 通过 MessageBus 发送消息
+        bus.publishOutbound(message);
+        
         return CompletableFuture.completedFuture(null);
     }
 

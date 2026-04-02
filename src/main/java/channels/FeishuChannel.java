@@ -157,7 +157,7 @@ public class FeishuChannel extends BaseChannel {
         /*FeishuChannel channel = new FeishuChannel(feishu, bus);
         channel.start();*/
         MessageBus bus = new MessageBus();
-        ChannelManager cm = new ChannelManager(config1, bus);
+        ChannelManager cm = new ChannelManager(config1, null, bus);
         cm.startAll();
         BaseChannel feishu1 = cm.getChannel("feishu");
         OutboundMessage outboundMessage = new OutboundMessage();
