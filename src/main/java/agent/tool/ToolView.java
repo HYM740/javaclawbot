@@ -19,4 +19,6 @@ public interface ToolView {
     CompletionStage<String> execute(String name, Map<String, Object> args);
 
     Object get(String name);
+
+    void addTool(Tool tool);
 }

@@ -38,7 +38,7 @@ public class AgentDefaults {
      * 上下文压缩触发阈值（默认 0.95）
      * 当上下文使用率超过此阈值时，阻塞执行 consolidate 压缩
      */
-    private double consolidateThreshold = 0.95;
+    private double consolidateThreshold = 0.9;
 
     /**
      * 软裁剪触发阈值（默认 0.7）

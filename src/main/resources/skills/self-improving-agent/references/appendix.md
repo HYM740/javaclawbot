@@ -28,7 +28,7 @@
 ## Memory File Structure
 
 ```
-~/.claude/memory/
+{工作空间}/memory/
 ├── semantic/
 │   └── patterns.json
 ├── episodic/
@@ -36,10 +36,6 @@
 │   │   ├── 2025-01-11-prd-creation.json
 │   │   └── 2025-01-11-debug-session.json
 │   └── episodes.json
-├── working/
-│   ├── current_session.json
-│   ├── last_error.json
-│   └── session_end.json
 └── index.json
 ```
 

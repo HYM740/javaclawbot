@@ -8,7 +8,13 @@ public final class CompositeToolView implements ToolView {
     private final List<ToolRegistry> registries;
 
     public CompositeToolView(ToolRegistry... registries) {
-        this.registries = Arrays.asList(registries);
+        this.registries = new ArrayList<>();
+        for (ToolRegistry registry : registries) {
+            if (registry == null) {
+                continue;
+            }
+            this.registries.add(registry); // Added once
+        }
     }
 
     @Override
@@ -54,6 +60,14 @@ public final class CompositeToolView implements ToolView {
             }
         }
         return null;
+    }
+
+    @Override
+    public void addTool(Tool tool) {
+        if (registries.isEmpty()) {
+            registries.add(new ToolRegistry());
+        }
+        this.registries.get(registries.size() - 1).register(tool);
     }
 
     @SuppressWarnings("unchecked")

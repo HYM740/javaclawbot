@@ -103,7 +103,8 @@ public class ContextPruner {
         }
 
         // 检查是否需要硬清除
-        ratio = (double) totalChars / charWindow;
+        // by zcw 硬清除交给llm了 所以这里不需要了
+        /*ratio = (double) totalChars / charWindow;
         if (ratio < settings.getHardClearRatio() || !settings.getHardClear().isEnabled()) {
             return result;
         }
@@ -142,7 +143,7 @@ public class ContextPruner {
             int afterChars = estimateMessageChars(cleared);
             totalChars += afterChars - beforeChars;
             ratio = (double) totalChars / charWindow;
-        }
+        }*/
 
         log.debug("上下文修剪完成：{} 条消息，修剪了 {} 个工具结果", 
                 result.size(), prunableToolIndexes.size());

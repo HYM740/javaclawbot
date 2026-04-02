@@ -232,34 +232,8 @@ public final class Session {
      * - 丢弃开头连续的非 user 消息，避免孤立的工具输出块
      * - 仅输出 role/content 以及 tool_calls/tool_call_id/name（若存在）
      */
-    public List<Map<String, Object>> getHistory(int maxMessages) {
-        int start = Math.min(lastConsolidated, messages.size());
-        List<Map<String, Object>> unconsolidated = messages.subList(start, messages.size());
-
-        int from = Math.max(0, unconsolidated.size() - Math.max(0, maxMessages));
-        List<Map<String, Object>> sliced = new ArrayList<>(unconsolidated.subList(from, unconsolidated.size()));
-
-        for (int i = 0; i < sliced.size(); i++) {
-            Object role = sliced.get(i).get("role");
-            if ("user".equals(role)) {
-                if (i > 0) sliced = new ArrayList<>(sliced.subList(i, sliced.size()));
-                break;
-            }
-        }
-
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> m : sliced) {
-            Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("role", m.get("role"));
-            entry.put("content", m.getOrDefault("content", ""));
-
-            if (m.containsKey("tool_calls")) entry.put("tool_calls", m.get("tool_calls"));
-            if (m.containsKey("tool_call_id")) entry.put("tool_call_id", m.get("tool_call_id"));
-            if (m.containsKey("name")) entry.put("name", m.get("name"));
-
-            out.add(entry);
-        }
-        return out;
+    public List<Map<String, Object>> getHistory() {
+        return messages;
     }
 
     /**

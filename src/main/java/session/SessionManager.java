@@ -2,6 +2,7 @@ package session;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import utils.Helpers;
 
@@ -37,6 +38,7 @@ public final class SessionManager implements Closeable {
 
     private static final Logger LOG = Logger.getLogger(SessionManager.class.getName());
 
+    @Getter
     private final Path workspace;
     private final Path sessionsDir;
     private final Path legacySessionsDir;

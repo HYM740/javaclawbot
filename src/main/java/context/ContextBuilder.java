@@ -63,7 +63,7 @@ public class ContextBuilder {
      */
     public ContextBuilder(Path workspace, BootstrapConfig bootstrapConfig, java.util.function.Consumer<String> warnHandler) {
         this.workspace = Objects.requireNonNull(workspace, "workspace");
-        this.memory = new MemoryStore(workspace, this);
+        this.memory = new MemoryStore(workspace);
         this.skills = new SkillsLoader(workspace);
         this.bootstrapConfig = bootstrapConfig != null ? bootstrapConfig : new BootstrapConfig();
         this.bootstrapLoader = new BootstrapLoader(workspace, this.bootstrapConfig, warnHandler);
@@ -71,15 +71,6 @@ public class ContextBuilder {
         this.projectContext = new ProjectContext(workspace);
     }
 
-    /**
-     * 构建系统提示词：身份 + 引导文件 + 记忆 + 常驻技能 + 技能索引摘要
-     *
-     * @param skillNames     预留参数：与 Python 一致（当前实现不依赖该参数）
-     * @return 系统提示词文本
-     */
-    public String buildSystemPrompt(List<String> skillNames) {
-        return buildSystemPrompt(skillNames, null);
-    }
 
     public boolean isDevelopment() {
         Config config = ConfigIO.loadConfig(ConfigIO.getConfigPath(workspace));
@@ -89,11 +80,30 @@ public class ContextBuilder {
     /**
      * 构建系统提示词（支持指定运行类型）
      *
-     * @param skillNames 预留参数
-     * @param runKind    运行类型（default/heartbeat/cron）
      * @return 系统提示词文本
      */
-    public String buildSystemPrompt(List<String> skillNames, BootstrapConfig.RunKind runKind) {
+    public String buildMemorySystemPrompt(String prompt) {
+        List<String> parts = new ArrayList<>();
+
+        // 配置工作流程
+        //String agents = bootstrapLoader.loadAgents();
+        parts.add(prompt);
+
+        // 构建记忆
+        String context = buildMemoryContext();
+        if (context != null && !context.isBlank()) {
+            parts.add(context);
+        }
+
+        return String.join("\n\n---\n\n", parts);
+    }
+
+    /**
+     * 构建系统提示词（支持指定运行类型）
+     *
+     * @return 系统提示词文本
+     */
+    public String buildSystemPrompt() {
         List<String> parts = new ArrayList<>();
 
         // 配置工作流程
@@ -239,14 +249,17 @@ public class ContextBuilder {
         String tzName = (tz != null && tz.getID() != null && !tz.getID().isBlank()) ? tz.getID() : "UTC";
 
         List<String> lines = new ArrayList<>();
+        lines.add("\n\n<system-reminder>");
+        lines.add(RUNTIME_CONTEXT_TAG);
         lines.add("当前时间: " + now + " (" + tzName + ")");
 
         if (channel != null && !channel.isBlank() && chatId != null && !chatId.isBlank()) {
             lines.add("渠道: " + channel);
             lines.add("聊天 ID: " + chatId);
         }
+        lines.add("</system-reminder>");
 
-        return RUNTIME_CONTEXT_TAG + "\n" + String.join("\n", lines);
+        return String.join("\n", lines);
     }
 
     /**
@@ -279,34 +292,32 @@ public class ContextBuilder {
     }
 
 
-
     /**
      * 构建本次调用的大模型消息列表：
      * system + 历史 + 运行时元信息 + 用户输入（可带图片）
      *
      * @param history        历史消息（OpenAI 兼容结构：role/content/等）
      * @param currentMessage 当前用户文本
-     * @param skillNames     预留参数：与 Python 一致
      * @param media          本地图片路径列表（仅处理 image/*）
      * @param channel        渠道名
      * @param chatId         会话标识
      * @return 消息列表（每个元素是 Map，对齐 OpenAI 消息结构）
      */
-    public List<Map<String, Object>> buildMessages(
-            List<Map<String, Object>> history,
-            String currentMessage,
-            List<String> skillNames,
-            List<String> media,
-            String channel,
-            String chatId
-    ) {
+    public List<Map<String, Object>> buildMemoryMessages(List<Map<String, Object>> history,
+                                                         String currentMessage,
+                                                         List<String> media,
+                                                         String channel,
+                                                         String chatId) {
         List<Map<String, Object>> out = new ArrayList<>();
 
         // 构建系统提示词
-        String systemPrompt = buildSystemPrompt(skillNames);
+        String systemPrompt = buildMemorySystemPrompt(currentMessage);
+
+        // 运行环境
+        String runtimeContext = buildRuntimeContext(channel, chatId);
         out.add(mapOf(
                 "role", "system",
-                "content", systemPrompt
+                "content", systemPrompt  + runtimeContext
         ));
 
         List<Map<String, Object>> userBlocks = new ArrayList<>();
@@ -321,17 +332,59 @@ public class ContextBuilder {
                 "content", userBlocks
         ));
 
+        // 添加历史
+        if (CollUtil.isNotEmpty(history)) {
+            out.addAll(history);
+        }
+        return out;
+    }
+
+    /**
+     * 构建本次调用的大模型消息列表：
+     * system + 历史 + 运行时元信息 + 用户输入（可带图片）
+     *
+     * @param history        历史消息（OpenAI 兼容结构：role/content/等）
+     * @param currentMessage 当前用户文本
+     * @param media          本地图片路径列表（仅处理 image/*）
+     * @param channel        渠道名
+     * @param chatId         会话标识
+     * @return 消息列表（每个元素是 Map，对齐 OpenAI 消息结构）
+     */
+    public List<Map<String, Object>> buildMessages(
+            List<Map<String, Object>> history,
+            String currentMessage,
+            List<String> media,
+            String channel,
+            String chatId
+    ) {
+        List<Map<String, Object>> out = new ArrayList<>();
+
+        // 构建系统提示词
+        String systemPrompt = buildSystemPrompt();
+
+        // 运行环境
+        String runtimeContext = buildRuntimeContext(channel, chatId);
+        out.add(mapOf(
+                "role", "system",
+                "content", systemPrompt  + runtimeContext
+        ));
+
+        List<Map<String, Object>> userBlocks = new ArrayList<>();
+
+        // 构建第2条用户消息, 该消息为常驻技能
+        userBlocks.add(Map.of("type", "text", "text", loadResidentSkill()));
+
+        // 构建第4条用户消息, 该消息为本地命令描述
+        userBlocks.add(Map.of("type", "text", "text", buildLocalCommandDesc()));
+        out.add(mapOf(
+                "role", "user",
+                "content", userBlocks
+        ));
 
         // 添加历史
         if (CollUtil.isNotEmpty(history)) {
             out.addAll(history);
         }
-
-        // 构建用户消息,运行时环境
-        out.add(mapOf(
-                "role", "user",
-                "content", buildRuntimeContext(channel, chatId)
-        ));
 
         // 通过用户指定前缀加载技能
         Object[] objects = loadSkillByPrefix(currentMessage);
@@ -582,5 +635,4 @@ public class ContextBuilder {
     public boolean isNeedBootstrap() {
         return bootstrapLoader.isNeedBootstrap();
     }
-
 }

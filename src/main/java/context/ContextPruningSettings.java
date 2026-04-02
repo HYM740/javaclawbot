@@ -28,10 +28,10 @@ public class ContextPruningSettings {
     private int keepLastAssistants = 5;
 
     /** 软修剪阈值（上下文使用率 > 此值时修剪工具结果） */
-    private double softTrimRatio = 0.3;
+    private double softTrimRatio = 0.5;
 
     /** 硬清除阈值（上下文使用率 > 此值时清除旧工具结果） */
-    private double hardClearRatio = 0.85;
+    private double hardClearRatio = 0.95;
 
     /** 最小可修剪工具字符数 */
     private int minPrunableToolChars = 50_000;
@@ -92,7 +92,7 @@ public class ContextPruningSettings {
         }
 
         // 当字符数大于上下文0.8时,触发修剪
-        return (int) Math.floor(0.8 * contextWindow * CHARS_PER_TOKEN_ESTIMATE);
+        return (int) Math.floor(hardClearRatio * contextWindow * CHARS_PER_TOKEN_ESTIMATE);
     }
 
     public void setMinPrunableToolChars(int minPrunableToolChars) {
