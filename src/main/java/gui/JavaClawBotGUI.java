@@ -1369,12 +1369,13 @@ public class JavaClawBotGUI extends JFrame {
                     boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
 
                     if (isProgress) {
-                        var ch = agentLoop.getChannelsConfig();
-                        if (ch != null && isToolHint && !ch.isSendToolHints()) {
-                            continue;
-                        }
-                        if (ch != null && !isToolHint && !ch.isSendProgress()) {
-                            continue;
+                        // GUI 直连模式：工具调用提示始终显示，不受 ChannelsConfig.sendToolHints 控制
+                        // ChannelsConfig 仅用于外部渠道（Telegram/Discord 等）
+                        if (!isToolHint) {
+                            var ch = agentLoop.getChannelsConfig();
+                            if (ch != null && !ch.isSendProgress()) {
+                                continue;
+                            }
                         }
 
                         String content = out.getContent() == null ? "" : out.getContent();

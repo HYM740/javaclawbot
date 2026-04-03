@@ -718,15 +718,17 @@ public class AgentLoop {
         Session session = sessions.getOrCreate(sessionKey);
 
 
-        if ("/new".equalsIgnoreCase(cmd)) {
-            String output = "新会话已开始";
-            commandManager.addLocalCommand(new LocalCommand(cmd, output));
-            // 发给用户
-            bus.publishOutbound(new OutboundMessage(msg.getChannel(), msg.getChatId(), "历史会话正在压缩和记忆,请稍等片刻,等待压缩完成!完成后会通知您 😊",
+        if ("/new".equalsIgnoreCase(cmd) || "/clear".equalsIgnoreCase(cmd)) {
+            commandManager.addLocalCommand(new LocalCommand(cmd, "新会话已开始"));
+            sessions.save(session);
+            Session newSession = sessions.createNew(session.getKey());
+            return CompletableFuture.completedFuture(new OutboundMessage(
+                    msg.getChannel(),
+                    msg.getChatId(),
+                    "新会话已开始。",
                     List.of(),
                     Map.of()
             ));
-            return handleNewCommand(msg, session);
         }
 
         // 触发记忆命令
@@ -737,7 +739,7 @@ public class AgentLoop {
         }
 
         if ("/help".equalsIgnoreCase(cmd)) {
-            String output = "javaclawbot 命令:\n/new — 开始新对话\n/memory — 整理当前对话记忆\n/stop — 停止当前任务\n/help — 显示可用命令\n/project <path> — 设置项目路径（开发者模式读取 CODE-AGENT.md/CLAUDE.md）\n/project clear — 清除项目路径";
+            String output = "javaclawbot 命令:\n/new — 开始新对话\n/clear — 清空当前对话\n/memory — 整理当前对话记忆\n/stop — 停止当前任务\n/help — 显示可用命令\n/project <path> — 设置项目路径（开发者模式读取 CODE-AGENT.md/CLAUDE.md）\n/project clear — 清除项目路径";
             commandManager.addLocalCommand(new LocalCommand(cmd, output));
             return CompletableFuture.completedFuture(new OutboundMessage(
                     msg.getChannel(),
@@ -876,42 +878,6 @@ public class AgentLoop {
         return progress;
     }
 
-
-    private CompletionStage<OutboundMessage> handleNewCommand(InboundMessage msg, Session session) {
-        String channel = msg.getChannel();
-        String chatId = msg.getChatId();
-        String sessionKy = session.getKey();
-
-        // 直接在当前线程执行记忆整理（绕过队列，避免死锁）
-        try {
-            // 构建记忆整理消息
-            List<Map<String, Object>> initial = context.buildMemoryMessages(
-                    List.of(), MemoryStore.UPDATE_MEMORY_SYSTEM_PROMPT.replaceAll("\\{workspace}", workspace.toString().replaceAll("\\\\", "/")), null, channel, chatId
-            );
-            ToolView tools = buildMemoryRequestTools(channel, chatId, null);
-
-            // 同步执行记忆整理, memory命令执行完成后,清理session中上下文
-            runAgentLoop(msg, initial, tools, null).toCompletableFuture().join();
-        } catch (Exception e) {
-            log.warn("记忆整理失败", e);
-            return CompletableFuture.completedFuture(new OutboundMessage(
-                    channel, chatId, "❌ 记忆整理失败，请重试", List.of(), Map.of()
-            ));
-        }
-
-
-        // 保存旧会话并创建新会话
-        sessions.save(session);
-        Session newSession = sessions.createNew(session.getKey());
-
-        return CompletableFuture.completedFuture(new OutboundMessage(
-                channel,
-                chatId,
-                "新会话已开始。",
-                List.of(),
-                Map.of()
-        ));
-    }
 
     private static String extractMessageId(Map<String, Object> meta) {
         if (CollUtil.isEmpty(meta)) {
