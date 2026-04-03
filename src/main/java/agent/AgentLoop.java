@@ -286,14 +286,15 @@ public class AgentLoop {
 
         // 文件/命令/网络工具：无会话上下文，可共享
         sharedTools.register(new ReadFileTool(workspace, allowedDir));
-        sharedTools.register(new WriteFileTool(workspace, allowedDir));
+        sharedTools.register(new WriteTool(workspace, allowedDir));
+        sharedTools.register(new EditTool(workspace, allowedDir));
 
         sharedTools.register(new ListDirTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
-        sharedTools.register(new EditTool(workspace, allowedDir));
+
         sharedTools.register(new ExecTool(
                 currentTools().getExec().getTimeout(),
                 workspace.toString(),
@@ -380,7 +381,8 @@ public class AgentLoop {
         localTools.register(new ReadFileTool(workspace, null));
         localTools.register(new GlobTool(workspace, null));
         localTools.register(new GrepTool(workspace, null));
-        localTools.register(new WriteFileTool(workspace, null));
+        localTools.register(new EditTool(workspace, null));
+        localTools.register(new WriteTool(workspace, null));
         localTools.register(new SkillTool(commandManager, skillsLoader));
 
         return new CompositeToolView(localTools);
@@ -401,7 +403,8 @@ public class AgentLoop {
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
         localTools.register(new ReadFileTool(workspace, null));
-        localTools.register(new WriteFileTool(workspace, null));
+        localTools.register(new EditTool(workspace, null));
+        localTools.register(new WriteTool(workspace, null));
         localTools.register(new GlobTool(workspace, null));
         localTools.register(new GrepTool(workspace, null));
         localTools.register(new SkillTool(commandManager, skillsLoader));
