@@ -55,20 +55,50 @@ public final class FileSystemTools {
     private FileSystemTools() {}
 
     // ----------------------------
-    // ReadFileTool
+    // ReadFileTool — Port of Claude Code's FileReadTool
+    //
+    // Original sources:
+    //   - tools/FileReadTool/FileReadTool.ts (main implementation)
+    //   - tools/FileReadTool/prompt.ts (description)
+    //   - tools/FileReadTool/limits.ts (size/token limits)
+    //   - utils/readFileInRange.ts (line range reading)
+    //   - utils/fileStateCache.ts (read state tracking)
+    //
+    // Changes from original Java implementation:
+    //   - Added cat-n format output (line_number + tab + content)
+    //   - Added file_path parameter (alias for path)
+    //   - Added offset + limit parameters (Claude Code style)
+    //   - Added FileStateCache integration (read-before-write + dedup)
+    //   - Added MAX_LINES_TO_READ = 2000 default
+    //   - Added file_unchanged dedup
+    //   - Added BOM stripping
+    //   - Updated description to match Claude Code prompt
+    //   - Preserved existing head/tail/start_line/end_line for backward compat
     // ----------------------------
     public static final class ReadFileTool extends Tool {
-        /** 文件大小上限 (256KB) — 读前检查（对齐 Claude Code 的 MAX_OUTPUT_SIZE） */
-        private static final long MAX_FILE_SIZE_BYTES = 256L * 1024;
-        /** 输出字符上限 (~25K tokens ≈ 50K chars) — 读后检查 */
+        /** Port of Claude Code limits.ts: DEFAULT_MAX_OUTPUT_TOKENS * 2 (chars) */
         private static final int MAX_OUTPUT_CHARS = 50_000;
+        /** Port of Claude Code prompt.ts: MAX_LINES_TO_READ */
+        private static final int MAX_LINES_TO_READ = 2000;
+        /** Port of Claude Code limits.ts: maxSizeBytes (256KB) */
+        private static final long MAX_FILE_SIZE_BYTES = 256L * 1024;
+
+        /** Port of Claude Code prompt.ts: FILE_UNCHANGED_STUB */
+        private static final String FILE_UNCHANGED_STUB =
+            "File unchanged since last read. The content from the earlier read_file tool_result in this conversation is still current - refer to that instead of re-reading.";
 
         private final Path workspace;
         private final Path allowedDir;
+        private final FileStateCache fileStateCache;
 
         public ReadFileTool(Path workspace, Path allowedDir) {
+            this(workspace, allowedDir, new FileStateCache.NoOp());
+        }
+
+        public ReadFileTool(Path workspace, Path allowedDir, FileStateCache fileStateCache) {
             this.workspace = workspace;
             this.allowedDir = allowedDir;
+            this.fileStateCache = fileStateCache != null ? fileStateCache : new FileStateCache.NoOp();
         }
 
         @Override
@@ -76,12 +106,27 @@ public final class FileSystemTools {
             return "read_file";
         }
 
+        /**
+         * Port of Claude Code's FileReadTool/prompt.ts renderPromptTemplate()
+         */
         @Override
         public String description() {
-            return "Read the contents of a UTF-8 text file at the given path. Supports head/tail/start_line/end_line.";
+            return String.join("\n", List.of(
+                "Reads a file from the local filesystem. You can access any file directly by using this tool.",
+                "Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.",
+                "",
+                "Usage:",
+                "- The file_path parameter must be an absolute path, not a relative path",
+                "- By default, it reads up to " + MAX_LINES_TO_READ + " lines starting from the beginning of the file",
+                "- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters",
+                "- Results are returned using cat -n format, with line numbers starting at 1",
+                "- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.",
+                "- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.",
+                "- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."
+            ));
         }
 
-        /** 自行管理大小限制，不走通用持久化逻辑 */
+        /** Manages its own size limits (port of Claude Code: maxResultSizeChars = Infinity) */
         @Override
         public int maxResultSizeChars() {
             return Integer.MAX_VALUE;
@@ -90,22 +135,40 @@ public final class FileSystemTools {
         @Override
         public Map<String, Object> parameters() {
             Map<String, Object> props = new LinkedHashMap<>();
-            props.put("path", Map.of("type", "string", "description", "The file path to read"));
-            props.put("head", Map.of("type", "number", "description", "First N lines (optional)"));
+            props.put("file_path", Map.of("type", "string", "description", "The absolute path to the file to read"));
+            // Backward compat alias
+            props.put("path", Map.of("type", "string", "description", "(alias for file_path) The file path to read"));
+            // Claude Code style params
+            props.put("offset", Map.of("type", "number", "description", "The line number to start reading from (0-based, optional)"));
+            props.put("limit", Map.of("type", "number", "description", "The number of lines to read (optional)"));
+            // Legacy params (backward compat)
+            props.put("head", Map.of("type", "number", "description", "First N lines (optional, legacy - use limit)"));
             props.put("tail", Map.of("type", "number", "description", "Last N lines (optional)"));
-            props.put("start_line", Map.of("type", "number", "description", "Start line (1-based, optional)"));
+            props.put("start_line", Map.of("type", "number", "description", "Start line (1-based, optional, legacy - use offset)"));
             props.put("end_line", Map.of("type", "number", "description", "End line (1-based, inclusive, optional)"));
 
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("type", "object");
             schema.put("properties", props);
-            schema.put("required", List.of("path"));
+            // Neither file_path nor path is strictly required (both are optional, at least one needed)
+            schema.put("required", List.of());
             return schema;
         }
 
         @Override
         public CompletionStage<String> execute(Map<String, Object> args) {
-            String path = asString(args.get("path"));
+            // Support both file_path (Claude Code) and path (legacy)
+            String filePath = asString(args.get("file_path"));
+            if (filePath == null) filePath = asString(args.get("path"));
+            if (filePath == null) {
+                return CompletableFuture.completedFuture("Error: file_path is required");
+            }
+
+            // Claude Code style: offset + limit
+            Integer offset = asIntOrNull(args.get("offset"));
+            Integer limit = asIntOrNull(args.get("limit"));
+
+            // Legacy params
             Integer head = asIntOrNull(args.get("head"));
             Integer tail = asIntOrNull(args.get("tail"));
             Integer startLine = asIntOrNull(args.get("start_line"));
@@ -116,41 +179,123 @@ public final class FileSystemTools {
                 return CompletableFuture.completedFuture(validate);
             }
 
-            boolean hasLineLimit = head != null || tail != null || startLine != null || endLine != null;
+            boolean hasClaudeCodeParams = offset != null || limit != null;
+            boolean hasLegacyParams = head != null || tail != null || startLine != null || endLine != null;
+            boolean hasLineLimit = hasClaudeCodeParams || hasLegacyParams;
 
             try {
-                Path filePath = PathUtil.resolvePath(path, workspace, allowedDir);
-                if (!Files.exists(filePath)) {
-                    return CompletableFuture.completedFuture("Error: File not found: " + path);
+                Path resolvedPath = PathUtil.resolvePath(filePath, workspace, allowedDir);
+                if (!Files.exists(resolvedPath)) {
+                    return CompletableFuture.completedFuture("Error: File not found: " + filePath);
                 }
-                if (!Files.isRegularFile(filePath)) {
-                    return CompletableFuture.completedFuture("Error: Not a file: " + path);
+                if (!Files.isRegularFile(resolvedPath)) {
+                    return CompletableFuture.completedFuture("Error: Not a file: " + filePath);
                 }
 
-                // 读前检查：无行限制时检查文件大小
+                // --- Port of Claude Code: file_unchanged dedup ---
+                if (!hasLineLimit && fileStateCache.isUnchanged(resolvedPath)) {
+                    FileStateCache.FileState state = fileStateCache.getState(resolvedPath);
+                    if (state != null && !state.isPartialView) {
+                        return CompletableFuture.completedFuture(FILE_UNCHANGED_STUB);
+                    }
+                }
+
+                // Read pre-check: check file size when no line limit
                 if (!hasLineLimit) {
-                    long fileSize = Files.size(filePath);
+                    long fileSize = Files.size(resolvedPath);
                     if (fileSize > MAX_FILE_SIZE_BYTES) {
-                        long totalLines = countLinesFast(filePath);
+                        long totalLines = countLinesFast(resolvedPath);
                         return CompletableFuture.completedFuture(
                                 String.format("Error: File too large (%.1f KB, %d lines). " +
-                                        "Use start_line/end_line or head/tail parameters to read specific sections, " +
-                                        "e.g. start_line=1, end_line=200 for first 200 lines.",
+                                        "Use offset/limit parameters to read specific sections, " +
+                                        "e.g. offset=0, limit=200 for first 200 lines.",
                                         fileSize / 1024.0, totalLines));
                     }
                 }
 
-                String content = readFileSmart(filePath);
-                content = applyLineWindow(content, head, tail, startLine, endLine);
+                String content = readFileSmart(resolvedPath);
 
-                // 读后检查：输出字符数
-                if (content.length() > MAX_OUTPUT_CHARS) {
-                    int lineCount = splitLinesPreserveNewline(content).size();
-                    return CompletableFuture.completedFuture(
-                            String.format("Error: Selected content too large (%d chars, %d lines). " +
-                                    "Use start_line/end_line to narrow the range.",
-                                    content.length(), lineCount));
+                // Strip BOM (port of Claude Code readFileInRange)
+                if (content != null && content.startsWith("\uFEFF")) {
+                    content = content.substring(1);
                 }
+
+                // Apply line range
+                int actualOffset = -1; // track actual offset for cat-n numbering
+                if (hasClaudeCodeParams) {
+                    // Claude Code style: offset (0-based) + limit
+                    int from = offset != null ? Math.max(0, offset) : 0;
+                    actualOffset = from;
+                    List<String> allLines = splitLinesPreserveNewline(content);
+                    if (from >= allLines.size()) {
+                        return CompletableFuture.completedFuture("");
+                    }
+                    int to = allLines.size();
+                    if (limit != null) {
+                        to = Math.min(from + limit, allLines.size());
+                    }
+                    // Extract lines and join (strip trailing \n from each line for display)
+                    List<String> selected = allLines.subList(from, to);
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < selected.size(); i++) {
+                        String line = selected.get(i);
+                        if (line.endsWith("\n")) line = line.substring(0, line.length() - 1);
+                        if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
+                        sb.append(from + i + 1).append("\t").append(line);
+                        if (i < selected.size() - 1) sb.append("\n");
+                    }
+                    content = sb.toString();
+                } else if (hasLegacyParams) {
+                    // Legacy style: apply line window, then format as cat-n
+                    List<String> allLines = splitLinesPreserveNewline(content);
+                    content = applyLineWindow(content, head, tail, startLine, endLine);
+                    // For legacy mode, determine the offset for line numbering
+                    if (startLine != null) {
+                        actualOffset = startLine - 1;
+                    } else if (head != null) {
+                        actualOffset = 0;
+                    } else if (tail != null) {
+                        actualOffset = Math.max(0, allLines.size() - tail);
+                    } else {
+                        actualOffset = 0;
+                    }
+                    // Format as cat-n
+                    content = formatCatN(content, actualOffset);
+                } else {
+                    // No line limit: check MAX_LINES_TO_READ
+                    List<String> allLines = splitLinesPreserveNewline(content);
+                    if (allLines.size() > MAX_LINES_TO_READ) {
+                        // Read first MAX_LINES_TO_READ lines with cat-n format
+                        actualOffset = 0;
+                        List<String> selected = allLines.subList(0, MAX_LINES_TO_READ);
+                        StringBuilder sb = new StringBuilder();
+                        for (int i = 0; i < selected.size(); i++) {
+                            String line = selected.get(i);
+                            if (line.endsWith("\n")) line = line.substring(0, line.length() - 1);
+                            if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
+                            sb.append(i + 1).append("\t").append(line);
+                            if (i < selected.size() - 1) sb.append("\n");
+                        }
+                        content = sb.toString() + "\n\n... (" + (allLines.size() - MAX_LINES_TO_READ) +
+                                " more lines below. Use offset/limit to read more.)";
+                    } else {
+                        // Full file in cat-n format
+                        content = formatCatN(content, 0);
+                    }
+                }
+
+                // Post-read check: output char count
+                if (content.length() > MAX_OUTPUT_CHARS) {
+                    return CompletableFuture.completedFuture(
+                            String.format("Error: Selected content too large (%d chars). " +
+                                    "Use offset/limit to narrow the range.",
+                                    content.length()));
+                }
+
+                // --- Port of Claude Code: update FileStateCache ---
+                long mtimeMs = Files.getLastModifiedTime(resolvedPath).toMillis();
+                long sizeBytes = Files.size(resolvedPath);
+                fileStateCache.markRead(resolvedPath, content, mtimeMs, sizeBytes);
 
                 return CompletableFuture.completedFuture(content);
 
@@ -161,7 +306,21 @@ public final class FileSystemTools {
             }
         }
 
-        /** 快速统计文件行数（不加载全文） */
+        /** Format content in cat-n format: line_number + tab + content. Port of Claude Code ReadTool output. */
+        private static String formatCatN(String content, int offset) {
+            List<String> lines = splitLinesPreserveNewline(content);
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i);
+                if (line.endsWith("\n")) line = line.substring(0, line.length() - 1);
+                if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
+                sb.append(offset + i + 1).append("\t").append(line);
+                if (i < lines.size() - 1) sb.append("\n");
+            }
+            return sb.toString();
+        }
+
+        /** Fast line count (port of Claude Code readFileInRange stat-based) */
         private static long countLinesFast(Path filePath) throws Exception {
             try (var lines = Files.lines(filePath)) {
                 return lines.count();
@@ -1286,11 +1445,11 @@ public final class FileSystemTools {
     // ----------------------------
     // common helpers
     // ----------------------------
-    private static String asString(Object o) {
+    static String asString(Object o) {
         return o == null ? "" : String.valueOf(o);
     }
 
-    private static Integer asIntOrNull(Object o) {
+    static Integer asIntOrNull(Object o) {
         if (o == null) return null;
         if (o instanceof Number n) return n.intValue();
         try {
@@ -1302,7 +1461,7 @@ public final class FileSystemTools {
         }
     }
 
-    private static boolean asBool(Object o, boolean def) {
+    static boolean asBool(Object o, boolean def) {
         if (o == null) return def;
         if (o instanceof Boolean b) return b;
         String s = String.valueOf(o).trim().toLowerCase(Locale.ROOT);
@@ -1615,7 +1774,7 @@ public final class FileSystemTools {
     /**
      * 检测文件编码（优先 BOM，再尝试 UTF-8/GBK）
      */
-    private static Charset detectCharset(byte[] bytes) {
+    static Charset detectCharset(byte[] bytes) {
         if (bytes == null || bytes.length == 0) {
             return StandardCharsets.UTF_8;  // 默认 UTF-8（无 BOM）
         }
@@ -1650,7 +1809,7 @@ public final class FileSystemTools {
     /**
      * 检测文件是否有 UTF-8 BOM
      */
-    private static boolean hasUtf8Bom(byte[] bytes) {
+    static boolean hasUtf8Bom(byte[] bytes) {
         return bytes != null && bytes.length >= 3
                 && bytes[0] == (byte) 0xEF
                 && bytes[1] == (byte) 0xBB
@@ -1674,7 +1833,7 @@ public final class FileSystemTools {
      * - UTF-8 无 BOM：正常解码
      * - GBK 文件：回退解码
      */
-    private static String smartDecode(byte[] bytes) {
+    static String smartDecode(byte[] bytes) {
         if (bytes == null || bytes.length == 0) return "";
 
         // 优先检测 BOM
@@ -1713,7 +1872,7 @@ public final class FileSystemTools {
     /**
      * 智能读取文件内容
      */
-    private static String readFileSmart(Path filePath) throws Exception {
+    static String readFileSmart(Path filePath) throws Exception {
         byte[] bytes = Files.readAllBytes(filePath);
         return smartDecode(bytes);
     }
@@ -1764,7 +1923,7 @@ public final class FileSystemTools {
      * @param searchString The string to search for
      * @return The actual string found in the file, or null if not found
      */
-    private static String findActualString(String fileContent, String searchString) {
+    static String findActualString(String fileContent, String searchString) {
         // First try exact match
         if (fileContent.contains(searchString)) {
             return searchString;
@@ -1797,7 +1956,7 @@ public final class FileSystemTools {
      * @param newString       The replacement string (from model)
      * @return The new string with quote style preserved
      */
-    private static String preserveQuoteStyle(String oldString, String actualOldString, String newString) {
+    static String preserveQuoteStyle(String oldString, String actualOldString, String newString) {
         // If they're the same, no normalization happened
         if (oldString.equals(actualOldString)) {
             return newString;
