@@ -253,7 +253,7 @@ public class LocalSubagentExecutor implements SubagentExecutor {
         // 文件工具
         tools.register(new FileSystemTools.ReadFileTool(workspace, allowedDir));
         tools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.EditFileTool(workspace, allowedDir));
+
         tools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));

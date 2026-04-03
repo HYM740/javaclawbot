@@ -284,7 +284,7 @@ public class AgentLoop {
         // 文件/命令/网络工具：无会话上下文，可共享
         sharedTools.register(new FileSystemTools.ReadFileTool(workspace, allowedDir));
         sharedTools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
-        sharedTools.register(new FileSystemTools.EditFileTool(workspace, allowedDir));
+
         sharedTools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
         sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
         sharedTools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
@@ -593,11 +593,11 @@ public class AgentLoop {
         Session session = sessions.getOrCreate(sessionKey);
         List<Map<String, Object>> history = session.getHistory();
 
-        // 执行上下文软裁剪
-        ContextPruningSettings pruningSettings = createPruningSettings();
+        // 执行上下文软裁剪, 在 process中以及执行修剪
+        /*ContextPruningSettings pruningSettings = createPruningSettings();
         ContextPruner.pruneContextMessages(history, pruningSettings, contextWindow,
                 // 不修剪 skill 工具的结果，因为其中包含技能内容，裁剪后 LLM 不知道该技能
-                toolName -> !"skill".equalsIgnoreCase(toolName));
+                toolName -> !"skill".equalsIgnoreCase(toolName));*/
 
         int estimatedChars = ContextPruner.estimateContextChars(history);
         double contextRatio = currentContextWindowChars() > 0
@@ -900,53 +900,6 @@ public class AgentLoop {
                 List.of(),
                 Map.of()
         ));
-    }
-
-    /**
-     * 执行上下文压缩：先执行记忆整理，再执行消息裁剪
-     *
-     * @param sessionKey 会话 key
-     * @param channel    渠道
-     * @param chatId     聊天 ID
-     * @return 是否成功
-     */
-    private void executeContextConsolidate(String sessionKey, String channel, String chatId, String userMsg, String senderId) {
-        InboundMessage memoryMsg = createSystemMessage(sessionKey, "auto_memory", channel, chatId, "/memory", MemoryStore.UPDATE_MEMORY_SYSTEM_PROMPT.replace("{sessionKy}", sessionKey));
-        InboundMessage compressMsg = createSystemMessage(sessionKey, "context_compress", channel, chatId, "/context-compress", MemoryStore.PRUNE_SYSTEM_PROMPT);
-
-        if (StrUtil.isNotBlank(userMsg) && StrUtil.isNotBlank(senderId)) {
-            Map<String, Object> metadata = compressMsg.getMetadata();
-            if (metadata != null) {
-                metadata.put("userMsg", userMsg);
-                metadata.put("senderId", senderId);
-            } else {
-                compressMsg.setMetadata(new HashMap<>());
-                compressMsg.getMetadata().put("userMsg", userMsg);
-                compressMsg.getMetadata().put("senderId", senderId);
-            }
-        }
-
-        bus.publishInbound(memoryMsg).toCompletableFuture().join();
-        bus.publishInbound(compressMsg).toCompletableFuture().join();
-    }
-
-    /**
-     * 创建系统消息
-     */
-    private InboundMessage createSystemMessage(String sessionKey, String senderId, String channel, String chatId, String command, String prompt) {
-        InboundMessage msg = new InboundMessage();
-        msg.setChannel("system");
-        msg.setContent(command);
-        msg.setSenderId(senderId);
-        msg.setChatId(channel + ":" + chatId);
-        msg.setSessionKeyOverride("system");
-        Map<String, Object> metadata = new HashMap<>();
-        metadata.put("sessionKy", sessionKey);
-        metadata.put("channel", channel);
-        metadata.put("chatId", chatId);
-        metadata.put("prompt", prompt);
-        msg.setMetadata(metadata);
-        return msg;
     }
 
     private static String extractMessageId(Map<String, Object> meta) {

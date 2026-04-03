@@ -35,18 +35,17 @@ import java.util.concurrent.CompletionStage;
  * 文件系统工具集合（对齐 MCP filesystem 的核心能力，并增强：
  *
  * 1) read_file：支持 head / tail / 指定范围行读取
- * 2) Edit (write_file)：原子级复刻 Claude Code FileEditTool，支持 old_string / new_string / replace_all
- * 3) edit_file：支持 edits[] + dryRun
- * 4) list_dir：列目录
- * 5) read_word
- * 6) read_ppt
- * 7) read_ppt_structured：使用 Apache POI 读取 PPT 结构化内容（slide/title/body/notes）
+ * 2) write_file：统一文件编辑工具，支持 old_string/new_string/replace_all + edits[]/dry_run
+ * 3) list_dir：列目录
+ * 4) read_word
+ * 5) read_ppt
+ * 6) read_ppt_structured：使用 Apache POI 读取 PPT 结构化内容（slide/title/body/notes）
  *
  * 说明：
  * - 路径安全：统一通过 PathUtil.resolvePath(workspace, allowedDir) 做白名单校验
  * - 文本文件按 UTF-8 处理
  * - Office 文档：
- *   - read_word / read_ppt：适合“全文读取 + 行裁剪”
+ *   - read_word / read_ppt：适合"全文读取 + 行裁剪"
  *   - read_ppt_structured：适合 agent 做结构化消费
  */
 public final class FileSystemTools {
@@ -171,18 +170,20 @@ public final class FileSystemTools {
     }
 
     // ----------------------------
-    // WriteFileTool — Atomic replication of Claude Code FileEditTool
+    // WriteFileTool — 统一的文件编辑工具
     //
-    // Original source: src/tools/FileEditTool/FileEditTool.ts + prompt.ts + utils.ts
+    // 合并了原 write_file（old_string/new_string/replace_all）和 edit_file（edits[]/dryRun）
+    // 支持两种调用模式：
+    //   模式1（单次编辑）：file_path + old_string + new_string + replace_all（可选）
+    //   模式2（批量编辑）：file_path + edits[] + dry_run（可选）
     //
-    // Replicates Claude Code's Edit tool behavior:
-    // - Performs exact string replacements in files
-    // - Supports old_string / new_string / replace_all parameters
-    // - Handles curly quote normalization via normalizeQuotes / findActualString / preserveQuoteStyle
-    // - Preserves original file encoding and line endings
-    // - Output matches mapToolResultToToolResultBlockParam:
-    //   "The file {path} has been updated successfully."
-    //   "The file {path} has been updated. All occurrences were successfully replaced."
+    // 能力：
+    // - 精确字符串替换，支持弯引号智能匹配
+    // - 保留原文件编码和行尾符
+    // - replace_all 全局替换
+    // - edits[] 批量多次替换
+    // - dry_run 预览变更（输出 unified diff）
+    // - 找不到匹配时给出模糊相似提示
     // ----------------------------
     public static final class WriteFileTool extends Tool {
         private final Path workspace;
@@ -195,14 +196,9 @@ public final class FileSystemTools {
 
         @Override
         public String name() {
-            return "Edit";
+            return "write_file";
         }
 
-        /**
-         * Atomic replication of Claude Code FileEditTool prompt.ts getEditToolDescription().
-         *
-         * Original source: src/tools/FileEditTool/prompt.ts → getEditToolDescription()
-         */
         @Override
         public String description() {
             return String.join("\n", List.of(
@@ -214,31 +210,29 @@ public final class FileSystemTools {
                 "- ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.",
                 "- Only use emojis if the user explicitly requests it. Avoid adding emojis to files unless asked.",
                 "- The edit will FAIL if `old_string` is not unique in the file. Either provide a larger string with more surrounding context to make it unique or use `replace_all` to change every instance of `old_string`.",
-                "- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance."
+                "- Use `replace_all` for replacing and renaming strings across the file. This parameter is useful if you want to rename a variable for instance.",
+                "- For multiple edits in one call, use the `edits` array parameter with `old_text`/`new_text` pairs.",
+                "- Use `dry_run` to preview changes as a unified diff without writing to disk."
             ));
         }
 
-        /**
-         * Atomic replication of Claude Code FileEditTool maxResultSizeChars = 100_000.
-         */
         @Override
         public int maxResultSizeChars() {
             return 100_000;
         }
 
-        /**
-         * Atomic replication of Claude Code FileEditTool input schema.
-         *
-         * Original source: src/tools/FileEditTool/types.ts → inputSchema
-         *
-         * Schema fields:
-         * - file_path (string, required): The absolute path to the file to modify
-         * - old_string (string, required): The text to replace
-         * - new_string (string, required): The text to replace it with (must be different from old_string)
-         * - replace_all (boolean, optional, default false): Replace all occurrences of old_string
-         */
         @Override
         public Map<String, Object> parameters() {
+            // edits[] item schema
+            Map<String, Object> editItemProps = new LinkedHashMap<>();
+            editItemProps.put("old_text", Map.of("type", "string", "description", "Text to search for"));
+            editItemProps.put("new_text", Map.of("type", "string", "description", "Replacement text"));
+
+            Map<String, Object> editsSchema = new LinkedHashMap<>();
+            editsSchema.put("type", "array");
+            editsSchema.put("description", "List of edit operations (alternative to old_string/new_string for batch edits)");
+            editsSchema.put("items", Map.of("type", "object", "properties", editItemProps, "required", List.of("old_text", "new_text")));
+
             Map<String, Object> props = new LinkedHashMap<>();
             props.put("file_path", Map.of(
                     "type", "string",
@@ -246,7 +240,7 @@ public final class FileSystemTools {
             ));
             props.put("old_string", Map.of(
                     "type", "string",
-                    "description", "The text to replace"
+                    "description", "The text to replace (for single edit mode)"
             ));
             props.put("new_string", Map.of(
                     "type", "string",
@@ -256,48 +250,41 @@ public final class FileSystemTools {
                     "type", "boolean",
                     "description", "Replace all occurrences of old_string (default false)"
             ));
+            props.put("edits", editsSchema);
+            props.put("dry_run", Map.of(
+                    "type", "boolean",
+                    "description", "Preview changes as unified diff without writing to disk (default false)"
+            ));
 
             Map<String, Object> schema = new LinkedHashMap<>();
             schema.put("type", "object");
             schema.put("properties", props);
-            schema.put("required", List.of("file_path", "old_string", "new_string"));
+            schema.put("required", List.of("file_path"));
             return schema;
         }
 
-        /**
-         * Atomic replication of Claude Code FileEditTool.call().
-         *
-         * Original source: src/tools/FileEditTool/FileEditTool.ts → call()
-         *
-         * Execution flow:
-         * 1. Extract parameters (file_path, old_string, new_string, replace_all)
-         * 2. Resolve file path, detect encoding
-         * 3. findActualString — exact match first, then quote-normalized match
-         * 4. preserveQuoteStyle — when file uses curly quotes but model provides straight quotes
-         * 5. Apply replacement (single or replaceAll)
-         * 6. Write back preserving original encoding and line endings
-         * 7. Return result matching mapToolResultToToolResultBlockParam format
-         */
         @Override
         public CompletionStage<String> execute(Map<String, Object> args) {
             String filePath = asString(args.get("file_path"));
-            String oldString = asString(args.get("old_string"));
-            String newString = asString(args.get("new_string"));
-            boolean replaceAll = asBool(args.get("replace_all"), false);
+            boolean dryRun = asBool(args.get("dry_run"), false);
 
             try {
                 Path resolvedPath = PathUtil.resolvePath(filePath, workspace, allowedDir);
 
-                // --- Atomic replication of validateInput checks ---
+                // Determine edit mode: batch (edits[]) or single (old_string/new_string)
+                Object editsObj = args.get("edits");
+                boolean hasEdits = editsObj instanceof List<?> && !((List<?>) editsObj).isEmpty();
 
-                // Check old_string === new_string
-                if (oldString.equals(newString)) {
+                String oldString = asString(args.get("old_string"));
+                String newString = asString(args.get("new_string"));
+
+                if (hasEdits && (oldString != null || newString != null)) {
                     return CompletableFuture.completedFuture(
-                            "Error: No changes to make: old_string and new_string are exactly the same."
+                            "Error: Cannot use both old_string/new_string and edits[] in the same call. Choose one mode."
                     );
                 }
 
-                // Read file content with encoding detection
+                // --- Read file with encoding detection ---
                 String fileContent;
                 Charset fileCharset;
                 String targetLineEnding;
@@ -310,8 +297,13 @@ public final class FileSystemTools {
                     targetLineEnding = detectLineEnding(fileContent);
                     preserveBom = hasUtf8Bom(existingBytes);
                 } else {
-                    // File doesn't exist — only valid if old_string is empty (new file creation)
-                    if (!oldString.isEmpty()) {
+                    // New file creation — only valid with single edit mode (old_string empty)
+                    if (hasEdits) {
+                        return CompletableFuture.completedFuture(
+                                "Error: File does not exist: " + filePath + ". Use old_string/new_string to create a new file."
+                        );
+                    }
+                    if (oldString != null && !oldString.isEmpty()) {
                         return CompletableFuture.completedFuture(
                                 "Error: File does not exist: " + filePath
                         );
@@ -322,222 +314,161 @@ public final class FileSystemTools {
                     preserveBom = false;
                 }
 
-                // Normalize line endings in file content to LF for matching
+                // Normalize line endings to LF for matching
                 String normalizedContent = fileContent.replace("\r\n", "\n").replace("\r", "\n");
-                String normalizedOldString = oldString.replace("\r\n", "\n").replace("\r", "\n");
-                String normalizedNewString = newString.replace("\r\n", "\n").replace("\r", "\n");
+                String originalForDiff = normalizedContent;
 
-                // --- findActualString: exact match first, then quote-normalized match ---
-                String actualOldString = findActualString(normalizedContent, normalizedOldString);
-                if (actualOldString == null) {
-                    return CompletableFuture.completedFuture(
-                            "Error: String to replace not found in file.\nString: " + oldString
-                    );
-                }
+                if (hasEdits) {
+                    // === Batch mode: edits[] ===
+                    List<EditOp> editOps = new ArrayList<>();
+                    for (Object o : (List<?>) editsObj) {
+                        if (!(o instanceof Map<?, ?> m)) {
+                            return CompletableFuture.completedFuture("Error: each edit must be an object");
+                        }
+                        editOps.add(new EditOp(asString(m.get("old_text")), asString(m.get("new_text"))));
+                    }
 
-                // --- Check for multiple matches when replace_all is false ---
-                if (!replaceAll) {
-                    int matches = countMatches(normalizedContent, actualOldString);
-                    if (matches > 1) {
+                    String updated = normalizedContent;
+                    List<String> appliedNotes = new ArrayList<>();
+                    for (int i = 0; i < editOps.size(); i++) {
+                        EditOp op = editOps.get(i);
+                        String normalizedOld = op.oldText.replace("\r\n", "\n").replace("\r", "\n");
+                        String normalizedNew = op.newText.replace("\r\n", "\n").replace("\r", "\n");
+
+                        if (normalizedOld.isEmpty()) {
+                            updated = updated + normalizedNew;
+                            appliedNotes.add("Edit#" + (i + 1) + ": appended text");
+                            continue;
+                        }
+
+                        // Use findActualString for smart matching (quote normalization)
+                        String actualOld = findActualString(updated, normalizedOld);
+                        if (actualOld == null) {
+                            return CompletableFuture.completedFuture(
+                                    "Error: Edit#" + (i + 1) + " — old_text not found in file.\n" + fuzzyMatchHint(normalizedOld, updated)
+                            );
+                        }
+                        String actualNew = preserveQuoteStyle(normalizedOld, actualOld, normalizedNew);
+                        int idx = updated.indexOf(actualOld);
+                        updated = updated.substring(0, idx) + actualNew + updated.substring(idx + actualOld.length());
+                        appliedNotes.add("Edit#" + (i + 1) + ": replaced 1 occurrence");
+                    }
+
+                    if (dryRun) {
+                        String diff = unifiedDiff(
+                                splitLinesPreserveNewline(originalForDiff),
+                                splitLinesPreserveNewline(updated),
+                                filePath + " (before)",
+                                filePath + " (after)"
+                        );
                         return CompletableFuture.completedFuture(
-                                "Error: Found " + matches + " matches of the string to replace, but replace_all is false. " +
-                                        "To replace all occurrences, set replace_all to true. " +
-                                        "To replace only one occurrence, please provide more context to uniquely identify the instance.\n" +
-                                        "String: " + oldString
+                                "DRY RUN: would apply " + editOps.size() + " edits to " + filePath + "\n"
+                                        + String.join("\n", appliedNotes) + "\n\n" + diff
                         );
                     }
-                }
 
-                // --- preserveQuoteStyle: when file uses curly quotes but model provides straight quotes ---
-                String actualNewString = preserveQuoteStyle(
-                        normalizedOldString, actualOldString, normalizedNewString
-                );
+                    // Write back
+                    String finalContent = normalizeLineEndings(updated, targetLineEnding);
+                    writeFilePreserving(resolvedPath, finalContent, fileCharset, preserveBom);
 
-                // --- Apply the replacement ---
-                String updatedContent;
-                if (oldString.isEmpty()) {
-                    // New file creation
-                    updatedContent = actualNewString;
-                } else if (replaceAll) {
-                    updatedContent = normalizedContent.replace(actualOldString, actualNewString);
-                } else {
-                    int idx = normalizedContent.indexOf(actualOldString);
-                    updatedContent = normalizedContent.substring(0, idx)
-                            + actualNewString
-                            + normalizedContent.substring(idx + actualOldString.length());
-                }
-
-                // --- Write back preserving original encoding and line endings ---
-                // Normalize line endings back to target
-                String finalContent = normalizeLineEndings(updatedContent, targetLineEnding);
-
-                // Ensure parent directory exists
-                Path parent = resolvedPath.getParent();
-                if (parent != null) Files.createDirectories(parent);
-
-                // Write with BOM preservation
-                if (preserveBom && fileCharset == StandardCharsets.UTF_8) {
-                    byte[] bomBytes = new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
-                    byte[] contentBytes = finalContent.getBytes(StandardCharsets.UTF_8);
-                    byte[] fullBytes = new byte[bomBytes.length + contentBytes.length];
-                    System.arraycopy(bomBytes, 0, fullBytes, 0, bomBytes.length);
-                    System.arraycopy(contentBytes, 0, fullBytes, bomBytes.length, contentBytes.length);
-                    Files.write(resolvedPath, fullBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-                } else {
-                    Files.writeString(
-                            resolvedPath,
-                            finalContent,
-                            fileCharset,
-                            StandardOpenOption.CREATE,
-                            StandardOpenOption.TRUNCATE_EXISTING
+                    String diff = unifiedDiff(
+                            splitLinesPreserveNewline(originalForDiff),
+                            splitLinesPreserveNewline(updated),
+                            filePath + " (before)",
+                            filePath + " (after)"
                     );
-                }
-
-                // --- Return result matching mapToolResultToToolResultBlockParam ---
-                if (replaceAll) {
                     return CompletableFuture.completedFuture(
-                            "The file " + filePath + " has been updated. All occurrences were successfully replaced."
+                            "The file " + filePath + " has been updated successfully.\n"
+                                    + String.join("\n", appliedNotes) + "\n\n" + diff
                     );
-                }
-                return CompletableFuture.completedFuture(
-                        "The file " + filePath + " has been updated successfully."
-                );
 
-            } catch (SecurityException se) {
-                return CompletableFuture.completedFuture("Error: " + se.getMessage());
-            } catch (Exception e) {
-                return CompletableFuture.completedFuture("Error editing file: " + e.getMessage());
-            }
-        }
+                } else {
+                    // === Single mode: old_string/new_string/replace_all ===
+                    boolean replaceAll = asBool(args.get("replace_all"), false);
 
-        /**
-         * Count non-overlapping occurrences of a substring.
-         */
-        private static int countMatches(String content, String search) {
-            if (search.isEmpty()) return 0;
-            int count = 0;
-            int idx = 0;
-            while ((idx = content.indexOf(search, idx)) >= 0) {
-                count++;
-                idx += search.length();
-            }
-            return count;
-        }
-    }
-
-    // ----------------------------
-    // EditFileTool (MCP-like: edits[] + dryRun)
-    // ----------------------------
-    public static final class EditFileTool extends Tool {
-        private final Path workspace;
-        private final Path allowedDir;
-
-        public EditFileTool(Path workspace, Path allowedDir) {
-            this.workspace = workspace;
-            this.allowedDir = allowedDir;
-        }
-
-        @Override
-        public String name() {
-            return "edit_file";
-        }
-
-        @Override
-        public String description() {
-            return "Edit a file using edits[] (oldText->newText). Supports dryRun preview and multiple edits.";
-        }
-
-        /** 对齐 Claude Code FileEditTool.maxResultSizeChars = 100_000 */
-        @Override
-        public int maxResultSizeChars() {
-            return 100_000;
-        }
-
-        @Override
-        public Map<String, Object> parameters() {
-            Map<String, Object> editProps = new LinkedHashMap<>();
-            editProps.put("oldText", Map.of("type", "string", "description", "Text to search (substring allowed)"));
-            editProps.put("newText", Map.of("type", "string", "description", "Replacement text"));
-
-            Map<String, Object> editsSchema = new LinkedHashMap<>();
-            editsSchema.put("type", "array");
-            editsSchema.put("description", "List of edit operations");
-            editsSchema.put("items", Map.of("type", "object", "properties", editProps, "required", List.of("oldText", "newText")));
-
-            Map<String, Object> props = new LinkedHashMap<>();
-            props.put("path", Map.of("type", "string", "description", "The file path to edit"));
-            props.put("edits", editsSchema);
-            props.put("dryRun", Map.of("type", "boolean", "description", "Preview changes without applying (default false)"));
-
-            Map<String, Object> schema = new LinkedHashMap<>();
-            schema.put("type", "object");
-            schema.put("properties", props);
-            schema.put("required", List.of("path", "edits"));
-            return schema;
-        }
-
-        @Override
-        public CompletionStage<String> execute(Map<String, Object> args) {
-            String path = asString(args.get("path"));
-            boolean dryRun = asBool(args.get("dryRun"), false);
-
-            Object editsObj = args.get("edits");
-            if (!(editsObj instanceof List<?> editsListRaw)) {
-                return CompletableFuture.completedFuture("Error: edits must be an array");
-            }
-
-            List<EditOp> edits = new ArrayList<>();
-            for (Object o : editsListRaw) {
-                if (!(o instanceof Map<?, ?> m)) {
-                    return CompletableFuture.completedFuture("Error: each edit must be an object");
-                }
-                String oldText = asString(m.get("oldText"));
-                String newText = asString(m.get("newText"));
-                edits.add(new EditOp(oldText, newText));
-            }
-
-            try {
-                Path filePath = PathUtil.resolvePath(path, workspace, allowedDir);
-                if (!Files.exists(filePath)) return CompletableFuture.completedFuture("Error: File not found: " + path);
-                if (!Files.isRegularFile(filePath)) return CompletableFuture.completedFuture("Error: Not a file: " + path);
-
-                // 检测原文件编码
-                Charset fileCharset = detectFileCharset(filePath);
-                String original = readFileSmart(filePath);
-                String updated = original;
-
-                List<String> appliedNotes = new ArrayList<>();
-                for (int i = 0; i < edits.size(); i++) {
-                    EditOp op = edits.get(i);
-                    ApplyResult r = applyOneEdit(updated, op.oldText, op.newText);
-                    if (!r.applied) {
-                        return CompletableFuture.completedFuture(r.errorMessage);
+                    if (oldString == null && newString == null) {
+                        return CompletableFuture.completedFuture(
+                                "Error: Must provide either old_string/new_string or edits[] parameter."
+                        );
                     }
-                    updated = r.newContent;
-                    appliedNotes.add("Edit#" + (i + 1) + ": replaced " + r.replacedCount + " occurrence(s)");
-                }
 
-                String diff = unifiedDiff(
-                        splitLinesPreserveNewline(original),
-                        splitLinesPreserveNewline(updated),
-                        path + " (before)",
-                        path + " (after)"
-                );
+                    if (oldString == null) oldString = "";
+                    if (newString == null) newString = "";
 
-                if (dryRun) {
+                    // Check old_string === new_string
+                    if (oldString.equals(newString)) {
+                        return CompletableFuture.completedFuture(
+                                "Error: No changes to make: old_string and new_string are exactly the same."
+                        );
+                    }
+
+                    String normalizedOldString = oldString.replace("\r\n", "\n").replace("\r", "\n");
+                    String normalizedNewString = newString.replace("\r\n", "\n").replace("\r", "\n");
+
+                    // findActualString: exact match first, then quote-normalized match
+                    String actualOldString = findActualString(normalizedContent, normalizedOldString);
+                    if (actualOldString == null) {
+                        return CompletableFuture.completedFuture(
+                                "Error: String to replace not found in file.\n" + fuzzyMatchHint(normalizedOldString, normalizedContent)
+                        );
+                    }
+
+                    // Check for multiple matches when replace_all is false
+                    if (!replaceAll && !normalizedOldString.isEmpty()) {
+                        int matches = countMatches(normalizedContent, actualOldString);
+                        if (matches > 1) {
+                            return CompletableFuture.completedFuture(
+                                    "Error: Found " + matches + " matches of the string to replace, but replace_all is false. " +
+                                            "To replace all occurrences, set replace_all to true. " +
+                                            "To replace only one occurrence, please provide more context to uniquely identify the instance.\n" +
+                                            "String: " + oldString
+                            );
+                        }
+                    }
+
+                    // preserveQuoteStyle: when file uses curly quotes but model provides straight quotes
+                    String actualNewString = preserveQuoteStyle(
+                            normalizedOldString, actualOldString, normalizedNewString
+                    );
+
+                    // Apply the replacement
+                    String updatedContent;
+                    if (normalizedOldString.isEmpty()) {
+                        updatedContent = actualNewString;
+                    } else if (replaceAll) {
+                        updatedContent = normalizedContent.replace(actualOldString, actualNewString);
+                    } else {
+                        int idx = normalizedContent.indexOf(actualOldString);
+                        updatedContent = normalizedContent.substring(0, idx)
+                                + actualNewString
+                                + normalizedContent.substring(idx + actualOldString.length());
+                    }
+
+                    if (dryRun) {
+                        String diff = unifiedDiff(
+                                splitLinesPreserveNewline(originalForDiff),
+                                splitLinesPreserveNewline(updatedContent),
+                                filePath + " (before)",
+                                filePath + " (after)"
+                        );
+                        return CompletableFuture.completedFuture(
+                                "DRY RUN: would apply edit to " + filePath + "\n\n" + diff
+                        );
+                    }
+
+                    // Write back preserving original encoding and line endings
+                    String finalContent = normalizeLineEndings(updatedContent, targetLineEnding);
+                    writeFilePreserving(resolvedPath, finalContent, fileCharset, preserveBom);
+
+                    if (replaceAll) {
+                        return CompletableFuture.completedFuture(
+                                "The file " + filePath + " has been updated. All occurrences were successfully replaced."
+                        );
+                    }
                     return CompletableFuture.completedFuture(
-                            "DRY RUN: would apply " + edits.size() + " edits to " + path + "\n"
-                                    + String.join("\n", appliedNotes) + "\n\n"
-                                    + diff
+                            "The file " + filePath + " has been updated successfully."
                     );
                 }
-
-                Files.writeString(filePath, updated, fileCharset, StandardOpenOption.TRUNCATE_EXISTING);
-                return CompletableFuture.completedFuture(
-                        "Successfully edited " + filePath + " (charset=" + fileCharset.name() + ")\n"
-                                + String.join("\n", appliedNotes) + "\n\n"
-                                + diff
-                );
 
             } catch (SecurityException se) {
                 return CompletableFuture.completedFuture("Error: " + se.getMessage());
@@ -545,6 +476,8 @@ public final class FileSystemTools {
                 return CompletableFuture.completedFuture("Error editing file: " + e.getMessage());
             }
         }
+
+        // ---- inner helpers ----
 
         private static final class EditOp {
             final String oldText;
@@ -556,56 +489,37 @@ public final class FileSystemTools {
             }
         }
 
-        private static final class ApplyResult {
-            final boolean applied;
-            final String newContent;
-            final int replacedCount;
-            final String errorMessage;
-
-            private ApplyResult(boolean applied, String newContent, int replacedCount, String errorMessage) {
-                this.applied = applied;
-                this.newContent = newContent;
-                this.replacedCount = replacedCount;
-                this.errorMessage = errorMessage;
+        /** Count non-overlapping occurrences of a substring. */
+        private static int countMatches(String content, String search) {
+            if (search.isEmpty()) return 0;
+            int count = 0;
+            int idx = 0;
+            while ((idx = content.indexOf(search, idx)) >= 0) {
+                count++;
+                idx += search.length();
             }
+            return count;
+        }
 
-            static ApplyResult ok(String newContent, int replacedCount) {
-                return new ApplyResult(true, newContent, replacedCount, null);
-            }
+        /** Write file preserving BOM for UTF-8. */
+        private static void writeFilePreserving(Path path, String content, Charset charset, boolean preserveBom) throws Exception {
+            Path parent = path.getParent();
+            if (parent != null) Files.createDirectories(parent);
 
-            static ApplyResult fail(String msg) {
-                return new ApplyResult(false, null, 0, msg);
+            if (preserveBom && charset == StandardCharsets.UTF_8) {
+                byte[] bomBytes = new byte[]{(byte) 0xEF, (byte) 0xBB, (byte) 0xBF};
+                byte[] contentBytes = content.getBytes(StandardCharsets.UTF_8);
+                byte[] fullBytes = new byte[bomBytes.length + contentBytes.length];
+                System.arraycopy(bomBytes, 0, fullBytes, 0, bomBytes.length);
+                System.arraycopy(contentBytes, 0, fullBytes, bomBytes.length, contentBytes.length);
+                Files.write(path, fullBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } else {
+                Files.writeString(path, content, charset, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
             }
         }
 
-        /**
-         * 应用单个 edit：
-         * - 优先“子串精确匹配”
-         * - 若找不到：返回最佳相似窗口提示
-         * - oldText 为空：等价于 append
-         */
-        private static ApplyResult applyOneEdit(String content, String oldText, String newText) {
-            if (content == null) content = "";
-            if (oldText == null) oldText = "";
-            if (newText == null) newText = "";
-
-            if (oldText.isEmpty()) {
-                return ApplyResult.ok(content + newText, 1);
-            }
-
-            int first = content.indexOf(oldText);
-            if (first >= 0) {
-                String updated = content.substring(0, first) + newText + content.substring(first + oldText.length());
-                return ApplyResult.ok(updated, 1);
-            }
-
-            return ApplyResult.fail(notFoundMessage(oldText, content));
-        }
-
-        /**
-         * oldText 找不到时的提示：在全文中找一个“最像 oldText 的窗口”，并输出 diff
-         */
-        private static String notFoundMessage(String oldText, String content) {
+        /** Fuzzy match hint: find the best matching window and show diff. */
+        private static String fuzzyMatchHint(String oldText, String content) {
             List<String> lines = splitLinesPreserveNewline(content);
             List<String> oldLines = splitLinesPreserveNewline(oldText);
 
@@ -628,75 +542,14 @@ public final class FileSystemTools {
             if (bestRatio > 0.5) {
                 List<String> actual = lines.subList(bestStart, Math.min(bestStart + window, lines.size()));
                 String diff = unifiedDiff(
-                        oldLines,
-                        actual,
-                        "oldText (provided)",
-                        "bestMatch (actual, line " + (bestStart + 1) + ")"
+                        oldLines, actual,
+                        "provided text",
+                        "best match (line " + (bestStart + 1) + ")"
                 );
-                return "Error: oldText not found in file.\n"
-                        + "Best match (" + Math.round(bestRatio * 100) + "% similar) near line " + (bestStart + 1) + ":\n"
-                        + diff;
+                return "Best match (" + Math.round(bestRatio * 100) + "% similar) near line " + (bestStart + 1) + ":\n" + diff;
             }
 
-            return "Error: oldText not found in file. No similar text found. Verify the file content.";
-        }
-
-        /** normalized Levenshtein similarity in [0,1] */
-        private static double similarity(String a, String b) {
-            if (a == null) a = "";
-            if (b == null) b = "";
-            if (a.isEmpty() && b.isEmpty()) return 1.0;
-            int dist = levenshtein(a, b);
-            int max = Math.max(a.length(), b.length());
-            return max == 0 ? 1.0 : 1.0 - ((double) dist / (double) max);
-        }
-
-        private static int levenshtein(String a, String b) {
-            int n = a.length(), m = b.length();
-            int[] prev = new int[m + 1];
-            int[] curr = new int[m + 1];
-            for (int j = 0; j <= m; j++) prev[j] = j;
-
-            for (int i = 1; i <= n; i++) {
-                curr[0] = i;
-                char ca = a.charAt(i - 1);
-                for (int j = 1; j <= m; j++) {
-                    int cost = (ca == b.charAt(j - 1)) ? 0 : 1;
-                    curr[j] = Math.min(
-                            Math.min(curr[j - 1] + 1, prev[j] + 1),
-                            prev[j - 1] + cost
-                    );
-                }
-                int[] tmp = prev;
-                prev = curr;
-                curr = tmp;
-            }
-            return prev[m];
-        }
-
-        /**
-         * 简化版 unified diff（行级别）
-         */
-        private static String unifiedDiff(List<String> oldLines, List<String> newLines, String fromFile, String toFile) {
-            StringBuilder sb = new StringBuilder();
-            sb.append("--- ").append(fromFile).append("\n");
-            sb.append("+++ ").append(toFile).append("\n");
-            sb.append("@@ -1,").append(oldLines.size()).append(" +1,").append(newLines.size()).append(" @@\n");
-
-            int max = Math.max(oldLines.size(), newLines.size());
-            for (int i = 0; i < max; i++) {
-                String a = i < oldLines.size() ? oldLines.get(i) : null;
-                String b = i < newLines.size() ? newLines.get(i) : null;
-
-                if (Objects.equals(a, b)) {
-                    if (a != null) sb.append(" ").append(a);
-                } else {
-                    if (a != null) sb.append("-").append(a);
-                    if (b != null) sb.append("+").append(b);
-                }
-            }
-            if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') sb.append("\n");
-            return sb.toString();
+            return "No similar text found. Verify the file content.";
         }
     }
 
@@ -2046,6 +1899,64 @@ public final class FileSystemTools {
             }
         }
         return result.toString();
+    }
+
+    // ---- Unified diff + fuzzy matching helpers (used by WriteFileTool) ----
+
+    /** Simplified unified diff (line-level). */
+    private static String unifiedDiff(List<String> oldLines, List<String> newLines, String fromFile, String toFile) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("--- ").append(fromFile).append("\n");
+        sb.append("+++ ").append(toFile).append("\n");
+        sb.append("@@ -1,").append(oldLines.size()).append(" +1,").append(newLines.size()).append(" @@\n");
+
+        int max = Math.max(oldLines.size(), newLines.size());
+        for (int i = 0; i < max; i++) {
+            String a = i < oldLines.size() ? oldLines.get(i) : null;
+            String b = i < newLines.size() ? newLines.get(i) : null;
+
+            if (Objects.equals(a, b)) {
+                if (a != null) sb.append(" ").append(a);
+            } else {
+                if (a != null) sb.append("-").append(a);
+                if (b != null) sb.append("+").append(b);
+            }
+        }
+        if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '\n') sb.append("\n");
+        return sb.toString();
+    }
+
+    /** Normalized Levenshtein similarity in [0,1]. */
+    private static double similarity(String a, String b) {
+        if (a == null) a = "";
+        if (b == null) b = "";
+        if (a.isEmpty() && b.isEmpty()) return 1.0;
+        int dist = levenshtein(a, b);
+        int maxLen = Math.max(a.length(), b.length());
+        return maxLen == 0 ? 1.0 : 1.0 - ((double) dist / (double) maxLen);
+    }
+
+    private static int levenshtein(String a, String b) {
+        int n = a.length(), m = b.length();
+        int[] prev = new int[m + 1];
+        int[] curr = new int[m + 1];
+        for (int j = 0; j <= m; j++) prev[j] = j;
+
+        for (int i = 1; i <= n; i++) {
+            curr[0] = i;
+            char ca = a.charAt(i - 1);
+            for (int j = 1; j <= m; j++) {
+                int cost = (ca == b.charAt(j - 1)) ? 0 : 1;
+                curr[j] = Math.min(
+                        Math.min(curr[j - 1] + 1, prev[j] + 1),
+                        prev[j - 1] + cost
+                );
+            }
+            int[] tmp = prev;
+            prev = curr;
+            curr = tmp;
+        }
+        return prev[m];
     }
 
 }
