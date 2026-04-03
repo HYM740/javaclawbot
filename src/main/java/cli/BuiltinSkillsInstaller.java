@@ -4,8 +4,10 @@ import org.jline.terminal.Terminal;
 import utils.Helpers;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -42,11 +44,15 @@ public final class BuiltinSkillsInstaller {
         private final List<String> overwritten = new ArrayList<>();
         private final List<String> skipped = new ArrayList<>();
         private final List<String> failed = new ArrayList<>();
+        private final List<String> pluginsInstalled = new ArrayList<>();
+        private final List<String> pluginsFailed = new ArrayList<>();
 
         public List<String> getInstalled() { return installed; }
         public List<String> getOverwritten() { return overwritten; }
         public List<String> getSkipped() { return skipped; }
         public List<String> getFailed() { return failed; }
+        public List<String> getPluginsInstalled() { return pluginsInstalled; }
+        public List<String> getPluginsFailed() { return pluginsFailed; }
     }
 
     public static List<SkillResource> discoverBuiltinSkills() {
@@ -118,6 +124,11 @@ public final class BuiltinSkillsInstaller {
                         summary.getInstalled().add(name);
                     }
                 }
+
+                // Auto-install associated plugin (e.g. zjkycode -> zjkycode.js)
+                if (installAssociatedPlugin(name, workspace)) {
+                    summary.getPluginsInstalled().add(name);
+                }
             } catch (Exception e) {
                 summary.getFailed().add(name + " (" + e.getMessage() + ")");
             }
@@ -142,11 +153,18 @@ public final class BuiltinSkillsInstaller {
         for (String s : summary.getFailed()) {
             System.out.println("  ✗ Failed: " + s);
         }
+        for (String s : summary.getPluginsInstalled()) {
+            System.out.println("  ★ Plugin auto-installed: " + s);
+        }
+        for (String s : summary.getPluginsFailed()) {
+            System.out.println("  ⚠ Plugin failed: " + s);
+        }
 
         if (summary.getInstalled().isEmpty()
                 && summary.getOverwritten().isEmpty()
                 && summary.getSkipped().isEmpty()
-                && summary.getFailed().isEmpty()) {
+                && summary.getFailed().isEmpty()
+                && summary.getPluginsInstalled().isEmpty()) {
             System.out.println("  (nothing selected)");
         }
     }
@@ -271,6 +289,64 @@ public final class BuiltinSkillsInstaller {
             return FileSystems.newFileSystem(jarUri, Map.of());
         } catch (FileSystemAlreadyExistsException e) {
             return FileSystems.getFileSystem(jarUri);
+        }
+    }
+
+    // ========== Plugin Auto-Install ==========
+
+    private static final String[] PLUGIN_EXTENSIONS = {"js", "mjs", "cjs", "py"};
+
+    /**
+     * Find associated plugin resource on classpath for a given skill name.
+     * Searches templates/plugins/{skillName}.{ext} for each supported extension.
+     *
+     * @return the classpath resource path, or null if not found
+     */
+    static String findAssociatedPlugin(String skillName) {
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = BuiltinSkillsInstaller.class.getClassLoader();
+
+        for (String ext : PLUGIN_EXTENSIONS) {
+            String resource = "templates/plugins/" + skillName + "." + ext;
+            if (cl.getResource(resource) != null) {
+                return resource;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Auto-install associated plugin for a skill.
+     * If templates/plugins/{skillName}.{js|mjs|cjs|py} exists on classpath,
+     * copies it to workspace/plugins/{skillName}.{ext}.
+     *
+     * @return true if a plugin was found and installed
+     */
+    static boolean installAssociatedPlugin(String skillName, Path workspace) {
+        String pluginResource = findAssociatedPlugin(skillName);
+        if (pluginResource == null) return false;
+
+        String ext = pluginResource.substring(pluginResource.lastIndexOf('.'));
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = BuiltinSkillsInstaller.class.getClassLoader();
+
+        try {
+            Path pluginsDir = workspace.resolve("plugins");
+            Files.createDirectories(pluginsDir);
+            Path target = pluginsDir.resolve(skillName + ext);
+
+            try (InputStream is = cl.getResourceAsStream(pluginResource)) {
+                if (is == null) {
+                    throw new IOException("Plugin resource not found: " + pluginResource);
+                }
+                Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
+            }
+
+            System.out.println("  ✓ Auto-installed plugin: " + skillName + ext);
+            return true;
+        } catch (Exception e) {
+            System.err.println("  ⚠ Failed to install plugin for " + skillName + ": " + e.getMessage());
+            throw new RuntimeException("Plugin install failed: " + e.getMessage(), e);
         }
     }
 }

@@ -1218,34 +1218,74 @@ public class JavaClawBotGUI extends JFrame {
     }
 
     private void configureSkillsDialog(Config cfg, boolean overwrite) {
-        int result = JOptionPane.showConfirmDialog(
-                this,
-                "是否安装预构建 skills？\n\n"
-                        + "QuickStart 下一般可跳过，后续再装也可以。",
-                "Skills 配置",
-                JOptionPane.YES_NO_OPTION,
-                JOptionPane.QUESTION_MESSAGE
-        );
+        java.util.List<BuiltinSkillsInstaller.SkillResource> builtinSkills =
+                BuiltinSkillsInstaller.discoverBuiltinSkills();
 
-        if (result != JOptionPane.YES_OPTION) {
+        if (builtinSkills == null || builtinSkills.isEmpty()) {
+            appendSystem("没有找到可安装的 builtin skills");
+            return;
+        }
+
+        // Build multi-select dialog
+        JDialog dialog = new JDialog(this, "选择要安装的内置技能", true);
+        dialog.setLayout(new java.awt.BorderLayout(10, 10));
+
+        JPanel checkboxPanel = new JPanel();
+        checkboxPanel.setLayout(new javax.swing.BoxLayout(checkboxPanel, javax.swing.BoxLayout.Y_AXIS));
+
+        java.util.List<JCheckBox> checkboxes = new java.util.ArrayList<>();
+        for (BuiltinSkillsInstaller.SkillResource skill : builtinSkills) {
+            JCheckBox cb = new JCheckBox(skill.getName(), true);
+            checkboxes.add(cb);
+            checkboxPanel.add(cb);
+        }
+
+        JScrollPane scrollPane = new JScrollPane(checkboxPanel);
+        scrollPane.setPreferredSize(new java.awt.Dimension(350, Math.min(400, builtinSkills.size() * 30 + 50)));
+
+        JPanel buttonPanel = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT));
+        JButton okButton = new JButton("安装选中");
+        JButton cancelButton = new JButton("跳过");
+        buttonPanel.add(okButton);
+        buttonPanel.add(cancelButton);
+
+        dialog.add(scrollPane, java.awt.BorderLayout.CENTER);
+        dialog.add(buttonPanel, java.awt.BorderLayout.SOUTH);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+
+        final boolean[] confirmed = {false};
+        okButton.addActionListener(e -> {
+            confirmed[0] = true;
+            dialog.dispose();
+        });
+        cancelButton.addActionListener(e -> dialog.dispose());
+
+        dialog.setVisible(true);
+
+        if (!confirmed[0]) {
             appendSystem("跳过 skills 安装");
             return;
         }
 
-        try {
-            java.util.List<BuiltinSkillsInstaller.SkillResource> builtinSkills =
-                    BuiltinSkillsInstaller.discoverBuiltinSkills();
-
-            if (builtinSkills == null || builtinSkills.isEmpty()) {
-                appendSystem("没有找到可安装的 builtin skills");
-                return;
+        // Collect selected skills
+        java.util.List<BuiltinSkillsInstaller.SkillResource> selected = new java.util.ArrayList<>();
+        for (int i = 0; i < checkboxes.size(); i++) {
+            if (checkboxes.get(i).isSelected()) {
+                selected.add(builtinSkills.get(i));
             }
+        }
 
-            // 简化版：先全部安装
+        if (selected.isEmpty()) {
+            appendSystem("没有选择任何技能，跳过安装");
+            return;
+        }
+
+        try {
             BuiltinSkillsInstaller.InstallSummary summary =
                     BuiltinSkillsInstaller.installSelectedSkills(
                             cfg.getWorkspacePath(),
-                            builtinSkills,
+                            selected,
                             overwrite
                     );
 
