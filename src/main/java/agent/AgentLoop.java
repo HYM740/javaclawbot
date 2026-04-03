@@ -6,21 +6,25 @@ import agent.subagent.SessionsSpawnTool;
 import agent.subagent.SubagentManager;
 import agent.subagent.SubagentsControlTool;
 import agent.tool.*;
+import agent.tool.cron.CronTool;
+import agent.tool.file.*;
 import agent.tool.mcp.McpManager;
+import agent.tool.message.MessageTool;
+import agent.tool.message.PruneMessagesTool;
+import agent.tool.skill.SkillTool;
+import agent.tool.web.WebFetchTool;
+import agent.tool.web.WebSearchTool;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.collection.ConcurrentHashSet;
 import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import config.Config;
 import config.agent.AgentRuntimeSettings;
 
 import config.channel.ChannelsConfig;
 import config.mcp.MCPServerConfig;
-import config.provider.model.ModelConfig;
 import config.tool.ToolsConfig;
 import config.tool.WebFetchConfig;
 import config.tool.WebSearchConfig;
@@ -28,13 +32,11 @@ import context.ContextBuilder;
 import context.ContextOverflowDetector;
 import context.ContextWindowDiscovery;
 import corn.CronService;
-import lombok.val;
 import memory.MemoryStore;
 import org.jetbrains.annotations.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
-import providers.LLMResponse;
 import providers.ToolCallRequest;
 import context.ContextPruner;
 import context.ContextPruningSettings;
@@ -282,14 +284,15 @@ public class AgentLoop {
         java.nio.file.Path allowedDir = restrictToWorkspace ? workspace : null;
 
         // 文件/命令/网络工具：无会话上下文，可共享
-        sharedTools.register(new FileSystemTools.ReadFileTool(workspace, allowedDir));
-        sharedTools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
+        sharedTools.register(new ReadFileTool(workspace, allowedDir));
+        sharedTools.register(new WriteFileTool(workspace, allowedDir));
 
-        sharedTools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
-        sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
-        sharedTools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
-        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
-        sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
+        sharedTools.register(new ListDirTool(workspace, allowedDir));
+//        sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
+//        sharedTools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
+//        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
+//        sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
+        sharedTools.register(new EditTool(workspace, allowedDir));
         sharedTools.register(new ExecTool(
                 currentTools().getExec().getTimeout(),
                 workspace.toString(),
@@ -373,8 +376,10 @@ public class AgentLoop {
 
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
-        localTools.register(new FileSystemTools.ReadFileTool(workspace, null));
-        localTools.register(new FileSystemTools.WriteFileTool(workspace, null));
+        localTools.register(new ReadFileTool(workspace, null));
+        localTools.register(new GlobTool(workspace, null));
+        localTools.register(new GrepTool(workspace, null));
+        localTools.register(new WriteFileTool(workspace, null));
         localTools.register(new SkillTool(commandManager, skillsLoader));
 
         return new CompositeToolView(localTools);
@@ -394,8 +399,10 @@ public class AgentLoop {
 
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
-        localTools.register(new FileSystemTools.ReadFileTool(workspace, null));
-        localTools.register(new FileSystemTools.WriteFileTool(workspace, null));
+        localTools.register(new ReadFileTool(workspace, null));
+        localTools.register(new WriteFileTool(workspace, null));
+        localTools.register(new GlobTool(workspace, null));
+        localTools.register(new GrepTool(workspace, null));
         localTools.register(new SkillTool(commandManager, skillsLoader));
 
         // 添加记忆压缩工具

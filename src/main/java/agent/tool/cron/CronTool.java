@@ -1,5 +1,6 @@
-package agent.tool;
+package agent.tool.cron;
 
+import agent.tool.Tool;
 import corn.CronJob;
 import corn.CronSchedule;
 import corn.CronService;

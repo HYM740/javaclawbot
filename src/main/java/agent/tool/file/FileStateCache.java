@@ -1,7 +1,6 @@
-package agent.tool;
+package agent.tool.file;
 
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
 /**

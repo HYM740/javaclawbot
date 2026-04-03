@@ -1,19 +1,17 @@
-package agent.tool;
+package agent.tool.file;
 
+import agent.tool.Tool;
 import utils.PathUtil;
 
 import java.io.BufferedReader;
-import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.FileTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 /**
  * Glob tool — atomic-level port of Claude Code's GlobTool.ts + glob.ts.

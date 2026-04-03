@@ -2,6 +2,9 @@ package agent.subagent;
 
 import agent.ProgressCallback;
 import agent.tool.*;
+import agent.tool.file.*;
+import agent.tool.web.WebFetchTool;
+import agent.tool.web.WebSearchTool;
 import bus.MessageBus;
 import config.tool.ToolsConfig;
 import org.slf4j.Logger;
@@ -251,14 +254,15 @@ public class LocalSubagentExecutor implements SubagentExecutor {
         // ========== 基础工具（所有子Agent都有） ==========
         
         // 文件工具
-        tools.register(new FileSystemTools.ReadFileTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.WriteFileTool(workspace, allowedDir));
-
-        tools.register(new FileSystemTools.ListDirTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
+        tools.register(new ReadFileTool(workspace, allowedDir));
+        tools.register(new WriteFileTool(workspace, allowedDir));
+        tools.register(new ListDirTool(workspace, allowedDir));
+        tools.register(new GlobTool(workspace, allowedDir));
+        tools.register(new GrepTool(workspace, allowedDir));
+        /*tools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
-        tools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
+        tools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));*/
 
         // Shell工具
         tools.register(new ExecTool(

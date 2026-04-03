@@ -1,5 +1,6 @@
-package agent.tool;
+package agent.tool.message;
 
+import agent.tool.Tool;
 import bus.OutboundMessage;
 
 import java.util.*;

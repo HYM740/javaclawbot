@@ -1,16 +1,14 @@
-package agent.tool;
+package agent.tool.skill;
 
 import agent.command.CommandQueueManager;
-import agent.command.ContentBlock;
 import agent.command.SkillCommand;
+import agent.tool.Tool;
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSON;
 import skills.SkillsLoader;
 import utils.GsonFactory;
 
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;

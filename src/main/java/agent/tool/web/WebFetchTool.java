@@ -1,5 +1,6 @@
-package agent.tool;
+package agent.tool.web;
 
+import agent.tool.Tool;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;

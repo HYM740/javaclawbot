@@ -1,18 +1,13 @@
 package memory;
 
-import agent.tool.FileSystemTools;
-import agent.tool.Tool;
-import agent.tool.ToolRegistry;
+import agent.tool.file.FileSystemTools;
 import cn.hutool.core.io.resource.ResourceUtil;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import context.ContextBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
 import providers.LLMResponse;
-import providers.ToolCallRequest;
-import session.Session;
 import utils.Helpers;
 
 import java.io.BufferedWriter;

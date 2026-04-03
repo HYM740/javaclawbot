@@ -1,5 +1,6 @@
-package agent.tool;
+package agent.tool.file;
 
+import agent.tool.Tool;
 import utils.PathUtil;
 
 import java.io.BufferedReader;
@@ -11,8 +12,6 @@ import java.nio.file.attribute.FileTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
