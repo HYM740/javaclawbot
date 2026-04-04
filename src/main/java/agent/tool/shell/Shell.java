@@ -41,6 +41,46 @@ public final class Shell {
      */
     private static final int DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
 
+    /**
+     * Stall watchdog: check interval (5 seconds).
+     * Aligned with CC's LocalShellTask.tsx STALL_CHECK_INTERVAL_MS.
+     */
+    private static final int STALL_CHECK_INTERVAL_MS = 5_000;
+
+    /**
+     * Stall watchdog: threshold (45 seconds of no output growth).
+     * Aligned with CC's LocalShellTask.tsx STALL_THRESHOLD_MS.
+     */
+    private static final int STALL_THRESHOLD_MS = 45_000;
+
+    /**
+     * Stall watchdog: bytes to read from tail of output.
+     * Aligned with CC's LocalShellTask.tsx STALL_TAIL_BYTES.
+     */
+    private static final int STALL_TAIL_BYTES = 1024;
+
+    // ========================================================================
+    // Stall watchdog constants — aligned with CC's LocalShellTask.tsx
+    // ========================================================================
+
+    private static final int STALL_CHECK_INTERVAL_MS = 5_000;
+    private static final int STALL_THRESHOLD_MS = 45_000;
+    private static final int STALL_TAIL_BYTES = 1024;
+
+    /**
+     * Patterns that suggest a command is blocked waiting for keyboard input.
+     * Aligned with CC's LocalShellTask.tsx PROMPT_PATTERNS.
+     */
+    private static final java.util.regex.Pattern[] PROMPT_PATTERNS = {
+            java.util.regex.Pattern.compile("(?i)\\(y/n\\)"),
+            java.util.regex.Pattern.compile("(?i)\\[y/n\\]"),
+            java.util.regex.Pattern.compile("(?i)\\(yes/no\\)"),
+            java.util.regex.Pattern.compile("(?i)\\b(?:Do you|Would you|Shall I|Are you sure|Ready to)\\b.*\\?\\s*$"),
+            java.util.regex.Pattern.compile("(?i)Press (?:any key|Enter)"),
+            java.util.regex.Pattern.compile("(?i)Continue\\?"),
+            java.util.regex.Pattern.compile("(?i)Overwrite\\?")
+    };
+
     // ========================================================================
     // ShellConfig — holds the resolved ShellProvider
     // ========================================================================
@@ -102,6 +142,48 @@ public final class Shell {
     ) {}
 
     // ========================================================================
+    // BackgroundTask — background task state for run_in_background
+    // ========================================================================
+
+    /**
+     * Background task state.
+     *
+     * Aligned with Claude Code's LocalShellTask.tsx task management.
+     *
+     * Output directory structure:
+     *   <baseDir>/.bg-tasks/<taskId>/
+     *     stdout.txt  — streaming stdout (available while task runs)
+     *     stderr.txt  — streaming stderr
+     *     exitcode    — appears when task completes (contains exit code number)
+     */
+    public static final class BackgroundTask {
+        private final String taskId;
+        private final Process process;
+        private final Path outputDir;
+        private final long startTimeMs;
+        private volatile boolean completed;
+        private volatile int exitCode;
+
+        public BackgroundTask(String taskId, Process process, Path outputDir, long startTimeMs) {
+            this.taskId = taskId;
+            this.process = process;
+            this.outputDir = outputDir;
+            this.startTimeMs = startTimeMs;
+            this.completed = false;
+            this.exitCode = -1;
+        }
+
+        public String taskId() { return taskId; }
+        public Process process() { return process; }
+        public Path outputDir() { return outputDir; }
+        public Path stdoutFile() { return outputDir.resolve("stdout.txt"); }
+        public Path stderrFile() { return outputDir.resolve("stderr.txt"); }
+        public long startTimeMs() { return startTimeMs; }
+        public boolean completed() { return completed; }
+        public int exitCode() { return exitCode; }
+    }
+
+    // ========================================================================
     // Memoized shell config
     // ========================================================================
 
@@ -112,6 +194,23 @@ public final class Shell {
      */
     private static volatile ShellConfig cachedShellConfig = null;
     private static final Object shellConfigLock = new Object();
+
+    /**
+     * Windows Git Bash 路径覆盖（从配置文件读取），优先级最高。
+     */
+    private static volatile String windowsBashPathOverride = null;
+
+    /**
+     * 设置 Windows Git Bash 路径覆盖。
+     * 应在 AgentLoop 初始化时从 config 读取后调用。
+     */
+    public static void setWindowsBashPath(String path) {
+        windowsBashPathOverride = (path != null && !path.isBlank()) ? path : null;
+        // 清除缓存，让下次 getShellConfig 重新解析
+        synchronized (shellConfigLock) {
+            cachedShellConfig = null;
+        }
+    }
 
     /**
      * Memoized PowerShell provider.
@@ -129,6 +228,24 @@ public final class Shell {
     private static final AtomicReference<String> cwdState = new AtomicReference<>(
             System.getProperty("user.dir")
     );
+
+    /**
+     * Base directory for background task output files.
+     * Set from ExecTool's workingDir via setBackgroundOutputDir().
+     */
+    private static volatile String bgOutputBaseDir = null;
+
+    /**
+     * Set the base directory for background task output files.
+     */
+    public static void setBackgroundOutputDir(String dir) {
+        bgOutputBaseDir = (dir != null && !dir.isBlank()) ? dir : null;
+    }
+
+    /**
+     * Active background tasks registry.
+     */
+    private static final ConcurrentHashMap<String, BackgroundTask> backgroundTasks = new ConcurrentHashMap<>();
 
     // Thread pool for async execution
     private static final ExecutorService pool = Executors.newCachedThreadPool(r -> {
@@ -158,6 +275,12 @@ public final class Shell {
      * @throws ShellException if no suitable shell is found
      */
     public static String findSuitableShell() {
+        // 0. Windows Bash path override from config (highest priority)
+        if (windowsBashPathOverride != null && isExecutable(windowsBashPathOverride)) {
+            logDebug("Using configured Windows Bash: " + windowsBashPathOverride);
+            return windowsBashPathOverride;
+        }
+
         // 1. Check for explicit shell override first
         // Original: Shell.ts lines 75-89
         String shellOverride = System.getenv("CLAUDE_CODE_SHELL");
@@ -421,6 +544,310 @@ public final class Shell {
                 return new ExecResult("", "Shell exec error: " + e.getMessage(), 126, false, null);
             }
         }, pool);
+    }
+
+    // ========================================================================
+    // execBackground — background task execution
+    // ========================================================================
+
+    /**
+     * Execute a shell command in the background.
+     *
+     * Aligned with Claude Code's LocalShellTask.tsx → spawnShellTask().
+     *
+     * The process starts and this method returns immediately with a task ID.
+     * Output is streamed to files in real-time.
+     * Completion is detected by the presence of the exitcode file.
+     *
+     * @param command    The command to execute
+     * @param shellType  The shell type
+     * @param options    Execution options
+     * @return CompletableFuture with ExecResult containing the backgroundTaskId
+     */
+    public static CompletableFuture<ExecResult> execBackground(
+            String command,
+            ShellType shellType,
+            ExecOptions options
+    ) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                ShellProvider provider = resolveProvider(shellType);
+
+                String id = String.format("%04x", (int) (Math.random() * 0x10000));
+
+                BuildExecCommandOpts buildOpts = new BuildExecCommandOpts(id, null, false);
+                ExecCommandResult buildResult = provider.buildExecCommand(command, buildOpts).join();
+                String commandString = buildResult.commandString();
+
+                String cwd = pwd();
+
+                String binShell = provider.shellPath();
+                List<String> shellArgs = provider.getSpawnArgs(commandString);
+                Map<String, String> envOverrides = provider.getEnvironmentOverrides(command).join();
+
+                List<String> fullCmd = new ArrayList<>();
+                fullCmd.add(binShell);
+                fullCmd.addAll(shellArgs);
+
+                ProcessBuilder pb = new ProcessBuilder(fullCmd);
+                pb.directory(new File(cwd));
+
+                Map<String, String> env = pb.environment();
+                env.put("SHELL", binShell);
+                env.put("GIT_EDITOR", "true");
+                env.put("CLAUDECODE", "1");
+                env.putAll(envOverrides);
+
+                if (!isWindows()) {
+                    env.put("LC_ALL", "en_US.UTF-8");
+                    env.put("LANG", "en_US.UTF-8");
+                }
+
+                // Create task output directory
+                String taskId = "bg-" + UUID.randomUUID().toString().substring(0, 8);
+                String baseDir = bgOutputBaseDir != null ? bgOutputBaseDir : System.getProperty("java.io.tmpdir");
+                Path outputDir = Paths.get(baseDir, ".bg-tasks", taskId);
+                Files.createDirectories(outputDir);
+
+                Process process = pb.start();
+
+                // Register task
+                BackgroundTask task = new BackgroundTask(taskId, process, outputDir, System.currentTimeMillis());
+                backgroundTasks.put(taskId, task);
+
+                // Stream stdout to file
+                pool.submit(() -> {
+                    try (InputStream in = process.getInputStream();
+                         OutputStream out = Files.newOutputStream(task.stdoutFile())) {
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = in.read(buf)) >= 0) {
+                            out.write(buf, 0, n);
+                        }
+                    } catch (IOException ignored) {}
+                });
+
+                // Stream stderr to file
+                pool.submit(() -> {
+                    try (InputStream in = process.getErrorStream();
+                         OutputStream out = Files.newOutputStream(task.stderrFile())) {
+                        byte[] buf = new byte[4096];
+                        int n;
+                        while ((n = in.read(buf)) >= 0) {
+                            out.write(buf, 0, n);
+                        }
+                    } catch (IOException ignored) {}
+                });
+
+                // Start stall watchdog
+                Runnable cancelStallWatchdog = startStallWatchdog(task);
+
+                // Monitor for completion
+                pool.submit(() -> {
+                    try {
+                        int timeoutMs = (options != null && options.timeout() != null)
+                                ? options.timeout() : DEFAULT_TIMEOUT_MS;
+                        boolean finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
+
+                        if (!finished) {
+                            destroyProcessTree(process);
+                            task.exitCode = -1;
+                        } else {
+                            task.exitCode = process.exitValue();
+                        }
+
+                        task.completed = true;
+                        cancelStallWatchdog.run();
+
+                        // Write exit code file (signals completion)
+                        Files.writeString(outputDir.resolve("exitcode"), String.valueOf(task.exitCode));
+
+                        // CWD tracking
+                        if (options == null || !options.preventCwdChanges()) {
+                            try {
+                                String newCwd = new String(Files.readAllBytes(Paths.get(buildResult.cwdFilePath())), StandardCharsets.UTF_8).trim();
+                                if (!newCwd.equals(cwd)) {
+                                    setCwd(newCwd);
+                                }
+                            } catch (Exception ignored) {}
+                            try { Files.deleteIfExists(Paths.get(buildResult.cwdFilePath())); } catch (Exception ignored) {}
+                        }
+                    } catch (Exception e) {
+                        task.completed = true;
+                        task.exitCode = -1;
+                        cancelStallWatchdog.run();
+                        try {
+                            Files.writeString(outputDir.resolve("exitcode"), "-1");
+                        } catch (Exception ignored) {}
+                    }
+                });
+
+                return new ExecResult("", "", 0, false, taskId);
+
+            } catch (Exception e) {
+                return new ExecResult("", "Background exec error: " + e.getMessage(), 126, false, null);
+            }
+        }, pool);
+    }
+
+    // ========================================================================
+    // Background task management
+    // ========================================================================
+
+    /**
+     * Get a background task by ID.
+     */
+    public static BackgroundTask getBackgroundTask(String taskId) {
+        return backgroundTasks.get(taskId);
+    }
+
+    /**
+     * List all background task IDs.
+     */
+    public static List<String> listBackgroundTasks() {
+        return new ArrayList<>(backgroundTasks.keySet());
+    }
+
+    /**
+     * Clean up a completed background task (remove from registry, delete output files).
+     */
+    public static void cleanupTask(String taskId) {
+        BackgroundTask task = backgroundTasks.remove(taskId);
+        if (task == null) return;
+
+        try {
+            if (task.process.isAlive()) {
+                destroyProcessTree(task.process);
+            }
+        } catch (Exception ignored) {}
+
+        try {
+            if (task.outputDir != null && Files.exists(task.outputDir)) {
+                try (var stream = Files.walk(task.outputDir)) {
+                    stream.sorted(Comparator.reverseOrder())
+                          .map(Path::toFile)
+                          .forEach(File::delete);
+                }
+            }
+        } catch (Exception ignored) {}
+    }
+
+    /**
+     * Clean up all background tasks on shutdown.
+     */
+    public static void cleanupAllBackgroundTasks() {
+        for (String taskId : new ArrayList<>(backgroundTasks.keySet())) {
+            cleanupTask(taskId);
+        }
+    }
+
+    // ========================================================================
+    // Stall watchdog — detect interactive prompts in background tasks
+    // ========================================================================
+
+    /**
+     * Patterns that suggest a command is blocked waiting for interactive input.
+     *
+     * Aligned with CC's LocalShellTask.tsx PROMPT_PATTERNS.
+     * Used to gate the stall notification — we stay silent on commands that
+     * are merely slow and only notify when the tail looks like an interactive prompt.
+     */
+    private static final java.util.regex.Pattern[] PROMPT_PATTERNS = {
+            java.util.regex.Pattern.compile("(?i)\\(y/n\\)"),
+            java.util.regex.Pattern.compile("(?i)\\[y/n\\]"),
+            java.util.regex.Pattern.compile("(?i)\\(yes/no\\)"),
+            java.util.regex.Pattern.compile("(?i)\\b(?:Do you|Would you|Shall I|Are you sure|Ready to)\\b.*\\?\\s*$"),
+            java.util.regex.Pattern.compile("(?i)Press (?:any key|Enter)"),
+            java.util.regex.Pattern.compile("(?i)Continue\\?"),
+            java.util.regex.Pattern.compile("(?i)Overwrite\\?")
+    };
+
+    /**
+     * Check if the tail of output looks like an interactive prompt.
+     *
+     * Aligned with CC's LocalShellTask.tsx looksLikePrompt().
+     */
+    static boolean looksLikePrompt(String tail) {
+        String lastLine = tail.trim();
+        int nl = lastLine.lastIndexOf('\n');
+        if (nl >= 0) lastLine = lastLine.substring(nl + 1);
+        for (java.util.regex.Pattern p : PROMPT_PATTERNS) {
+            if (p.matcher(lastLine).find()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Start a stall watchdog for a background task.
+     *
+     * Aligned with CC's LocalShellTask.tsx startStallWatchdog().
+     *
+     * Checks output file size every 5 seconds. If no growth for 45 seconds,
+     * reads the last 1KB and checks if it looks like an interactive prompt.
+     * If so, writes a stall-warning.txt to the task output directory.
+     *
+     * @param task The background task to monitor
+     * @return A Runnable that cancels the watchdog
+     */
+    private static Runnable startStallWatchdog(BackgroundTask task) {
+        final long[] lastSize = {0};
+        final long[] lastGrowth = {System.currentTimeMillis()};
+        final boolean[] cancelled = {false};
+
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "stall-" + task.taskId());
+            t.setDaemon(true);
+            return t;
+        });
+
+        ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(() -> {
+            if (cancelled[0] || task.completed()) return;
+
+            try {
+                long size = Files.exists(task.stdoutFile()) ? Files.size(task.stdoutFile()) : 0;
+                if (size > lastSize[0]) {
+                    lastSize[0] = size;
+                    lastGrowth[0] = System.currentTimeMillis();
+                    return;
+                }
+
+                if (System.currentTimeMillis() - lastGrowth[0] < STALL_THRESHOLD_MS) return;
+
+                // Read tail of output
+                if (size == 0) return;
+                int tailLen = (int) Math.min(size, STALL_TAIL_BYTES);
+                byte[] tail = new byte[tailLen];
+                try (var raf = new java.io.RandomAccessFile(task.stdoutFile().toFile(), "r")) {
+                    raf.seek(size - tailLen);
+                    raf.readFully(tail);
+                }
+                String tailStr = new String(tail, StandardCharsets.UTF_8);
+
+                if (!looksLikePrompt(tailStr)) {
+                    // Not a prompt — keep watching, reset timer
+                    lastGrowth[0] = System.currentTimeMillis();
+                    return;
+                }
+
+                // Looks like an interactive prompt — write stall warning
+                cancelled[0] = true;
+                Files.writeString(task.outputDir().resolve("stall-warning.txt"),
+                        "Command appears to be waiting for interactive input.\n\n" +
+                        "Last output:\n" + tailStr.trim() + "\n\n" +
+                        "The command is likely blocked on an interactive prompt. " +
+                        "Kill this task and re-run with piped input (e.g., `echo y | command`) " +
+                        "or a non-interactive flag if one exists."
+                );
+                future.cancel(false);
+                scheduler.shutdown();
+            } catch (Exception ignored) {}
+        }, STALL_CHECK_INTERVAL_MS, STALL_CHECK_INTERVAL_MS, TimeUnit.MILLISECONDS);
+
+        return () -> {
+            cancelled[0] = true;
+            future.cancel(false);
+            scheduler.shutdown();
+        };
     }
 
     // ========================================================================

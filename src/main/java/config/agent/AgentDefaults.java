@@ -80,6 +80,14 @@ public class AgentDefaults {
      */
     private String projectPath = null;
 
+    /**
+     * Windows 环境下 Git Bash 的 bash.exe 路径。
+     * 仅 Windows 需要，Linux/macOS 使用系统自带 bash/zsh。
+     * 示例: "C:\\Program Files\\Git\\bin\\bash.exe"
+     * 如果未配置，系统会自动尝试常见路径检测。
+     */
+    private String windowsBashPath = null;
+
     public int getMaxConcurrent() {
         return maxConcurrent;
     }

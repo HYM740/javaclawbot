@@ -87,7 +87,8 @@ public final class AgentRuntimeSettings {
                 extraBody,
                 cfg.getTools().isRestrictToWorkspace(),
                 cfg.getTools().getMcpServers(),
-                cfg.getChannels()
+                cfg.getChannels(),
+                defaults.getWindowsBashPath()
         );
     }
 
@@ -110,6 +111,8 @@ public final class AgentRuntimeSettings {
             Map<String, Object> extraBody,
             boolean restrictToWorkspace,
             Map<String, MCPServerConfig> mcpServers,
-            ChannelsConfig channelsConfig
+            ChannelsConfig channelsConfig,
+            /** Windows 环境下 Git Bash 的 bash.exe 路径（Linux/macOS 为 null） */
+            String windowsBashPath
     ) {}
 }

@@ -1,6 +1,7 @@
 package agent.tool.shell;
 
 import java.io.*;
+import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.*;
 
@@ -27,8 +28,22 @@ public final class BashProvider implements ShellProvider {
     private volatile String currentSandboxTmpDir;
     private volatile String lastSnapshotFilePath;
 
+    /**
+     * Async snapshot creation promise.
+     * Kicked off in constructor, awaited in buildExecCommand().
+     *
+     * Aligned with CC's bashProvider.ts → snapshotPromise.
+     */
+    private final CompletableFuture<String> snapshotPromise;
+
     private BashProvider(String shellPath) {
         this.shellPath = shellPath;
+        // Kick off snapshot creation asynchronously
+        // Aligned with CC's createBashShellProvider() which calls createAndSaveSnapshot() eagerly
+        this.snapshotPromise = CompletableFuture.supplyAsync(() -> {
+            ShellSnapshot.cleanupOldSnapshots();
+            return ShellSnapshot.createSnapshot(shellPath);
+        });
     }
 
     /**
@@ -83,11 +98,18 @@ public final class BashProvider implements ShellProvider {
     public CompletableFuture<ExecCommandResult> buildExecCommand(String command, BuildExecCommandOpts opts) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                // Stub: snapshot creation — original uses createAndSaveSnapshot(shellPath)
-                // In Java we skip snapshot creation since there's no shell environment snapshot mechanism.
-                // The snapshot file is used to restore user's shell environment (aliases, functions, etc.)
+                // Shell environment snapshot — captures aliases, functions, shell options, PATH
                 // Original: bashProvider.ts lines 63-68
-                String snapshotFilePath = null; // Would be: createAndSaveSnapshot(shellPath)
+                String snapshotFilePath = null;
+                try {
+                    snapshotFilePath = snapshotPromise.join();
+                } catch (Exception ignored) {}
+
+                // TOCTOU safety: check if snapshot file still exists
+                // Original: bashProvider.ts lines 93-101
+                if (snapshotFilePath != null && !Files.exists(Paths.get(snapshotFilePath))) {
+                    snapshotFilePath = null;
+                }
 
                 // Original: bashProvider.ts lines 85-103
                 // Check if snapshot still exists — not applicable without snapshot
@@ -124,7 +146,7 @@ public final class BashProvider implements ShellProvider {
                 // Original: bashProvider.ts lines 156-187
                 List<String> commandParts = new ArrayList<>();
 
-                // 1. Source snapshot file (stub: skip — no snapshot in Java)
+                // 1. Source snapshot file (aliases, functions, shell options, PATH)
                 // Original: bashProvider.ts lines 161-167
                 if (snapshotFilePath != null) {
                     String finalPath = isWindows()

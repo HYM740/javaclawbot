@@ -391,3 +391,4 @@ User Feedback:
 
 
 当前用户工作空间,workspace: {workspace}, 活跃会话消息目录: {workspace}/session
+项目会存在多个,所以不能将当前项目设置为固定项目放在进化后的理解中,只能标记历史项目

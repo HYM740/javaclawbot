@@ -255,10 +255,11 @@ public class LocalSubagentExecutor implements SubagentExecutor {
         // ========== 基础工具（所有子Agent都有） ==========
         
         // 文件工具
-        tools.register(new ReadFileTool(workspace, allowedDir));
+        FileStateCache fileStateCache = new FileStateCache();
+        tools.register(new ReadFileTool(workspace, allowedDir, fileStateCache));
 
-        tools.register(new EditTool(workspace, null));
-        tools.register(new WriteTool(workspace, null));
+        tools.register(new EditTool(workspace, null, fileStateCache));
+        tools.register(new WriteTool(workspace, null, fileStateCache));
         tools.register(new ListDirTool(workspace, allowedDir));
         tools.register(new GlobTool(workspace, allowedDir));
         tools.register(new GrepTool(workspace, allowedDir));
@@ -271,7 +272,7 @@ public class LocalSubagentExecutor implements SubagentExecutor {
         tools.register(new ExecTool(
                 toolsConfig.getExec().getTimeout(),
                 workspace.toString(),
-                null, null,
+                List.of("rm -rm *"), null,
                 restrictToWorkspace,
                 toolsConfig.getExec().getPathAppend()
         ));

@@ -222,7 +222,7 @@ public class AgentLoop {
         }
         return new AgentRuntimeSettings.Snapshot(
                 workspace, model, maxIterations, temperature, maxTokens, contextWindow, memoryWindow,
-                reasoningEffort, null, null, restrictToWorkspace, mcpServers, channelsConfig
+                reasoningEffort, null, null, restrictToWorkspace, mcpServers, channelsConfig, null
         );
     }
 
@@ -284,10 +284,13 @@ public class AgentLoop {
     private void registerSharedTools() {
         java.nio.file.Path allowedDir = restrictToWorkspace ? workspace : null;
 
+        // 共享 FileStateCache：Read 读入缓存 → Edit/Write 校验通过
+        FileStateCache sharedFileCache = new FileStateCache();
+
         // 文件/命令/网络工具：无会话上下文，可共享
-        sharedTools.register(new ReadFileTool(workspace, allowedDir));
-        sharedTools.register(new WriteTool(workspace, allowedDir));
-        sharedTools.register(new EditTool(workspace, allowedDir));
+        sharedTools.register(new ReadFileTool(workspace, allowedDir, sharedFileCache));
+        sharedTools.register(new WriteTool(workspace, allowedDir, sharedFileCache));
+        sharedTools.register(new EditTool(workspace, allowedDir, sharedFileCache));
 
         sharedTools.register(new ListDirTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
@@ -301,7 +304,8 @@ public class AgentLoop {
                 null,
                 null,
                 restrictToWorkspace,
-                currentTools().getExec().getPathAppend()
+                currentTools().getExec().getPathAppend(),
+                runtimeSnapshot().windowsBashPath()
         ));
 
         // 注册web工具
@@ -1247,7 +1251,7 @@ public class AgentLoop {
 
     /**
      * 如果工具结果过大，持久化到磁盘并返回预览。
-     * 对齐 Claude Code 的 toolResultStorage 机制。
+     * 对齐 Claude Code 的 toolResultStorage.maybePersistLargeToolResult()。
      */
     private String maybePersistToolResult(ToolView toolView, String toolName, String toolCallId, String result) {
         if (result == null) return result;
@@ -1274,6 +1278,7 @@ public class AgentLoop {
         }
 
         // 持久化到磁盘
+        // Aligned with CC's toolResultStorage.persistToolResult()
         try {
             java.nio.file.Path resultDir = workspace.resolve(".tool-results");
             Files.createDirectories(resultDir);
@@ -1283,10 +1288,8 @@ public class AgentLoop {
             java.nio.file.Path resultFile = resultDir.resolve(fileName + ".txt");
             Files.writeString(resultFile, result);
 
-            // 返回预览
-            String preview = result.length() > TOOL_RESULT_PREVIEW_CHARS
-                    ? result.substring(0, TOOL_RESULT_PREVIEW_CHARS)
-                    : result;
+            // 生成预览（在最后一个换行符处截断，对齐 CC 的 generatePreview()）
+            String preview = generatePreview(result, TOOL_RESULT_PREVIEW_CHARS);
 
             return String.format(
                     "<persisted-output>\n" +
@@ -1300,6 +1303,22 @@ public class AgentLoop {
             int maxLen = Math.min(effectiveMax, result.length());
             return result.substring(0, maxLen) + "\n... (truncated, " + (result.length() - maxLen) + " more chars)";
         }
+    }
+
+    /**
+     * 生成预览文本，在最后一个换行符处截断。
+     * 对齐 Claude Code 的 toolResultStorage.generatePreview()。
+     */
+    private static String generatePreview(String content, int maxChars) {
+        if (content.length() <= maxChars) return content;
+
+        // Truncate at maxChars, then walk back to last newline
+        String truncated = content.substring(0, maxChars);
+        int lastNewline = truncated.lastIndexOf('\n');
+        if (lastNewline > maxChars / 2) {
+            return truncated.substring(0, lastNewline);
+        }
+        return truncated;
     }
 
 

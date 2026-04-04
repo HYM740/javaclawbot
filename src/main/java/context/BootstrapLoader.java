@@ -263,17 +263,59 @@ public class BootstrapLoader {
         String workspacePath = workspace.toAbsolutePath().normalize().toString();
 
         String os = System.getProperty("os.name", "Unknown");
-        String arch = System.getProperty("os.arch", "Unknown");
         String version = System.getProperty("os.version", "Unknown");
-        String javaVersion = System.getProperty("java.version", "Unknown");
 
-        // Python：macOS 特判 Darwin；这里按 Java 的 os.name 简单特判
-        String system = os;
-        if (system.toLowerCase(Locale.ROOT).contains("mac") || system.toLowerCase(Locale.ROOT).contains("darwin")) {
-            system = "macOS";
+
+        // --- 环境变量 ---
+        // 平台
+        String platform;
+        String osLower = os.toLowerCase(Locale.ROOT);
+        if (osLower.contains("win")) {
+            platform = "win32";
+        } else if (osLower.contains("mac") || osLower.contains("darwin")) {
+            platform = "darwin";
+        } else {
+            platform = "linux";
         }
-        String runtime = system + " " + arch + ", 版本:" + version + ", Java " + javaVersion;
-        return content.replace("{runtime}", runtime).replace("{workspace}", workspacePath);
+
+        // Shell 类型
+        String shellType = "bash";
+        String envShell = System.getenv("SHELL");
+        if (envShell != null && envShell.contains("zsh")) {
+            shellType = "zsh";
+        }
+        // Windows 用 Git Bash
+        String winBash = config.getAgents().getDefaults().getWindowsBashPath();
+        if (platform.equals("win32") && winBash != null && !winBash.isBlank()) {
+            shellType = "bash（Git Bash）";
+        }
+        String shellHint = shellType.contains("bash")
+                ? "bash（使用 Unix shell 语法，而非 Windows——例如，/dev/null 而非 NUL，路径中使用斜杠）"
+                : "zsh";
+
+        // OS 版本详情
+        String osVersion = os + " " + version;
+
+        // Git 仓库检测
+        boolean isGitRepo = Files.exists(workspace.resolve(".git"));
+
+        // SVN 仓库检测
+        boolean isSvnRepo = Files.exists(workspace.resolve(".svn"));
+
+        // 模型名称
+        String modelName = config.getAgents().getDefaults().getModel();
+        if (modelName == null || modelName.isBlank()) {
+            modelName = "unknown";
+        }
+
+        return content
+                .replace("{workspace}", workspacePath)
+                .replace("{platform}", platform)
+                .replace("{shell}", shellHint)
+                .replace("{os_version}", osVersion)
+                .replace("{is_git}", String.valueOf(isGitRepo))
+                .replace("{is_svn}", String.valueOf(isSvnRepo))
+                .replace("{model}", modelName);
     }
 
 

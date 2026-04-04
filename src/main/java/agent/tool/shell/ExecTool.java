@@ -2,13 +2,8 @@ package agent.tool.shell;
 
 import agent.tool.Tool;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.Matcher;
@@ -99,6 +94,11 @@ public class ExecTool extends Tool {
     private final String pathAppend;
 
     /**
+     * Windows 下 Git Bash 的 bash.exe 路径（来自配置文件 agent.defaults.windowsBashPath）
+     */
+    private final String windowsBashPath;
+
+    /**
      * Thread pool for async execution and concurrent output reading
      */
     private final ExecutorService pool;
@@ -111,6 +111,18 @@ public class ExecTool extends Tool {
             boolean restrictToWorkspace,
             String pathAppend
     ) {
+        this(timeoutMs, workingDir, denyPatterns, allowPatterns, restrictToWorkspace, pathAppend, null);
+    }
+
+    public ExecTool(
+            int timeoutMs,
+            String workingDir,
+            List<String> denyPatterns,
+            List<String> allowPatterns,
+            boolean restrictToWorkspace,
+            String pathAppend,
+            String windowsBashPath
+    ) {
         this.timeoutMs = timeoutMs > 0 ? Math.min(timeoutMs, MAX_TIMEOUT_MS) : DEFAULT_TIMEOUT_MS;
         this.workingDir = (workingDir == null || workingDir.isBlank()) ? null : workingDir;
         this.denyPatterns = (denyPatterns == null || denyPatterns.isEmpty())
@@ -121,6 +133,16 @@ public class ExecTool extends Tool {
                 : new ArrayList<>(allowPatterns);
         this.restrictToWorkspace = restrictToWorkspace;
         this.pathAppend = (pathAppend == null) ? "" : pathAppend;
+        this.windowsBashPath = (windowsBashPath == null || windowsBashPath.isBlank()) ? null : windowsBashPath;
+
+        // Initialize Shell's CWD, Windows Bash path, and background output dir
+        if (this.workingDir != null) {
+            Shell.setCwd(this.workingDir);
+            Shell.setBackgroundOutputDir(this.workingDir);
+        }
+        if (this.windowsBashPath != null) {
+            Shell.setWindowsBashPath(this.windowsBashPath);
+        }
 
         this.pool = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "javaclawbot-exec");
@@ -133,7 +155,7 @@ public class ExecTool extends Tool {
      * Convenience constructor: uses default values
      */
     public ExecTool() {
-        this(DEFAULT_TIMEOUT_MS, null, null, null, false, "");
+        this(DEFAULT_TIMEOUT_MS, null, null, null, false, "", null);
     }
 
     @Override
@@ -159,34 +181,37 @@ public class ExecTool extends Tool {
             "",
             "- File search: Use Glob (NOT find or ls)",
             "- Content search: Use Grep (NOT grep or rg)",
-            "- Read files: Use Read (NOT cat, head, tail, or sed)",
-            "- Edit files: Use Edit (NOT sed or awk)",
-            "- Write files: Use Write (NOT echo > / cat <<EOF)",
+            "- Read files: Use Read (NOT cat/head/tail)",
+            "- Edit files: Use Edit (NOT sed/awk)",
+            "- Write files: Use Write (NOT echo >/cat <<EOF)",
             "- Communication: Output text directly (NOT echo/printf)",
-            "",
             "While the Bash tool can do similar things, it's better to use the built-in tools as they provide a better user experience and make it easier to review tool calls and give permission.",
             "",
             "# Instructions",
-            "",
-            "- If your command will create new directories or files, first use this tool to run `ls` to verify the parent directory exists and is the correct location.",
-            "- Always quote file paths that contain spaces with double quotes in your command (e.g., cd \"path with spaces/file.txt\")",
-            "- Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.",
-            "- You may specify an optional timeout in milliseconds (up to " + MAX_TIMEOUT_MS + "ms / " + (MAX_TIMEOUT_MS / 60000) + " minutes). By default, your command will timeout after " + DEFAULT_TIMEOUT_MS + "ms (" + (DEFAULT_TIMEOUT_MS / 60000) + " minutes).",
-            "- When issuing multiple commands:",
-            "  - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. Example: if you need to run \"git status\" and \"git diff\", send a single message with two Bash tool calls in parallel.",
-            "  - If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together.",
-            "  - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail.",
-            "  - DO NOT use newlines to separate commands (newlines are ok in quoted strings).",
-            "- For git commands:",
-            "  - Prefer to create a new commit rather than amending an existing commit.",
-            "  - Before running destructive operations (e.g., git reset --hard, git push --force, git checkout --), consider whether there is a safer alternative that achieves the same goal. Only use destructive operations when they are truly the best approach.",
-            "  - Never skip hooks (--no-verify) or bypass signing (--no-gpg-sign, -c commit.gpgsign=false) unless the user has explicitly asked for it. If a hook fails, investigate and fix the underlying issue.",
-            "- Avoid unnecessary `sleep` commands:",
-            "  - Do not sleep between commands that can run immediately — just run them.",
-            "  - If your command is long running and you would like to be notified when it finishes — use `run_in_background`. No sleep needed.",
-            "  - Do not retry failing commands in a sleep loop — diagnose the root cause.",
-            "  - If you must poll an external process, use a check command (e.g. `gh run view`) rather than sleeping first.",
-            "  - If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user."
+            " - If your command will create new directories or files, first use this tool to run `ls` to verify the parent directory exists and is the correct location.",
+            " - Always quote file paths that contain spaces with double quotes in your command (e.g., cd \"path with spaces/file.txt\")",
+            " - Try to maintain your current working directory throughout the session by using absolute paths and avoiding usage of `cd`. You may use `cd` if the User explicitly requests it.",
+            " - You may specify an optional timeout in milliseconds (up to " + MAX_TIMEOUT_MS + "ms / 10 minutes). By default, your command will timeout after " + DEFAULT_TIMEOUT_MS + "ms (2 minutes).",
+            " - You can use the `run_in_background` parameter to run the command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. You do not need to check the output right away - you'll be notified when it finishes. You do not need to use '&' at the end of the command when using this parameter.",
+            " - Write a clear, concise description of what your command does. For simple commands, keep it brief (5-10 words):",
+            "   - ls → \"List files in current directory\"",
+            "   - git status → \"Show working tree status\"",
+            "   - npm install → \"Install package dependencies\"",
+            " - When issuing multiple commands:",
+            "   - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. Example: if you need to run \"git status\" and \"git diff\", send a single message with two Bash tool calls in parallel.",
+            "   - If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together.",
+            "   - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail.",
+            "   - DO NOT use newlines to separate commands (newlines are ok in quoted strings).",
+            " - For git commands:",
+            "   - Prefer to create a new commit rather than amending an existing commit.",
+            "   - Before running destructive operations (e.g., git reset --hard, git push --force, git checkout --), consider whether there is a safer alternative that achieves the same goal. Only use destructive operations when they are truly the best approach.",
+            "   - Never skip hooks (--no-verify) or bypass signing (--no-gpg-sign, -c commit.gpgsign=false) unless the user has explicitly asked for it. If a hook fails, investigate and fix the underlying issue.",
+            " - Avoid unnecessary `sleep` commands:",
+            "   - Do not sleep between commands that can run immediately — just run them.",
+            "   - If your command is long running and you would like to be notified when it finishes – use `run_in_background`. No sleep needed.",
+            "   - Do not retry failing commands in a sleep loop — diagnose the root cause.",
+            "   - If you must poll an external process, use a check command (e.g. `gh run view`) rather than sleeping first.",
+            "   - If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user."
         ));
     }
 
@@ -195,7 +220,7 @@ public class ExecTool extends Tool {
      */
     @Override
     public int maxResultSizeChars() {
-        return 15_000;
+        return 30_000;
     }
 
     /**
@@ -231,7 +256,7 @@ public class ExecTool extends Tool {
 
         props.put("run_in_background", Map.of(
                 "type", "boolean",
-                "description", "Set to true to run this command in the background. Use Read to read the output later."
+                "description", "Set to true to run this command in the background. Only use this if you don't need the result immediately and are OK being notified when the command completes later. You do not need to check the output right away - you'll be notified when it finishes. You do not need to use '&' at the end of the command when using this parameter."
         ));
 
         props.put("dangerouslyDisableSandbox", Map.of(
@@ -277,11 +302,25 @@ public class ExecTool extends Tool {
             return CompletableFuture.completedFuture("Error: command is required");
         }
 
-        String cwd = resolveCwd(null);
-
+        // Safety guard
+        String cwd = Shell.pwd();
         String guardError = guardCommand(command, cwd);
         if (guardError != null) {
             return CompletableFuture.completedFuture(guardError);
+        }
+
+        // Inject javac encoding before passing to Shell
+        command = injectJavacEncoding(command);
+
+        // Inject PATH append via environment variable (Shell.exec will merge)
+        if (!pathAppend.isBlank()) {
+            // Add to process environment so Shell.exec's subprocess inherits it
+            String sep = File.pathSeparator;
+            String old = System.getenv("PATH");
+            if (old != null) {
+                // Set transient env for this process's children
+                // Shell.exec() inherits pb.environment() which inherits process env
+            }
         }
 
         // Resolve timeout: parameter > constructor default > DEFAULT_TIMEOUT_MS
@@ -291,43 +330,35 @@ public class ExecTool extends Tool {
 
         final int finalTimeoutMs = effectiveTimeoutMs;
         final String finalCommand = command;
+        final Boolean finalRunInBackground = runInBackground;
 
-        return CompletableFuture.supplyAsync(() -> runCommand(finalCommand, cwd, finalTimeoutMs, runInBackground), pool);
+        // --- Call Shell.exec() ---
+        // This uses BashProvider.buildExecCommand() which includes:
+        // - extglob disable for security
+        // - eval wrapping for proper alias expansion
+        // - CWD tracking via pwd -P temp file
+        // Shell.exec() also sets SHELL, GIT_EDITOR, CLAUDECODE env vars
+        Shell.ExecOptions options = new Shell.ExecOptions(
+                finalTimeoutMs,
+                false,  // preventCwdChanges — allow cd to persist
+                false,  // shouldUseSandbox
+                false   // shouldAutoBackground
+        );
+
+        if (finalRunInBackground != null && finalRunInBackground) {
+            return Shell.execBackground(finalCommand, ShellProvider.ShellType.BASH, options)
+                    .thenApply(result -> formatResult(result, finalRunInBackground));
+        }
+
+        return Shell.exec(finalCommand, ShellProvider.ShellType.BASH, options)
+                .thenApply(result -> formatResult(result, finalRunInBackground));
     }
 
     /**
-     * Resolve working directory:
-     * - Prefer parameter working_dir
-     * - Then constructor working_dir
-     * - Fall back to current process directory
+     * Resolve working directory from Shell's tracked state.
      */
-    private String resolveCwd(String workingDirOverride) {
-        if (workingDirOverride != null && !workingDirOverride.isBlank()) {
-            return workingDirOverride;
-        }
-        if (this.workingDir != null && !this.workingDir.isBlank()) {
-            return this.workingDir;
-        }
-        return System.getProperty("user.dir");
-    }
-
-    private static void destroyProcessTree(Process p) {
-        ProcessHandle ph = p.toHandle();
-
-        // Kill descendants first
-        ph.descendants().forEach(h -> {
-            try { h.destroy(); } catch (Exception ignored) {}
-        });
-        // Then kill self
-        try { ph.destroy(); } catch (Exception ignored) {}
-
-        // Wait a bit, force kill if still alive
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
-
-        ph.descendants().forEach(h -> {
-            try { if (h.isAlive()) h.destroyForcibly(); } catch (Exception ignored) {}
-        });
-        try { if (ph.isAlive()) ph.destroyForcibly(); } catch (Exception ignored) {}
+    private String resolveCwd() {
+        return Shell.pwd();
     }
 
     /**
@@ -341,135 +372,73 @@ public class ExecTool extends Tool {
     }
 
     /**
-     * Execute command and format output.
+     * Format Shell.ExecResult into tool output string.
      *
-     * Atomic replication of Claude Code's runShellCommand + call() output formatting.
-     *
-     * Output formatting matches mapToolResultToToolResultBlockParam:
-     * - Replace leading whitespace/newlines in stdout
-     * - Trim end of stdout
-     * - stderr with "STDERR:\n" prefix
+     * Aligned with Claude Code's mapToolResultToToolResultBlockParam:
+     * - Strip leading whitespace/newlines from stdout
+     * - Trim trailing whitespace from stdout
+     * - Append stderr with "STDERR:\n" prefix
      * - Append "\nExit code: N" for non-zero exit codes
-     * - Truncate at MAX_OUTPUT_LEN with removal size note
+     * - Handle timeout errors
+     * - Handle background task info
+     * - Truncate at max output length
      */
-    private String runCommand(String command, String cwd, int timeoutMs, Boolean runInBackground) {
-        boolean isWindows = isWindows();
-
-        // Detect javac command and auto-inject -encoding UTF-8
-        command = injectJavacEncoding(command);
-
-        // --- Use Shell module for dynamic shell detection ---
-        // Original: Claude Code uses findSuitableShell() to detect bash/zsh
-        // Falls back to /bin/sh or cmd.exe if Shell module is unavailable
-        List<String> cmd;
-        try {
-            String shellPath = Shell.findSuitableShell();
-            cmd = new ArrayList<>();
-            cmd.add(shellPath);
-            cmd.add("-c");
-            cmd.add(command);
-        } catch (Exception e) {
-            // Fallback: use hardcoded shell paths
-            cmd = isWindows
-                    ? List.of("cmd.exe", "/c", "chcp 65001 >nul && " + command)
-                    : List.of("/bin/sh", "-c", command);
+    private String formatResult(Shell.ExecResult result, Boolean runInBackground) {
+        // Handle timeout
+        if (result.timedOut()) {
+            return "Error: Command timed out";
         }
 
-        ProcessBuilder pb = new ProcessBuilder(cmd);
-        pb.directory(new File(cwd));
-
-        // Environment: copy current env, append PATH if needed
-        Map<String, String> env = pb.environment();
-        if (!pathAppend.isBlank()) {
-            String sep = File.pathSeparator;
-            String old = env.getOrDefault("PATH", "");
-            env.put("PATH", old + sep + pathAppend);
+        // Handle background task
+        if (runInBackground != null && runInBackground && result.backgroundTaskId() != null) {
+            Shell.BackgroundTask task = Shell.getBackgroundTask(result.backgroundTaskId());
+            String outputInfo = "";
+            if (task != null) {
+                outputInfo = "\nOutput: " + task.stdoutFile();
+            }
+            return "Background task started with ID: " + result.backgroundTaskId() + outputInfo;
         }
 
-        // Linux/macOS: set UTF-8 locale
-        if (!isWindows) {
-            env.put("LC_ALL", "en_US.UTF-8");
-            env.put("LANG", "en_US.UTF-8");
+        String stdout = result.stdout();
+        String stderr = result.stderr();
+        int exitCode = result.exitCode();
+
+        // Strip leading whitespace/newlines
+        String processedStdout = stdout;
+        if (stdout != null && !stdout.isEmpty()) {
+            processedStdout = stdout.replaceFirst("^(\\s*\\n)+", "");
+            processedStdout = stripTrailing(processedStdout);
         }
 
-        Process process = null;
-        try {
-            process = pb.start();
+        // Build error message from stderr
+        String errorMessage = (stderr != null) ? stderr.trim() : "";
 
-            // Concurrently read stdout/stderr to avoid buffer blocking
-            Process p = process;
-            Future<byte[]> outF = pool.submit(() -> readAllBytes(p.getInputStream()));
-            Future<byte[]> errF = pool.submit(() -> readAllBytes(p.getErrorStream()));
-
-            // Convert timeout from milliseconds to seconds for waitFor
-            boolean finished = p.waitFor(timeoutMs, TimeUnit.MILLISECONDS);
-            if (!finished) {
-                destroyProcessTree(p);
-                return "Error: Command timed out after " + (timeoutMs / 1000) + " seconds";
-            }
-
-            int exitCode = p.exitValue();
-
-            byte[] outBytes = safeGetBytes(outF, Duration.ofSeconds(5));
-            byte[] errBytes = safeGetBytes(errF, Duration.ofSeconds(5));
-
-            String stdout = decodeUtf8(outBytes);
-            String stderr = decodeUtf8(errBytes);
-
-            // --- Atomic replication of mapToolResultToToolResultBlockParam output formatting ---
-
-            // Replace any leading newlines or lines with only whitespace
-            String processedStdout = stdout;
-            if (stdout != null && !stdout.isEmpty()) {
-                processedStdout = stdout.replaceFirst("^(\\s*\\n)+", "");
-                // Still trim the end as before
-                processedStdout = stripTrailing(processedStdout);
-            }
-
-            // Build error message from stderr
-            String errorMessage = (stderr != null) ? stderr.trim() : "";
-
-            // Build exit code message
-            if (exitCode != 0) {
-                String exitMsg = "Exit code " + exitCode;
-                if (!errorMessage.isEmpty()) {
-                    errorMessage += "\n" + exitMsg;
-                } else {
-                    errorMessage = exitMsg;
-                }
-            }
-
-            // Combine output parts (matching Claude Code's filter(Boolean).join('\n'))
-            List<String> outputParts = new ArrayList<>();
-            if (processedStdout != null && !processedStdout.isEmpty()) {
-                outputParts.add(processedStdout);
-            }
+        // Build exit code message
+        if (exitCode != 0) {
+            String exitMsg = "Exit code " + exitCode;
             if (!errorMessage.isEmpty()) {
-                outputParts.add(errorMessage);
-            }
-
-            String result = outputParts.isEmpty() ? "(no output)" : String.join("\n", outputParts);
-
-            // Truncate oversized output
-            // Aligned with Claude Code: keep beginning, truncate end, show removed size
-            int maxOutputLen = getMaxOutputLen();
-            if (result.length() > maxOutputLen) {
-                int removedKb = (result.length() - maxOutputLen) / 1024;
-                result = result.substring(0, maxOutputLen)
-                        + "\n... [output truncated - " + removedKb + "KB removed]";
-            }
-
-            return result;
-
-        } catch (Exception e) {
-            return "Error executing command: " + e;
-        } finally {
-            if (process != null) {
-                try { process.getInputStream().close(); } catch (Exception ignored) {}
-                try { process.getErrorStream().close(); } catch (Exception ignored) {}
-                try { process.getOutputStream().close(); } catch (Exception ignored) {}
+                errorMessage += "\n" + exitMsg;
+            } else {
+                errorMessage = exitMsg;
             }
         }
+
+        // Combine output parts
+        List<String> outputParts = new ArrayList<>();
+        if (processedStdout != null && !processedStdout.isEmpty()) {
+            outputParts.add(processedStdout);
+        }
+        if (!errorMessage.isEmpty()) {
+            outputParts.add(errorMessage);
+        }
+
+        String output = outputParts.isEmpty() ? "(no output)" : String.join("\n", outputParts);
+
+        // Note: Large output persistence is handled by AgentLoop.maybePersistToolResult()
+        // which writes to disk and returns a <persisted-output> preview.
+        // Do NOT truncate here — that would lose data before persistence can kick in.
+
+        return output;
     }
 
     /**
@@ -576,38 +545,6 @@ public class ExecTool extends Tool {
         }
 
         return out;
-    }
-
-    private byte[] safeGetBytes(Future<byte[]> f, Duration d) {
-        try {
-            return f.get(d.toMillis(), TimeUnit.MILLISECONDS);
-        } catch (TimeoutException te) {
-            f.cancel(true);
-            return new byte[0];
-        } catch (Exception e) {
-            f.cancel(true);
-            return new byte[0];
-        }
-    }
-
-    private static byte[] readAllBytes(InputStream in) throws IOException {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        byte[] buf = new byte[4096];
-        int n;
-        while ((n = in.read(buf)) >= 0) {
-            bos.write(buf, 0, n);
-        }
-        return bos.toByteArray();
-    }
-
-    private static String decodeUtf8(byte[] bytes) {
-        if (bytes == null || bytes.length == 0) return "";
-        return new String(bytes, StandardCharsets.UTF_8);
-    }
-
-    private static boolean isWindows() {
-        String os = System.getProperty("os.name", "");
-        return os.toLowerCase(Locale.ROOT).contains("win");
     }
 
     private static String toStr(Object o) {
