@@ -480,12 +480,16 @@ public class MemoryStore {
 - reasoning：简要说明删除理由
 
 ## 额外说明
+你可以读取用户的当前活跃会话消息，以下是说明
 当前用户工作空间,workspace: {workspace}, 活跃会话消息目录: {workspace}/session 
 ```text
   {工作空间}/sessions/
   ├── sessions.json   # 当前活跃会话对应的session_id映射
   ├── {session_id}.jsonl        # 对应的活跃会话数据
 ```
+
+**重要提示**： 当调用prune_messages 工具完成消息修剪后，通过message 工具通知用户总结 
+\n\n
 """;
     }
 
