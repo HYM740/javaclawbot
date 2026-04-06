@@ -411,7 +411,6 @@ public class AgentLoop {
         localTools.register(new WriteTool(workspace, null));
         localTools.register(new GlobTool(workspace, null));
         localTools.register(new GrepTool(workspace, null));
-        localTools.register(new SkillTool(commandManager, skillsLoader));
 
         // 添加记忆压缩工具
         localTools.register(new PruneMessagesTool(sessions, sessionKey));
@@ -608,12 +607,6 @@ public class AgentLoop {
         Session session = sessions.getOrCreate(sessionKey);
         List<Map<String, Object>> history = session.getHistory();
 
-        // 执行上下文软裁剪, 在 process中以及执行修剪
-        /*ContextPruningSettings pruningSettings = createPruningSettings();
-        ContextPruner.pruneContextMessages(history, pruningSettings, contextWindow,
-                // 不修剪 skill 工具的结果，因为其中包含技能内容，裁剪后 LLM 不知道该技能
-                toolName -> !"skill".equalsIgnoreCase(toolName));*/
-
         int estimatedChars = ContextPruner.estimateContextChars(history);
         double contextRatio = currentContextWindowChars() > 0
                 ? (double) estimatedChars / currentContextWindowChars() : 0;
@@ -634,8 +627,16 @@ public class AgentLoop {
             )).toCompletableFuture().join();
 
             // 执行上下文压缩
-            executeContextCompress(sessionKey, msg.getChannel(), msg.getChatId());
+            executeContextCompress(msg);
 
+            // 通知用户
+            bus.publishOutbound(new OutboundMessage(
+                    msg.getChannel(),
+                    msg.getChatId(),
+                    "上下文压缩完成, 请继续对话",
+                    List.of(),
+                    Map.of()
+            )).toCompletableFuture().join();
             log.info("上下文压缩完成");
         }
     }
@@ -643,13 +644,15 @@ public class AgentLoop {
     /**
      * 执行上下文压缩（只压缩消息，不整理记忆）
      */
-    private void executeContextCompress(String sessionKey, String channel, String chatId) {
-        Session session = sessions.getOrCreate(sessionKey);
+    private void executeContextCompress(InboundMessage message) {
+        var channel = message.getChannel();
+        var sessionKey = message.getSessionKey();
+        var chatId = message.getChatId();
 
-        // 构建压缩消息
+        // 构建压缩消息系统提示词
         List<Map<String, Object>> initial = context.buildContextCompressMessages(
-                List.of(),
-                MemoryStore.PRUNE_SYSTEM_PROMPT,
+                sessions.getOrCreate(sessionKey).getHistory(),
+                MemoryStore.PRUNE_SYSTEM_PROMPT.replaceAll("\\{workspace}", workspace.toString()),
                 null, channel, chatId
         );
         ToolView tools = buildContextCompressRequestTools(sessionKey, channel, chatId, null);
@@ -657,15 +660,21 @@ public class AgentLoop {
         // 创建临时消息用于 runAgentLoop
         InboundMessage compressMsg = new InboundMessage();
         compressMsg.setChannel(channel);
+        compressMsg.setSenderId(message.getSenderId());
         compressMsg.setContent("");
         compressMsg.setSessionKeyOverride(sessionKey);
 
         // 同步执行
-        runAgentLoop(compressMsg, initial, tools, null).toCompletableFuture().join();
-
-        // 保存信息
-        saveTurn(session, session.getHistory(), 2);
-        sessions.save(session);
+        runAgentLoop(compressMsg, initial
+                , tools, false
+                , (context, toolHit) -> bus.publishOutbound(new OutboundMessage(
+                message.getChannel()
+                , message.getChatId()
+                , "(上下文压缩进程) " + context
+                , List.of()
+                , Map.of()
+                )
+        )).toCompletableFuture().join();
     }
 
     private CompletionStage<OutboundMessage> processMessage(InboundMessage msg, String sessionKeyOverride, ProgressCallback onProgress) {
@@ -686,8 +695,9 @@ public class AgentLoop {
                     history, msg.getContent(), null, channel, chatId
             );
 
-            return runAgentLoop(msg, initial, requestTools, null).thenApply(rr -> {
+            return runAgentLoop(msg, initial, requestTools, true, onProgress).thenApply(rr -> {
                 saveTurn(session, rr.messages, 2 + history.size());
+                sessions.save(session);
                 return new OutboundMessage(
                         channel,
                         chatId,
@@ -735,6 +745,11 @@ public class AgentLoop {
             ));
         }
 
+        if ("/context-press".equalsIgnoreCase(cmd)) {
+            String output = "上下文压缩命令已触发";
+            commandManager.addLocalCommand(new LocalCommand(cmd, output));
+            return handleContextPress(msg, session);
+        }
         // 触发记忆命令
         if ("/memory".equalsIgnoreCase(cmd)) {
             String output = "记忆整理命令已触发";
@@ -805,7 +820,7 @@ public class AgentLoop {
 
         ProgressCallback progress = getBusProgressCallback(msg, onProgress);
 
-        return runAgentLoop(msg, initialMessages, requestTools, progress).thenApply(rr -> {
+        return runAgentLoop(msg, initialMessages, requestTools, true, progress).thenApply(rr -> {
             String finalContent = rr.finalContent != null
                     ? rr.finalContent
                     : "处理完成但没有响应内容。";
@@ -829,6 +844,13 @@ public class AgentLoop {
         });
     }
 
+    private CompletionStage<OutboundMessage> handleContextPress(InboundMessage msg, Session session) {
+        executeContextCompress(msg);
+        return CompletableFuture.completedFuture(new OutboundMessage(
+                msg.getChannel(), msg.getChatId(), "✅ 上下文压缩完成", List.of(), Map.of()
+        ));
+    }
+
     /**
      * 处理 /memory 命令：用户手动触发记忆整理
      */
@@ -850,7 +872,13 @@ public class AgentLoop {
             ToolView tools = buildMemoryRequestTools(channel, chatId, null);
 
             // 同步执行记忆整理, memory命令执行完成后,清理session中上下文
-            runAgentLoop(msg, initial, tools, null).toCompletableFuture().join();
+            runAgentLoop(msg, initial, tools, false, (context, toolHit) -> bus.publishOutbound(new OutboundMessage(
+                    msg.getChannel()
+                    , msg.getChatId()
+                    , "(记忆处理进程) " + context
+                    , List.of()
+                    , Map.of()
+            ))).toCompletableFuture().join();
 
             return CompletableFuture.completedFuture(new OutboundMessage(
                     channel, chatId, "✅ 记忆整理完成", List.of(), Map.of()
@@ -902,6 +930,7 @@ public class AgentLoop {
             InboundMessage msg,
             List<Map<String, Object>> initialMessages,
             ToolView tools,
+            boolean isContextPress,
             ProgressCallback onProgress
     ) {
         CompletableFuture<RunResult> out = new CompletableFuture<>();
@@ -971,16 +1000,18 @@ public class AgentLoop {
                             String.format("%.0f", consolidateThreshold * 100));
                 }
                 // 执行上下文修剪（软裁剪，只裁剪过大的内容）
-                List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
-                        messages, pruningSettings, contextWindow,
-                        // 不修剪 skill 工具的结果，因为其中包含技能内容，裁剪后 LLM 不知道该技能
-                        toolName -> !"skill".equalsIgnoreCase(toolName)
-                );
-                int beforeChars = ContextPruner.estimateContextChars(messages);
-                int afterChars = ContextPruner.estimateContextChars(prunedMessages);
-                log.info("上下文已修剪: {} 字符 -> {} 字符", beforeChars, afterChars);
-                messages.clear();
-                messages.addAll(prunedMessages);
+                if (isContextPress) {
+                    List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
+                            messages, pruningSettings, contextWindow,
+                            // 不修剪 skill 工具的结果，因为其中包含技能内容，裁剪后 LLM 不知道该技能
+                            toolName -> !"skill".equalsIgnoreCase(toolName)
+                    );
+                    int beforeChars = ContextPruner.estimateContextChars(messages);
+                    int afterChars = ContextPruner.estimateContextChars(prunedMessages);
+                    log.info("上下文已修剪: {} 字符 -> {} 字符", beforeChars, afterChars);
+                    messages.clear();
+                    messages.addAll(prunedMessages);
+                }
 
                 // 是否停止
                 if (completeIfStopped(msg.getSessionKey(), st, out, toolsUsed, messages, usageAcc)) {
@@ -1266,9 +1297,6 @@ public class AgentLoop {
         }
 
         // 动态上限：根据上下文窗口按比例限制单个工具结果的最大字符数
-        // Claude Code 的限制针对 200K token 模型（30K bash ≈ 15% 上下文）
-        // 对于 32K token 模型需要等比缩小，避免单个工具结果占满上下文
-        // 公式：上下文总字符数 × 15%，至少保留 TOOL_RESULT_PREVIEW_CHARS
         int contextChars = currentContextWindowChars();
         int dynamicCap = Math.max(TOOL_RESULT_PREVIEW_CHARS, contextChars);
         int effectiveMax = Math.min(toolMaxChars, dynamicCap);
