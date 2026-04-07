@@ -6,6 +6,7 @@ import agent.subagent.SessionsSpawnTool;
 import agent.subagent.SubagentManager;
 import agent.subagent.SubagentsControlTool;
 import agent.tool.*;
+import agent.tool.cli.CliAgentTool;
 import agent.tool.cron.CronTool;
 import agent.tool.file.*;
 import agent.tool.mcp.McpManager;
@@ -362,6 +363,10 @@ public class AgentLoop {
         sharedTools.register(new GrepTool(workspace, allowedDir));
         sharedTools.register(new GlobTool(workspace, allowedDir));
 
+        // CLI Agent 工具（开发者模式下可用）
+        if (currentConfig().getAgents().getDefaults().isDevelopment()) {
+            sharedTools.register(new CliAgentTool(cliAgentHandler));
+        }
     }
 
     private ToolsConfig currentTools() {

@@ -142,7 +142,7 @@ public class CliAgentCommandHandler {
                     handleCliAgent(msg, parts, "opencode");
                     return true;
                 }
-                case "/status" -> {
+                case "/cli-status" -> {
                     handleStatus(msg, parts);
                     return true;
                 }
@@ -154,7 +154,7 @@ public class CliAgentCommandHandler {
                     handleStopAll(msg);
                     return true;
                 }
-                case "/history" -> {
+                case "/cli-history" -> {
                     handleHistory(msg, parts);
                     return true;
                 }
@@ -446,7 +446,7 @@ public class CliAgentCommandHandler {
      */
     private void handleHistory(InboundMessage msg, String[] parts) {
         if (parts.length < 2) {
-            reply(msg, "用法: /history <项目> [数量]");
+            reply(msg, "用法: /cli-history <项目> [数量]");
             return;
         }
 
