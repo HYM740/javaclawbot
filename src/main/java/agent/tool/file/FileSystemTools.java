@@ -15,6 +15,7 @@ import org.apache.poi.xslf.usermodel.XSLFShape;
 import org.apache.poi.xslf.usermodel.XSLFSlide;
 import org.apache.poi.xslf.usermodel.XMLSlideShow;
 import org.apache.poi.xslf.usermodel.XSLFTextShape;
+import org.apache.poi.openxml4j.util.ZipSecureFile;
 import org.apache.poi.xwpf.extractor.XWPFWordExtractor;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFParagraph;
@@ -213,6 +214,7 @@ public final class FileSystemTools {
         }
 
         private static Map<String, Object> readDocxStructured(Path filePath, boolean includeEmptySections) throws Exception {
+            ZipSecureFile.setMinInflateRatio(0.001);
             try (InputStream in = Files.newInputStream(filePath);
                  XWPFDocument doc = new XWPFDocument(in)) {
 
@@ -548,6 +550,7 @@ public final class FileSystemTools {
         }
 
         private static Map<String, Object> readPptxStructured(Path filePath, boolean includeNotes, Integer slideStart, Integer slideEnd) throws Exception {
+            ZipSecureFile.setMinInflateRatio(0.001);
             try (InputStream in = Files.newInputStream(filePath);
                  XMLSlideShow ppt = new XMLSlideShow(in)) {
 
@@ -789,6 +792,7 @@ public final class FileSystemTools {
     }
 
     private static String readDocxFullText(Path filePath) throws Exception {
+        ZipSecureFile.setMinInflateRatio(0.001);
         try (InputStream in = Files.newInputStream(filePath);
              XWPFDocument doc = new XWPFDocument(in);
              XWPFWordExtractor extractor = new XWPFWordExtractor(doc)) {
@@ -805,6 +809,7 @@ public final class FileSystemTools {
     }
 
     private static String readPptxFullText(Path filePath) throws Exception {
+        ZipSecureFile.setMinInflateRatio(0.001);
         StringBuilder sb = new StringBuilder();
         try (InputStream in = Files.newInputStream(filePath);
              XMLSlideShow ppt = new XMLSlideShow(in)) {

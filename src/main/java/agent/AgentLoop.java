@@ -892,11 +892,6 @@ public class AgentLoop {
             ));
         }
 
-        // CLI Agent 命令处理（在普通消息之前）
-        if (cmd.startsWith("/") && cliAgentHandler.handleCommand(msg, msg.getContent())) {
-            return CompletableFuture.completedFuture(null);
-        }
-
         ToolView requestTools = buildRequestToolsAndSetContext(
                 sessionKey, msg.getChannel(),
                 msg.getChatId(),
@@ -1217,7 +1212,7 @@ public class AgentLoop {
                         messages.clear();
                         messages.addAll(updated);
 
-                        executeToolCallsSequential(msg.getSessionKey(), resp.getToolCalls(), toolsUsed, messages, tools)
+                        executeToolCallsSequential(msg, resp.getToolCalls(), toolsUsed, messages, tools)
                                 .whenComplete((v, ex2) -> {
                                     if (st.done.get()) {
                                         return;
@@ -1251,6 +1246,12 @@ public class AgentLoop {
 
                                         out.completeExceptionally(root2);
                                     } else {
+                                        // 保存至session中
+                                        var session = sessions.getOrCreate(msg.getSessionKey());
+                                        List<Map<String, Object>> history = session.getHistory();
+                                        saveTurn(session, messages, 2 + history.size());
+                                        sessions.save(session);
+
                                         executor.execute(this);
                                     }
                                 });
@@ -1295,12 +1296,13 @@ public class AgentLoop {
     }
 
     private CompletionStage<Void> executeToolCallsSequential(
-            String sessionKey,
+            InboundMessage msg,
             List<ToolCallRequest> toolCalls,
             List<String> toolsUsed,
             List<Map<String, Object>> messages,
             ToolView tools
     ) {
+        String sessionKey = msg.getSessionKey();
         if (isStopRequested(sessionKey)) {
             return CompletableFuture.failedFuture(new CancellationException("session stopped"));
         }
@@ -1324,6 +1326,17 @@ public class AgentLoop {
                         .thenAccept(rawResult -> {
                             if (isStopRequested(sessionKey)) {
                                 throw new CancellationException("session stopped");
+                            }
+
+                            // 检测超时错误并通过 bus 发送提醒
+                            if (rawResult != null && rawResult.contains("Command timed out")) {
+                                bus.publishOutbound(new bus.OutboundMessage(
+                                        msg.getChannel(),
+                                        msg.getChatId(),
+                                        "⏱️ 命令执行超时，已中断",
+                                        List.of(),
+                                        Map.of("_progress", true)
+                                ));
                             }
 
                             // 检查工具结果大小，过大则持久化到磁盘
