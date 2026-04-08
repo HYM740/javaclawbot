@@ -21,7 +21,7 @@ public class AgentDefaults {
     /**
      * 上下文窗口token数量
      */
-    private int contextWindow = 1_000_000;
+    private int contextWindow = 32000;
     private double temperature = 0.1;
     /**
      * 是否开发者

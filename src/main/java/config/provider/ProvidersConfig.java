@@ -92,7 +92,7 @@ public class ProvidersConfig {
                 model("qwen3.5-plus", "qwen3.5-plus", ModelType.CHAT, 65536),
                 model("qwen-plus", "qwen-plus", ModelType.CHAT, 32768),
                 model("qwen-max", "qwen-max", ModelType.CHAT, 8192),
-                model("qwen-turbo", "qwen-turbo", ModelType.CHAT, 131072),
+                model("qwen3.6-plus", "qwen3.6-plus", ModelType.VISION, 64000),
                 model("qwen-vl-max", "qwen-vl", ModelType.VISION, 8192),
                 model("qwen-long", "qwen-long", ModelType.CHAT, 1000000)
         ));
@@ -138,7 +138,7 @@ public class ProvidersConfig {
 
         // OpenRouter - 2026年3月更新
         openrouter.setModelConfigs(List.of(
-                model("qwen/qwen3.6-plus:free", "qwen/qwen3.6-plus:free", ModelType.TEXT, 16384),
+                model("qwen/qwen3.6-plus", "qwen/qwen3.6-plus", ModelType.TEXT, 8912),
                 model("anthropic/claude-sonnet-4-6", "claude-sonnet-4.6", ModelType.TEXT, 16384),
                 model("openai/gpt-4o", "gpt-4o", ModelType.TEXT, 16384),
                 model("google/gemini-2.5-pro", "gemini-2.5-pro", ModelType.TEXT, 16384),
