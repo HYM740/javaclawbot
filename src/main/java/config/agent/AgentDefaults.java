@@ -76,12 +76,6 @@ public class AgentDefaults {
     private BootstrapConfig bootstrapConfig = new BootstrapConfig();
 
     /**
-     * 项目路径（开发者模式下读取项目的 CODE-AGENT.md 或 CLAUDE.md）
-     * 支持：1) 配置持久化；2) cwd 自动检测；3) /project 前缀指定
-     */
-    private String projectPath = null;
-
-    /**
      * Windows 环境下 Git Bash 的 bash.exe 路径。
      * 仅 Windows 需要，Linux/macOS 使用系统自带 bash/zsh。
      * 示例: "C:\\Program Files\\Git\\bin\\bash.exe"

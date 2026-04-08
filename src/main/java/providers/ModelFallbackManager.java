@@ -29,6 +29,7 @@ public final class ModelFallbackManager {
         private final List<NamedProvider> fallbacks;
         private final FallbackStrategy strategy;
         private final int maxAttempts;
+        private final Config config;  // 保存 config 引用，用于获取每个模型的 maxTokens 和 temperature
 
         public FallbackChain(
                 String primaryProviderName,
@@ -36,7 +37,8 @@ public final class ModelFallbackManager {
                 LLMProvider primary,
                 List<NamedProvider> fallbacks,
                 FallbackStrategy strategy,
-                int maxAttempts
+                int maxAttempts,
+                Config config
         ) {
             this.primaryProviderName = primaryProviderName;
             this.primaryModel = primaryModel;
@@ -44,6 +46,7 @@ public final class ModelFallbackManager {
             this.fallbacks = fallbacks != null ? List.copyOf(fallbacks) : List.of();
             this.strategy = Objects.requireNonNull(strategy, "strategy");
             this.maxAttempts = Math.max(1, maxAttempts);
+            this.config = config;
         }
 
         public String getPrimaryProviderName() { return primaryProviderName; }
@@ -52,6 +55,7 @@ public final class ModelFallbackManager {
         public List<NamedProvider> getFallbacks() { return fallbacks; }
         public FallbackStrategy getStrategy() { return strategy; }
         public int getMaxAttempts() { return maxAttempts; }
+        public Config getConfig() { return config; }
 
         public List<NamedProvider> fullChain() {
             List<NamedProvider> chain = new ArrayList<>();
@@ -150,7 +154,8 @@ public final class ModelFallbackManager {
                 primaryProvider,
                 fallbacks,
                 strategy,
-                maxAttempts
+                maxAttempts,
+                config  // 传入 config 引用
         );
     }
 
@@ -209,12 +214,29 @@ public final class ModelFallbackManager {
         String model = current.getModel();
         LLMProvider provider = current.getProvider();
 
+        // 根据 fallback provider 对应的模型获取实时配置
+        Config cfg = chain.getConfig();
+        int maxTokens = params.getMaxTokens();
+        double temperature = params.getTemperature();
+
+        if (cfg != null) {
+            // 使用 model 而不是 params.getModel() 来获取当前 fallback 模型的配置
+            Integer modelMaxTokens = cfg.obtainMaxTokens(model);
+            Double modelTemperature = cfg.obtainTemperature(model);
+            if (modelMaxTokens != null) {
+                maxTokens = modelMaxTokens;
+            }
+            if (modelTemperature != null) {
+                temperature = modelTemperature;
+            }
+        }
+
         provider.chatWithRetry(
                 params.getMessages(),
                 params.getTools(),
-                params.getModel(),
-                params.getMaxTokens(),
-                params.getTemperature(),
+                model,  // 使用当前 fallback provider 对应的模型
+                maxTokens,  // 使用当前模型对应的 maxTokens
+                temperature,  // 使用当前模型对应的 temperature
                 params.getReasoningEffort(),
                 params.getThink(),
                 params.getExtraBody(),

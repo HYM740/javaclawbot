@@ -148,7 +148,8 @@ public final class ShellSnapshot {
 
         // Export PATH
         // Original: ShellSnapshot.ts line 339
-        script.append("echo 'export PATH=\"'\"$PATH\"'\"' >> ").append(quotedOutputFile).append("\n");
+        // 使用双引号包裹整个命令，避免引号嵌套问题
+        script.append("echo \"export PATH=\\\"$PATH\\\"\" >> ").append(quotedOutputFile).append("\n");
 
         return script.toString();
     }

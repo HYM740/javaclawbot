@@ -259,19 +259,44 @@ public final class Shell {
      * Original source: src/utils/Shell.ts → findSuitableShell()
      *
      * Resolution order:
-     * 1. CLAUDE_CODE_SHELL env var override (must contain "bash" or "zsh")
-     * 2. $SHELL env var (bash or zsh)
-     * 3. which lookup for zsh/bash on PATH
-     * 4. Fallback paths: /bin/bash, /bin/zsh, /usr/bin/bash, etc.
+     * 1. Windows Bash path override from config (highest priority for Windows)
+     * 2. CLAUDE_CODE_SHELL env var override (must contain "bash" or "zsh")
+     * 3. $SHELL env var (bash or zsh)
+     * 4. On Windows: auto-detect Git Bash from common installation paths
+     * 5. which lookup for zsh/bash on PATH
+     * 6. Fallback paths: /bin/bash, /bin/zsh, /usr/bin/bash, etc.
      *
      * @return Absolute path to the detected shell
      * @throws ShellException if no suitable shell is found
      */
     public static String findSuitableShell() {
         // 0. Windows Bash path override from config (highest priority)
-        if (windowsBashPathOverride != null && isExecutable(windowsBashPathOverride)) {
-            logDebug("Using configured Windows Bash: " + windowsBashPathOverride);
-            return windowsBashPathOverride;
+        // 用户配置的路径必须有效，否则报错
+        if (windowsBashPathOverride != null && !windowsBashPathOverride.isBlank()) {
+            if (isExecutable(windowsBashPathOverride)) {
+                logDebug("Using configured Windows Bash: " + windowsBashPathOverride);
+                return windowsBashPathOverride;
+            } else {
+                // 用户配置了路径但无效，报错提示
+                throw new ShellException(
+                        "配置的 bash 路径无效: " + windowsBashPathOverride + "\n\n" +
+                                "请检查配置文件 ~/.javaclawbot/config.json 中的 windowsBashPath 设置。\n\n" +
+                                "当前配置值: \"" + windowsBashPathOverride + "\"\n\n" +
+                                "解决方案:\n" +
+                                "1. 确认路径正确，常见 Git Bash 路径:\n" +
+                                "   - C:\\Program Files\\Git\\bin\\bash.exe\n" +
+                                "   - C:\\Program Files (x86)\\Git\\bin\\bash.exe\n" +
+                                "   - %LOCALAPPDATA%\\Programs\\Git\\bin\\bash.exe\n" +
+                                "2. 或删除 windowsBashPath 配置，让系统自动检测\n" +
+                                "3. 注意: /bin/bash 是 WSL 路径，在 Windows 上不可用\n\n" +
+                                "配置示例:\n" +
+                                "  \"agents\": {\n" +
+                                "    \"defaults\": {\n" +
+                                "      \"windowsBashPath\": \"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe\"\n" +
+                                "    }\n" +
+                                "  }"
+                );
+            }
         }
 
         // 1. Check for explicit shell override first
@@ -294,12 +319,38 @@ public final class Shell {
                 (envShell.contains("bash") || envShell.contains("zsh"));
         boolean preferBash = envShell != null && envShell.contains("bash");
 
-        // 3. Try to locate shells using which
+        // 3. On Windows, auto-detect Git Bash from common installation paths
+        // This prevents incorrectly detecting WSL's /bin/bash
+        if (isWindows()) {
+            String gitBashPath = detectGitBash();
+            if (gitBashPath != null) {
+                logDebug("Auto-detected Git Bash: " + gitBashPath);
+                return gitBashPath;
+            }
+            // Windows 上未找到 Git Bash，直接报错提示用户配置
+            throw new ShellException(
+                    "未找到 Git Bash。请安装 Git for Windows 或在配置文件中设置 bash 路径。\n\n" +
+                            "解决方案:\n" +
+                            "1. 安装 Git for Windows: https://git-scm.com/download/win\n" +
+                            "2. 或在配置文件 ~/.javaclawbot/config.json 中添加:\n" +
+                            "   \"agents\": {\n" +
+                            "     \"defaults\": {\n" +
+                            "       \"windowsBashPath\": \"C:\\\\Program Files\\\\Git\\\\bin\\\\bash.exe\"\n" +
+                            "     }\n" +
+                            "   }\n\n" +
+                            "常见 Git Bash 路径:\n" +
+                            "  - C:\\Program Files\\Git\\bin\\bash.exe\n" +
+                            "  - C:\\Program Files (x86)\\Git\\bin\\bash.exe\n" +
+                            "  - %LOCALAPPDATA%\\Programs\\Git\\bin\\bash.exe"
+            );
+        }
+
+        // 4. Try to locate shells using which
         // Original: Shell.ts lines 98-99
         String zshPath = which("zsh");
         String bashPath = which("bash");
 
-        // 4. Populate shell paths from fallback locations
+        // 5. Populate shell paths from fallback locations
         // Original: Shell.ts lines 101-108
         String[] shellPaths = {"/bin", "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"};
         String[] shellOrder = preferBash ? new String[]{"bash", "zsh"} : new String[]{"zsh", "bash"};
@@ -311,7 +362,7 @@ public final class Shell {
             }
         }
 
-        // 5. Add discovered paths to the beginning of search list
+        // 6. Add discovered paths to the beginning of search list
         // Original: Shell.ts lines 111-118
         if (preferBash) {
             if (bashPath != null) supportedShells.add(0, bashPath);
@@ -321,13 +372,13 @@ public final class Shell {
             if (bashPath != null) supportedShells.add(bashPath);
         }
 
-        // 6. Always prioritize SHELL env variable if it's a supported shell type
+        // 7. Always prioritize SHELL env variable if it's a supported shell type
         // Original: Shell.ts lines 120-123
         if (isEnvShellSupported && isExecutable(envShell)) {
             supportedShells.add(0, envShell);
         }
 
-        // 7. Find first executable shell
+        // 8. Find first executable shell
         // Original: Shell.ts line 125
         String shellPath = null;
         for (String candidate : supportedShells) {
@@ -337,7 +388,7 @@ public final class Shell {
             }
         }
 
-        // 8. If no valid shell found, throw error
+        // 9. If no valid shell found, throw error
         // Original: Shell.ts lines 128-134
         if (shellPath == null) {
             throw new ShellException(
@@ -347,6 +398,59 @@ public final class Shell {
         }
 
         return shellPath;
+    }
+
+    /**
+     * Auto-detect Git Bash on Windows from common installation paths.
+     *
+     * @return Path to bash.exe if found, null otherwise
+     */
+    private static String detectGitBash() {
+        // Common Git Bash installation paths on Windows
+        String[] commonPaths = {
+                "C:\\Program Files\\Git\\bin\\bash.exe",
+                "C:\\Program Files (x86)\\Git\\bin\\bash.exe",
+                "C:\\Git\\bin\\bash.exe",
+                System.getenv("ProgramFiles") != null
+                        ? System.getenv("ProgramFiles") + "\\Git\\bin\\bash.exe" : null,
+                System.getenv("ProgramFiles(x86)") != null
+                        ? System.getenv("ProgramFiles(x86)") + "\\Git\\bin\\bash.exe" : null,
+                System.getenv("LOCALAPPDATA") != null
+                        ? System.getenv("LOCALAPPDATA") + "\\Programs\\Git\\bin\\bash.exe" : null
+        };
+
+        for (String path : commonPaths) {
+            if (path != null && isExecutable(path)) {
+                return path;
+            }
+        }
+
+        // Try to find bash.exe via where command (Windows equivalent of which)
+        try {
+            ProcessBuilder pb = new ProcessBuilder("where", "bash.exe");
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            boolean finished = p.waitFor(5, TimeUnit.SECONDS);
+            if (finished && p.exitValue() == 0) {
+                String output = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+                // Take first line that contains "Git" (prefer Git Bash over WSL)
+                for (String line : output.split("\n")) {
+                    line = line.trim();
+                    if (line.toLowerCase(Locale.ROOT).contains("git") && line.endsWith("bash.exe")) {
+                        if (isExecutable(line)) {
+                            return line;
+                        }
+                    }
+                }
+                // If no Git Bash found, take the first bash.exe if valid
+                String first = output.split("\n")[0].trim();
+                if (first.endsWith("bash.exe") && isExecutable(first)) {
+                    return first;
+                }
+            }
+        } catch (Exception ignored) {}
+
+        return null;
     }
 
     // ========================================================================

@@ -123,6 +123,22 @@ public final class AgentRuntime {
         return agent.processDirect(content, sessionKey, channel, chatId, onProgress);
     }
 
+    /**
+     * 检测并处理系统命令（如 /stop）。
+     * 此方法用于在消息入队前拦截系统命令，避免排队等待。
+     *
+     * @param msg 消息
+     * @param content 消息内容
+     * @return true 如果是系统命令并已处理，false 如果不是系统命令
+     */
+    public boolean handleSystemCommand(InboundMessage msg, String content) {
+        AgentLoop localAgent = this.agent;
+        if (localAgent != null) {
+            return localAgent.handleSystemCommand(msg, content);
+        }
+        return false;
+    }
+
     public AgentLoop getAgent() {
         return agent;
     }

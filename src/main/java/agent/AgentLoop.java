@@ -330,6 +330,8 @@ public class AgentLoop {
         sharedTools.register(new ReadFileTool(workspace, allowedDir, sharedFileCache));
         sharedTools.register(new WriteTool(workspace, allowedDir, sharedFileCache));
         sharedTools.register(new EditTool(workspace, allowedDir, sharedFileCache));
+        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
+        sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
 
         sharedTools.register(new ListDirTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
@@ -499,7 +501,10 @@ public class AgentLoop {
             clearStopRequested(msg.getSessionKey());            // CLI Agent 命令处理 (在普通消息之前)
 
             // 系统主代理停止
-            if ("/stop".equalsIgnoreCase(content.trim())) {
+            if (handleSystemCommand(msg, content)) {
+                continue;
+            }
+            /*if ("/stop".equalsIgnoreCase(content.trim())) {
                 handleStop(msg).toCompletableFuture().join();
                 continue;  // 只停止任务，继续循环等待下一条消息
             }
@@ -509,7 +514,7 @@ public class AgentLoop {
                 if (content.startsWith("/") && cliAgentHandler.handleCommand(msg, content)) {
                     continue;
                 }
-            }
+            }*/
 
 
             CompletableFuture<Void> task = dispatch(msg);
@@ -563,7 +568,43 @@ public class AgentLoop {
         return true;
     }
 
-    private CompletionStage<Void> handleStop(InboundMessage msg) {
+    /**
+     * 检测并处理系统命令（如 /stop）。
+     * 此方法用于在消息入队前拦截系统命令，避免排队等待。
+     *
+     * @param msg 消息
+     * @param content 消息内容
+     * @return true 如果是系统命令并已处理，false 如果不是系统命令
+     */
+    public boolean handleSystemCommand(InboundMessage msg, String content) {
+        if (content == null || !content.startsWith("/")) {
+            return false;
+        }
+
+        String trimmed = content.trim();
+        log.info("检测到系统命令: {}", trimmed);
+
+        // 处理 /stop 命令
+        if ("/stop".equalsIgnoreCase(trimmed)) {
+            log.info("直接处理 /stop 命令");
+            handleStopCommand(msg).toCompletableFuture().join();
+            return true;
+        }
+
+        // 处理开发者模式命令
+        if (currentConfig().getAgents().getDefaults().isDevelopment()) {
+            if (cliAgentHandler.handleCommand(msg, content)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 处理 /stop 命令（公开方法，供外部直接调用）
+     */
+    public CompletionStage<Void> handleStopCommand(InboundMessage msg) {
         String sessionKey = msg.getSessionKey();
 
         // 1) 标记会话停止，并取消底层 LLM 请求 future
