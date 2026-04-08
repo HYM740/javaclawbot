@@ -13,6 +13,7 @@ import agent.tool.mcp.McpManager;
 import agent.tool.message.MessageTool;
 import agent.tool.message.PruneMessagesTool;
 import agent.tool.shell.ExecTool;
+import agent.tool.shell.Shell;
 import agent.tool.skill.SkillTool;
 import agent.tool.web.WebFetchTool;
 import agent.tool.web.WebSearchTool;
@@ -338,7 +339,8 @@ public class AgentLoop {
 //        sharedTools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
-
+        // 校验git环境
+        Shell.getShellConfig();
         sharedTools.register(new ExecTool(
                 currentTools().getExec().getTimeout(),
                 workspace.toString(),
