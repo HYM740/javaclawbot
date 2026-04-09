@@ -4,9 +4,12 @@ import agent.ProgressCallback;
 import agent.tool.*;
 import agent.tool.file.*;
 import agent.tool.shell.ExecTool;
+import agent.tool.shell.Shell;
 import agent.tool.web.WebFetchTool;
 import agent.tool.web.WebSearchTool;
 import bus.MessageBus;
+import config.Config;
+import config.ConfigIO;
 import config.tool.ToolsConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -269,6 +272,20 @@ public class LocalSubagentExecutor implements SubagentExecutor {
         tools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));*/
 
         // Shell工具
+
+        Config config = ConfigIO.loadConfig(ConfigIO.getConfigPath(workspace));
+        String windowsBashPath = config.getAgents().getDefaults().getWindowsBashPath();
+        Shell.setWindowsBashPath(windowsBashPath);
+        Shell.getShellConfig();
+        tools.register(new ExecTool(
+                toolsConfig.getExec().getTimeout() * 1000,
+                workspace.toString(),
+                null,
+                null,
+                restrictToWorkspace,
+                toolsConfig.getExec().getPathAppend(),
+                windowsBashPath
+        ));
         tools.register(new ExecTool(
                 // 配置的是秒 输入得ms
                 toolsConfig.getExec().getTimeout() * 1000,
