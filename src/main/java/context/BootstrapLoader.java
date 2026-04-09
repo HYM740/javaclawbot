@@ -250,6 +250,11 @@ public class BootstrapLoader {
         return false;
     }
 
+    public boolean isDevMode() {
+        Config config = ConfigIO.loadConfig(ConfigIO.getConfigPath(workspace));
+        return config.getAgents().getDefaults().isDevelopment();
+    }
+
     public String loadAgents() {
         Config config = ConfigIO.loadConfig(ConfigIO.getConfigPath(workspace));
         String content;
@@ -309,15 +314,19 @@ public class BootstrapLoader {
             modelName = "unknown";
         }
 
-        return content
+        content = content
                 .replace("{workspace}", workspacePath)
-                .replace("{project_dir}", projectRegistry.getMainProjectPath())
                 .replace("{platform}", platform)
                 .replace("{shell}", shellHint)
                 .replace("{os_version}", osVersion)
                 .replace("{is_git}", String.valueOf(isGitRepo))
                 .replace("{is_svn}", String.valueOf(isSvnRepo))
                 .replace("{model}", modelName);
+        if (isDevMode()){
+            content = content.replace("{project_dir}", projectRegistry.getMainProjectPath())
+        }
+        return content;
+
     }
 
 
