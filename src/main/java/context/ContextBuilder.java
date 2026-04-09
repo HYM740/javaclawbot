@@ -386,7 +386,8 @@ public class ContextBuilder {
         List<Map<String, Object>> out = new ArrayList<>();
 
         // 构建系统提示词
-        String systemPrompt = buildSystemPrompt();
+        //String systemPrompt = buildSystemPrompt();
+        String systemPrompt = currentMessage;
 
         // 运行环境
         String runtimeContext = buildRuntimeContext(channel, chatId);
@@ -414,7 +415,7 @@ public class ContextBuilder {
 
         // 当前用户内容（文本 + 可选图片）
         // 是否需要引导，设置引导用户
-        buildUserContent(currentMessage, media);
+        buildUserContent("开始执行上下文压缩", media);
         return out;
     }
 

@@ -340,6 +340,7 @@ public class AgentLoop {
 //        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
         // 校验git环境
+        Shell.setWindowsBashPath(runtimeSnapshot().windowsBashPath());
         Shell.getShellConfig();
         sharedTools.register(new ExecTool(
                 currentTools().getExec().getTimeout() * 1000,
@@ -747,7 +748,7 @@ public class AgentLoop {
         // 构建压缩消息系统提示词
         List<Map<String, Object>> initial = context.buildContextCompressMessages(
                 sessions.getOrCreate(sessionKey).getHistory(),
-                MemoryStore.PRUNE_SYSTEM_PROMPT.replaceAll("\\{workspace}", workspace.toString()),
+                MemoryStore.PRUNE_SYSTEM_PROMPT.replaceAll("\\{workspace}", workspace.toAbsolutePath().toString()),
                 null, channel, chatId
         );
         ToolView tools = buildContextCompressRequestTools(sessionKey, channel, chatId, null);

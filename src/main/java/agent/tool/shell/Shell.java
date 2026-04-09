@@ -201,6 +201,14 @@ public final class Shell {
      */
     public static void setWindowsBashPath(String path) {
         windowsBashPathOverride = (path != null && !path.isBlank()) ? path : null;
+        if (windowsBashPathOverride != null) {
+            Path shell = Paths.get(windowsBashPathOverride);
+            if (!Files.exists(shell)) {
+                log.error("windows GIT Bash 路径无效: {}" , path);
+                throw new ShellException("Windows Git Bash 路径无效: " + path);
+            }
+        }
+
         // 清除缓存，让下次 getShellConfig 重新解析
         synchronized (shellConfigLock) {
             cachedShellConfig = null;

@@ -1,5 +1,7 @@
 package agent.tool.shell;
 
+import lombok.extern.slf4j.Slf4j;
+
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -21,9 +23,9 @@ import java.util.concurrent.*;
  * 3. Sourced before each command via BashProvider.buildExecCommand()
  * 4. Cleaned up on shutdown or after 24 hours
  */
+@Slf4j
 public final class ShellSnapshot {
 
-    private static final System.Logger log = System.getLogger(ShellSnapshot.class.getName());
 
     private ShellSnapshot() {}
 
@@ -72,23 +74,23 @@ public final class ShellSnapshot {
 
                 if (!finished) {
                     process.destroyForcibly();
-                    log.log(System.Logger.Level.WARNING, "Snapshot creation timed out");
+                    log.warn("Snapshot creation timed out");
                     return null;
                 }
 
                 if (process.exitValue() != 0) {
                     String error = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-                    log.log(System.Logger.Level.WARNING, "Snapshot creation failed: " + error);
+                    log.warn("Snapshot creation failed: {}" , error);
                     return null;
                 }
 
                 // Verify snapshot file was created and is non-empty
                 if (!Files.exists(snapshotFile) || Files.size(snapshotFile) == 0) {
-                    log.log(System.Logger.Level.WARNING, "Snapshot file was not created or is empty");
+                    log.warn("Snapshot file was not created or is empty");
                     return null;
                 }
 
-                log.log(System.Logger.Level.DEBUG, "Created shell snapshot: " + snapshotFile);
+                log.debug("Created shell snapshot: {}", snapshotFile);
                 return snapshotFile.toString();
 
             } finally {
@@ -97,7 +99,7 @@ public final class ShellSnapshot {
             }
 
         } catch (Exception e) {
-            log.log(System.Logger.Level.WARNING, "Failed to create shell snapshot: " + e.getMessage());
+            log.warn("创建shell快照失败: {}", e.getMessage());
             return null;
         }
     }
