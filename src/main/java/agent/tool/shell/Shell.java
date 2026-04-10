@@ -201,7 +201,7 @@ public final class Shell {
      */
     public static void setWindowsBashPath(String path) {
         windowsBashPathOverride = (path != null && !path.isBlank()) ? path : null;
-        if (windowsBashPathOverride != null) {
+        if (windowsBashPathOverride != null && isWindows()) {
             Path shell = Paths.get(windowsBashPathOverride);
             if (!Files.exists(shell)) {
                 log.error("windows GIT Bash 路径无效: {}" , path);
@@ -282,7 +282,7 @@ public final class Shell {
     public static String findSuitableShell() {
         // 0. Windows Bash path override from config (highest priority)
         // 用户配置的路径必须有效，否则报错
-        if (windowsBashPathOverride != null && !windowsBashPathOverride.isBlank()) {
+        if (windowsBashPathOverride != null && !windowsBashPathOverride.isBlank() && isWindows()) {
             if (isExecutable(windowsBashPathOverride)) {
                 logDebug("Using configured Windows Bash: " + windowsBashPathOverride);
                 return windowsBashPathOverride;
