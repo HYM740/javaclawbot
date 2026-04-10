@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 import providers.cli.model.PermissionResult;
 import providers.cli.CliAgentSession;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
@@ -12,12 +13,19 @@ import java.util.function.BiConsumer;
  * CLI Agent 输出处理器
  *
  * 处理事件输出和格式化
+ *
+ * 改进:
+ * - handleEvent 签名增加 sessionId 参数
+ * - 回调 metadata 增加 agentType 和 cliSessionId
  */
 @Slf4j
 public class CliAgentOutputHandler {
 
     // 发送消息到群聊的回调：(格式化消息, 项目名)
     private BiConsumer<String, String> sendToChatCallback;
+
+    // 发送消息到群聊的回调（带元数据）(格式化消息, 项目名, 元数据)
+    private TriConsumer<String, String, Map<String, Object>> sendToChatWithMetaCallback;
 
     // 等待用户权限响应的会话
     private final Map<String, PendingPermission> pendingPermissions = new ConcurrentHashMap<>();
@@ -33,9 +41,29 @@ public class CliAgentOutputHandler {
     }
 
     /**
-     * 处理事件
+     * 设置发送消息回调（带元数据）
      */
-    public void handleEvent(String project, String agentType, CliEvent event) {
+    public void setSendToChatWithMetaCallback(TriConsumer<String, String, Map<String, Object>> callback) {
+        this.sendToChatWithMetaCallback = callback;
+    }
+
+    /**
+     * 三参数消费者接口
+     */
+    @FunctionalInterface
+    public interface TriConsumer<T, U, V> {
+        void accept(T t, U u, V v);
+    }
+
+    /**
+     * 处理事件
+     *
+     * @param project     项目名
+     * @param agentType   Agent 类型
+     * @param sessionId   CLI 会话 ID
+     * @param event       事件
+     */
+    public void handleEvent(String project, String agentType, String sessionId, CliEvent event) {
         String prefix = formatPrefix(agentType, project);
 
         if (event == null || event.type() == null) return;
@@ -44,7 +72,7 @@ public class CliAgentOutputHandler {
             case TEXT -> {
                 // 文本内容直接输出
                 if (event.content() != null && !event.content().isBlank()) {
-                    sendToChat(prefix, event.content(), project);
+                    sendToChatWithMeta(prefix, event.content(), project, agentType, sessionId);
                 }
             }
 
@@ -52,36 +80,46 @@ public class CliAgentOutputHandler {
                 // thinking 可以折叠或者简化输出
                 if (event.content() != null && !event.content().isBlank()) {
                     String truncated = truncate(event.content(), 200);
-                    sendToChat(prefix, "💭 " + truncated + (event.content().length() > 200 ? "..." : ""), project);
+                    sendToChatWithMeta(prefix, "💭 " + truncated + (event.content().length() > 200 ? "..." : ""), project, agentType, sessionId);
                 }
             }
 
             case TOOL_USE -> {
                 // 工具调用
                 String toolInfo = formatToolUse(event);
-                sendToChat(prefix, "▶ " + toolInfo, project);
+                sendToChatWithMeta(prefix, "▶ " + toolInfo, project, agentType, sessionId);
             }
 
             case TOOL_RESULT -> {
                 // 工具结果
                 String resultInfo = formatToolResult(event);
-                sendToChat(prefix, "  " + resultInfo, project);
+                sendToChatWithMeta(prefix, "  " + resultInfo, project, agentType, sessionId);
             }
 
             case RESULT -> {
                 // 最终结果（文本内容已通过 TEXT 事件流式输出，这里只显示摘要）
-                sendToChat(prefix, "✅ 完成 (tokens: " + event.inputTokens() + "/" + event.outputTokens() + ")", project);
+                sendToChatWithMeta(prefix, "✅ 完成 (tokens: " + event.inputTokens() + "/" + event.outputTokens() + ")", project, agentType, sessionId);
             }
 
             case ERROR -> {
                 // 错误
                 String errorMsg = event.error() != null ? event.error().getMessage() : "Unknown error";
-                sendToChat(prefix, "❌ " + errorMsg, project);
+                sendToChatWithMeta(prefix, "❌ " + errorMsg, project, agentType, sessionId);
             }
 
             case SESSION_ID -> {
                 // 会话 ID，记录日志即可
                 log.debug("[{}/{}] Session ID: {}", agentType, project, event.sessionId());
+            }
+
+            case CONTROL_REQUEST -> {
+                // 控制请求，记录日志即可
+                log.debug("[{}/{}] Control request: {}", agentType, project, event.requestId());
+            }
+
+            case CONTROL_CANCEL -> {
+                // 取消请求，记录日志即可
+                log.debug("[{}/{}] Control cancel", agentType, project);
             }
 
             case PERMISSION_REQUEST -> {
@@ -196,7 +234,35 @@ public class CliAgentOutputHandler {
     }
 
     /**
-     * 发送消息到群聊
+     * 发送消息到群聊（带元数据）
+     *
+     * @param prefix     前缀，如 [CC/p1]
+     * @param message    消息内容
+     * @param project    项目名，用于路由到正确的渠道
+     * @param agentType  Agent 类型
+     * @param sessionId  CLI 会话 ID
+     */
+    private void sendToChatWithMeta(String prefix, String message, String project, String agentType, String sessionId) {
+        String formatted = prefix + " " + message;
+
+        if (sendToChatWithMetaCallback != null) {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("cliAgentOutput", true);
+            metadata.put("project", project);
+            metadata.put("agent_type", agentType);
+            if (sessionId != null) {
+                metadata.put("cli_session_id", sessionId);
+            }
+            sendToChatWithMetaCallback.accept(formatted, project, metadata);
+        } else if (sendToChatCallback != null) {
+            sendToChatCallback.accept(formatted, project);
+        } else {
+            log.info("{} {}", prefix, message);
+        }
+    }
+
+    /**
+     * 发送消息到群聊（无元数据）
      *
      * @param prefix  前缀，如 [CC/p1]
      * @param message 消息内容

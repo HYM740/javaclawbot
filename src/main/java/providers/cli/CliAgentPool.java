@@ -6,14 +6,21 @@ import providers.cli.opencode.OpenCodeAgent;
 import providers.cli.model.PermissionResult;
 import providers.cli.permission.PermissionDecision;
 import providers.cli.permission.PermissionEngine;
+import session.CliAgentSessionManager;
 
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.function.Consumer;
 
 /**
  * CLI Agent 实例池 - 管理所有运行中的 Agent 实例
  *
  * key 格式: "project:agentType" 如 "p1:claude", "p2:opencode"
+ *
+ * 改进:
+ * - CLI Agent 会话事件独立存储，不污染主代理上下文
+ * - 存放路径: {workspace}/sessions/cliagent/{channel}_{chatId}_{project}_{agentType}_{sessionId}.jsonl
+ * - 执行完毕后自动通知主代理，实现自主感知
  */
 @Slf4j
 public class CliAgentPool {
@@ -22,16 +29,47 @@ public class CliAgentPool {
     private final ProjectRegistry projectRegistry;
     private final PermissionEngine permissionEngine;
     private final CliAgentOutputHandler outputHandler;
+    private final CliAgentSessionManager sessionManager;
+
+    /** session key -> current sessionId 映射 */
+    private final Map<String, String> sessionIds = new ConcurrentHashMap<>();
+
+    /** project:agentType -> sessionKey (通道标识) 映射 */
+    private final Map<String, String> channelSessionKeys = new ConcurrentHashMap<>();
+
+    /** project:agentType -> 起始时间 映射 */
+    private final Map<String, Long> sessionStartTimes = new ConcurrentHashMap<>();
+
+    /** CLI Agent 完成回调：发送消息给主代理 */
+    private Consumer<CliAgentCompletionEvent> completionCallback;
 
     // Agent 工厂
     private final Map<String, CliAgent> agents = new ConcurrentHashMap<>();
 
+    /**
+     * CLI Agent 完成事件
+     */
+    public record CliAgentCompletionEvent(
+            String project,
+            String agentType,
+            String sessionId,
+            String sessionKey,
+            String sessionFile,
+            int inputTokens,
+            int outputTokens,
+            long durationMs,
+            boolean success,
+            String errorMessage
+    ) {}
+
     public CliAgentPool(ProjectRegistry projectRegistry,
                         PermissionEngine permissionEngine,
-                        CliAgentOutputHandler outputHandler) {
+                        CliAgentOutputHandler outputHandler,
+                        CliAgentSessionManager sessionManager) {
         this.projectRegistry = projectRegistry;
         this.permissionEngine = permissionEngine;
         this.outputHandler = outputHandler;
+        this.sessionManager = sessionManager;
 
         // 注册默认 Agent
         registerAgent("claude", new ClaudeCodeAgent());
@@ -48,6 +86,71 @@ public class CliAgentPool {
     public void registerAgent(String name, CliAgent agent) {
         agents.put(name.toLowerCase(), agent);
         log.debug("Registered CLI agent: {}", name);
+    }
+
+    /**
+     * 设置通道 sessionKey（由 CliAgentCommandHandler 调用）
+     *
+     * @param project    项目名
+     * @param agentType  Agent 类型
+     * @param sessionKey 通道 sessionKey (格式: channel:chatId)
+     */
+    public void setChannelSessionKey(String project, String agentType, String sessionKey) {
+        String key = buildKey(project, agentType);
+        channelSessionKeys.put(key, sessionKey);
+        log.debug("Set channel session key: {} -> {}", key, sessionKey);
+    }
+
+    /**
+     * 获取通道 sessionKey
+     */
+    public String getChannelSessionKey(String project, String agentType) {
+        return channelSessionKeys.get(buildKey(project, agentType));
+    }
+
+    /**
+     * 设置 CLI Agent 完成回调
+     * 当 CLI Agent 执行完毕时，会调用此回调通知主代理
+     *
+     * @param callback 回调函数，接收 CliAgentCompletionEvent
+     */
+    public void setCompletionCallback(Consumer<CliAgentCompletionEvent> callback) {
+        this.completionCallback = callback;
+    }
+
+    /**
+     * 记录会话开始时间
+     */
+    private void recordSessionStart(String key) {
+        sessionStartTimes.put(key, System.currentTimeMillis());
+    }
+
+    /**
+     * 计算会话持续时间
+     */
+    private long getSessionDuration(String key) {
+        Long startTime = sessionStartTimes.get(key);
+        if (startTime == null) return 0;
+        return System.currentTimeMillis() - startTime;
+    }
+
+    /**
+     * 构建 session 文件名
+     */
+    private String buildSessionFilename(String channelSessionKey, String project, String agentType, String sessionId) {
+        String channel = "unknown";
+        String chatId = "default";
+
+        if (channelSessionKey != null && !channelSessionKey.isBlank()) {
+            String[] parts = channelSessionKey.split(":", 2);
+            if (parts.length >= 1) channel = parts[0].replaceAll("[^a-zA-Z0-9_-]", "_");
+            if (parts.length >= 2) chatId = parts[1].replaceAll("[^a-zA-Z0-9_-]", "_");
+        }
+
+        return channel + "_" + chatId + "_" +
+               (project != null ? project.replaceAll("[^a-zA-Z0-9_-]", "_") : "unknown") + "_" +
+               (agentType != null ? agentType.replaceAll("[^a-zA-Z0-9_-]", "_") : "unknown") + "_" +
+               (sessionId != null ? sessionId.replaceAll("[^a-zA-Z0-9_-]", "_") : "default") + ".jsonl";
     }
 
     /**
@@ -98,6 +201,9 @@ public class CliAgentPool {
                     sessions.put(key, session);
                     log.info("Created CLI session: {} -> {} ({})", key, workDir, agentType);
 
+                    // 记录会话开始时间
+                    recordSessionStart(key);
+
                     // 订阅事件
                     session.events().subscribe(event -> {
                         handleEvent(project, agentType, session, event);
@@ -113,6 +219,28 @@ public class CliAgentPool {
     private void handleEvent(String project, String agentType, CliAgentSession session, CliEvent event) {
         if (event == null || event.type() == null) return;
 
+        String key = buildKey(project, agentType);
+
+        // 提取并跟踪 sessionId
+        if (event.type() == CliEventType.SESSION_ID && event.sessionId() != null) {
+            sessionIds.put(key, event.sessionId());
+            log.debug("[{}/{}] Session ID tracked: {}", agentType, project, event.sessionId());
+        }
+
+        // 获取当前的 sessionId 和 channel sessionKey
+        String currentSessionId = sessionIds.getOrDefault(key, session.currentSessionId());
+        String channelSessionKey = channelSessionKeys.get(key);
+
+        // 先保存事件到独立 session（如果 sessionManager 存在）
+        if (sessionManager != null && currentSessionId != null) {
+            sessionManager.saveEvent(project, agentType, currentSessionId, channelSessionKey, event);
+        }
+
+        // 检测完成事件（RESULT 或 ERROR），通知主代理
+        if (event.type() == CliEventType.RESULT || event.type() == CliEventType.ERROR) {
+            handleCompletion(project, agentType, currentSessionId, channelSessionKey, event);
+        }
+
         // 权限请求特殊处理
         if (event.type() == CliEventType.PERMISSION_REQUEST) {
             handlePermissionRequest(project, agentType, session, event);
@@ -120,7 +248,52 @@ public class CliAgentPool {
         }
 
         // 其他事件交给 OutputHandler
-        outputHandler.handleEvent(project, agentType, event);
+        outputHandler.handleEvent(project, agentType, currentSessionId, event);
+    }
+
+    /**
+     * 处理 CLI Agent 完成事件
+     * 通知主代理 CLI Agent 已完成，可进行下一步操作
+     */
+    private void handleCompletion(String project, String agentType, String sessionId,
+                                   String channelSessionKey, CliEvent event) {
+        String key = buildKey(project, agentType);
+
+        // 构建完成事件
+        boolean success = event.type() == CliEventType.RESULT;
+        String errorMessage = success ? null :
+                (event.error() != null ? event.error().getMessage() : "Unknown error");
+        long durationMs = getSessionDuration(key);
+        String sessionFile = buildSessionFilename(channelSessionKey, project, agentType, sessionId);
+
+        CliAgentCompletionEvent completionEvent = new CliAgentCompletionEvent(
+                project,
+                agentType,
+                sessionId,
+                channelSessionKey,
+                sessionFile,
+                event.inputTokens(),
+                event.outputTokens(),
+                durationMs,
+                success,
+                errorMessage
+        );
+
+        log.info("[{}/{}] CLI Agent completed: success={}, duration={}ms, tokens={}/{}",
+                agentType, project, success, durationMs, event.inputTokens(), event.outputTokens());
+
+        // 调用完成回调，通知主代理
+        if (completionCallback != null) {
+            try {
+                completionCallback.accept(completionEvent);
+                log.debug("Notified main agent of CLI completion: {}", completionEvent);
+            } catch (Exception e) {
+                log.warn("Error in completion callback: {}", e.getMessage());
+            }
+        }
+
+        // 清理会话开始时间
+        sessionStartTimes.remove(key);
     }
 
     /**

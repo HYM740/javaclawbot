@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import providers.cli.model.FileAttachment;
 import providers.cli.model.ImageAttachment;
 import providers.cli.permission.PermissionEngine;
+import session.CliAgentSessionManager;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -28,6 +29,10 @@ import java.util.function.BiConsumer;
  * - /status [project]             查看状态
  * - /stop <project> [type]        停止 Agent
  * - /stopall                      停止所有 Agent
+ *
+ * 改进:
+ * - CLI Agent 会话独立存储，不污染主代理上下文
+ * - 存放路径: {workspace}/sessions/cliagent/{project}_{agentType}_{sessionId}.jsonl
  */
 @Slf4j
 public class CliAgentCommandHandler {
@@ -35,7 +40,9 @@ public class CliAgentCommandHandler {
     private final ProjectRegistry projectRegistry;
     private final CliAgentPool agentPool;
     private final CliAgentOutputHandler outputHandler;
+    private final CliAgentSessionManager sessionManager;
     private final ExecutorService executor;
+    private final Path workspacePath;
 
     // 发送消息到渠道的回调 (message, sessionKey)
     private BiConsumer<String, String> sendToChannel;
@@ -46,6 +53,9 @@ public class CliAgentCommandHandler {
     // 项目 -> sessionKey 映射（用于路由回复到正确的渠道）
     private final Map<String, String> projectSessionKeys = new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** 当前请求的 sessionKey（由 AgentLoop 设置，供 Tool 使用） */
+    private final ThreadLocal<String> currentSessionKey = new ThreadLocal<>();
+
     /**
      * 三参数消费者接口
      */
@@ -55,6 +65,8 @@ public class CliAgentCommandHandler {
     }
 
     public CliAgentCommandHandler(Path workspacePath) {
+        this.workspacePath = workspacePath;
+
         Path registryPath = workspacePath.resolve("cli-projects.json");
         this.projectRegistry = new ProjectRegistry(registryPath);
         this.projectRegistry.load();
@@ -62,34 +74,81 @@ public class CliAgentCommandHandler {
         this.outputHandler = new CliAgentOutputHandler();
         PermissionEngine permissionEngine = PermissionEngine.createDefault();
 
+        // 初始化 CLI Agent Session 管理器
+        this.sessionManager = new CliAgentSessionManager(workspacePath);
+
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r, "cli-agent-handler");
             t.setDaemon(true);
             return t;
         });
 
+        // 传入 sessionManager 给 agentPool
         this.agentPool = new CliAgentPool(
                 projectRegistry,
                 permissionEngine,
-                outputHandler
+                outputHandler,
+                sessionManager
         );
 
         // 设置输出回调：根据 project 查找对应的 sessionKey 路由回复
-        // 添加元数据标记为 CLI 子代理输出, 主代理可以据此识别
-        outputHandler.setSendToChatCallback((formattedMessage, project) -> {
+        // 使用新的带元数据的回调
+        outputHandler.setSendToChatWithMetaCallback((formattedMessage, project, metadata) -> {
             if (sendToChannel != null || sendToChannelWithMeta != null) {
                 String sessionKey = project != null ? projectSessionKeys.get(project) : null;
+
                 // 优先使用带元数据的回调
                 if (sendToChannelWithMeta != null) {
-                    Map<String, Object> metadata = new HashMap<>();
-                    metadata.put("cliAgentOutput", true);
-                    metadata.put("project", project);
                     sendToChannelWithMeta.accept(formattedMessage, sessionKey, metadata);
                 } else {
                     sendToChannel.accept(formattedMessage, sessionKey);
                 }
             }
         });
+    }
+
+    /**
+     * 获取 CLI Agent Session 管理器
+     */
+    public CliAgentSessionManager getSessionManager() {
+        return sessionManager;
+    }
+
+    /**
+     * 设置当前请求的 sessionKey（由 AgentLoop 调用）
+     * 用于 Tool 执行时获取当前通道信息
+     */
+    public void setCurrentSessionKey(String sessionKey) {
+        currentSessionKey.set(sessionKey);
+    }
+
+    /**
+     * 获取当前请求的 sessionKey
+     * 用于 Tool 执行时获取当前通道信息
+     */
+    public String getCurrentSessionKey() {
+        return currentSessionKey.get();
+    }
+
+    /**
+     * 清除当前请求的 sessionKey
+     */
+    public void clearCurrentSessionKey() {
+        currentSessionKey.remove();
+    }
+
+    /**
+     * 设置项目的 sessionKey 映射（由 CliAgentTool 调用）
+     * 用于 CLI Agent 输出路由到正确的通道
+     *
+     * @param project    项目名
+     * @param sessionKey 通道 sessionKey (格式: channel:chatId)
+     */
+    public void setProjectSessionKey(String project, String sessionKey) {
+        if (project != null && sessionKey != null) {
+            projectSessionKeys.put(project, sessionKey);
+            log.debug("Set project session key: {} -> {}", project, sessionKey);
+        }
     }
 
     /**
@@ -329,6 +388,9 @@ public class CliAgentCommandHandler {
 
         // 记录项目 -> sessionKey 映射，用于后续输出路由
         projectSessionKeys.put(project, msg.getSessionKey());
+
+        // 设置通道 sessionKey 到 agentPool（用于 session 文件记录）
+        agentPool.setChannelSessionKey(project, agentType, msg.getSessionKey());
 
         // 获取或创建会话
         agentPool.getOrCreate(project, agentType)

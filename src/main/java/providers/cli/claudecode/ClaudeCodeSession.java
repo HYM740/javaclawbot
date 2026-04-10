@@ -184,17 +184,19 @@ public class ClaudeCodeSession implements CliAgentSession {
                 if (line.isBlank()) continue;
 
                 try {
-                    CliEvent event = parseEvent(line);
-                    if (event != null) {
-                        eventCount++;
-                        // 提取 session ID
-                        if (event.type() == CliEventType.SESSION_ID && event.sessionId() != null) {
-                            sessionId.set(event.sessionId());
-                            log.info("[ClaudeCode] Session ID: {}", event.sessionId());
-                        }
+                    List<CliEvent> events = parseEvent(line);
+                    if (events != null && !events.isEmpty()) {
+                        for (CliEvent event : events) {
+                            eventCount++;
+                            // 提取 session ID
+                            if (event.type() == CliEventType.SESSION_ID && event.sessionId() != null) {
+                                sessionId.set(event.sessionId());
+                                log.info("[ClaudeCode] Session ID: {}", event.sessionId());
+                            }
 
-                        log.trace("[ClaudeCode] Event #{}: type={}", eventCount, event.type());
-                        eventSink.tryEmitNext(event);
+                            log.trace("[ClaudeCode] Event #{}: type={}", eventCount, event.type());
+                            eventSink.tryEmitNext(event);
+                        }
                     }
                 } catch (Exception e) {
                     // 非 JSON 行（如 banner 文本），跳过
@@ -236,38 +238,38 @@ public class ClaudeCodeSession implements CliAgentSession {
      * 解析 NDJSON 事件
      */
     @SuppressWarnings("unchecked")
-    private CliEvent parseEvent(String line) {
+    private List<CliEvent> parseEvent(String line) {
         try {
             Map<String, Object> raw = GsonFactory.getGson().fromJson(line, Map.class);
             if (raw == null) {
                 log.trace("[ClaudeCode] Received null JSON");
-                return null;
+                return List.of();
             }
 
             String type = (String) raw.get("type");
             if (type == null) {
                 log.trace("[ClaudeCode] Received JSON without type field");
-                return null;
+                return List.of();
             }
 
             log.debug("[ClaudeCode] Received event: type={}", type);
 
             return switch (type) {
-                case "system" -> parseSystemEvent(raw);
+                case "system" -> List.of(parseSystemEvent(raw));
                 case "assistant" -> parseAssistantEvent(raw);
-                case "user" -> parseUserEvent(raw);
-                case "result" -> parseResultEvent(raw);
-                case "control_request" -> parseControlRequestEvent(raw);
-                case "control_cancel_request" -> parseControlCancelEvent(raw);
-                case "error" -> parseErrorEvent(raw);
+                case "user" -> List.of(parseUserEvent(raw));
+                case "result" -> List.of(parseResultEvent(raw));
+                case "control_request" -> List.of(parseControlRequestEvent(raw));
+                case "control_cancel_request" -> List.of(parseControlCancelEvent(raw));
+                case "error" -> List.of(parseErrorEvent(raw));
                 default -> {
                     log.debug("[ClaudeCode] Unknown event type: {}, raw: {}", type, line);
-                    yield null;
+                    yield List.of();
                 }
             };
         } catch (Exception e) {
                 log.debug("[ClaudeCode] Non-JSON line ({} chars): {}", line.length(), line);
-                return null;
+                return List.of();
         }
     }
 
@@ -278,25 +280,26 @@ public class ClaudeCodeSession implements CliAgentSession {
     }
 
     @SuppressWarnings("unchecked")
-    private CliEvent parseAssistantEvent(Map<String, Object> raw) {
+    private List<CliEvent> parseAssistantEvent(Map<String, Object> raw) {
         Map<String, Object> message = (Map<String, Object>) raw.get("message");
-        if (message == null) return null;
+        if (message == null) return List.of();
 
         List<Map<String, Object>> content = (List<Map<String, Object>>) message.get("content");
-        if (content == null) return null;
+        if (content == null) return List.of();
 
-        // 只处理第一个内容块
+        // 处理所有内容块，而不是只返回第一个
+        List<CliEvent> events = new ArrayList<>();
         for (Map<String, Object> block : content) {
             String blockType = (String) block.get("type");
 
             if ("text".equals(blockType)) {
                 String text = (String) block.get("text");
-                return CliEvent.text(text);
+                events.add(CliEvent.text(text));
             }
 
             if ("thinking".equals(blockType)) {
                 String thinking = (String) block.get("thinking");
-                return CliEvent.thinking(thinking);
+                events.add(CliEvent.thinking(thinking));
             }
 
             if ("tool_use".equals(blockType)) {
@@ -304,11 +307,11 @@ public class ClaudeCodeSession implements CliAgentSession {
                 String name = (String) block.get("name");
                 Map<String, Object> input = (Map<String, Object>) block.get("input");
                 String inputSummary = summarizeToolInput(name, input);
-                return CliEvent.toolUse(name, inputSummary, input);
+                events.add(CliEvent.toolUse(name, inputSummary, input));
             }
         }
 
-        return null;
+        return events;
     }
 
     /**

@@ -49,7 +49,18 @@ public class CliAgentTool extends Tool {
                 - stop: 停止指定项目的 Agent
                 - stopall: 停止所有 CLI Agent
 
-                注意：此工具仅在开发者模式下可用。
+                注意：
+                - 此工具仅在开发者模式下可用
+                - CLI Agent 对话历史存储在独立文件中，不污染主代理上下文
+                - 存放路径: {workspace}/sessions/cliagent/
+                - 文件命名: {channel}_{chatId}_{project}_{agentType}_{sessionId}.jsonl
+                - 示例: telegram_123456_p1_claude_74a63f97.jsonl
+
+                自动通知机制：
+                - CLI Agent 执行完毕后会自动发送通知消息给主代理
+                - 通知内容包含执行结果、会话文件路径、耗时等信息
+                - 主代理收到通知后可以决定是否读取会话文件了解详情，或继续其他操作
+                - 无需轮询或人工介入即可感知 CLI Agent 完成状态
                 """;
     }
 
@@ -202,6 +213,15 @@ public class CliAgentTool extends Tool {
         String path = registry.getPath(project);
         if (path == null) {
             return CompletableFuture.completedFuture("❌ 项目 '" + project + "' 未绑定。请先使用 bind 操作绑定项目。");
+        }
+
+        // 获取当前的 sessionKey（通道信息）
+        String sessionKey = cliAgentHandler.getCurrentSessionKey();
+        if (sessionKey != null) {
+            // 设置通道 sessionKey 到 agentPool（用于 session 文件记录）
+            cliAgentHandler.getAgentPool().setChannelSessionKey(project, agentType, sessionKey);
+            // 设置 project -> sessionKey 映射（用于输出路由）
+            cliAgentHandler.setProjectSessionKey(project, sessionKey);
         }
 
         // 异步执行并返回

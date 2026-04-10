@@ -502,6 +502,65 @@ CLI Agent 的输出会带有项目前缀和 Agent 类型标识：
 
 CLI Agent 的输出会自动记录到主代理的对话历史中，主代理可以了解 CLI Agent 的活动并回答相关问题（如 "刚才 CLI 做了什么？"）。
 
+### Session 隔离机制
+
+CLI Agent 的对话历史存储在独立的 Session 文件中，不污染主代理的上下文窗口：
+
+- **存放路径**: `{workspace}/sessions/cliagent/`
+- **文件命名**: `{channel}_{chatId}_{project}_{agentType}_{sessionId}.jsonl`
+- **示例**: `telegram_123456_p1_claude_74a63f97.jsonl`
+
+主代理的 Session 只记录简短引用标记：
+```
+[CLI Session: claude/p1]
+```
+
+如需了解 CLI Agent 的详细执行过程，主代理可以使用 `read_file` 工具读取对应的会话文件。
+
+### 自动完成通知
+
+CLI Agent 执行完毕后会自动发送通知消息给主代理，实现自主感知：
+
+**通知消息示例**:
+```
+🔔 CLI Agent 执行完成
+
+- **项目**: p1
+- **类型**: claude
+- **状态**: ✅ 成功
+- **耗时**: 12.5秒
+- **Token**: 1500/3200
+- **会话文件**: `telegram_123456_p1_claude_74a63f97.jsonl`
+
+如需了解详细执行过程，请读取上述会话文件。
+```
+
+**通知元数据**:
+```json
+{
+  "cli_agent_complete": true,
+  "project": "p1",
+  "agent_type": "claude",
+  "session_id": "74a63f97-xxx",
+  "session_file": "telegram_123456_p1_claude_74a63f97.jsonl",
+  "success": true,
+  "duration_ms": 12500,
+  "input_tokens": 1500,
+  "output_tokens": 3200
+}
+```
+
+**主代理可执行的操作**:
+1. **直接响应**：通知用户执行结果
+2. **读取详情**：使用 `read_file` 读取会话文件了解完整执行过程
+3. **继续执行**：根据结果决定下一步操作
+4. **错误处理**：如果失败，可以重试或通知用户
+
+**优势**:
+- 无需轮询，主代理自动感知 CLI Agent 完成状态
+- 无需人工介入，自主决定下一步操作
+- 上下文隔离，主代理 Session 不被 CLI 对话历史污染
+
 ---
 
 ## 项目上下文（开发者模式）

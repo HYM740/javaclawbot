@@ -44,7 +44,17 @@ public enum CliEventType {
     /**
      * 会话 ID
      */
-    SESSION_ID("session_id");
+    SESSION_ID("session_id"),
+
+    /**
+     * 控制请求 (如初始化请求)
+     */
+    CONTROL_REQUEST("control_request"),
+
+    /**
+     * 取消请求
+     */
+    CONTROL_CANCEL("control_cancel");
 
     private final String value;
 

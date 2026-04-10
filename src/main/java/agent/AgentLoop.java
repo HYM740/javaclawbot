@@ -202,6 +202,19 @@ public class AgentLoop {
         // 初始化 CLI Agent 命令处理器
         this.cliAgentHandler = new CliAgentCommandHandler(workspace);
         this.cliAgentHandler.setSendToChannelWithMeta((message, sessionKey, metadata) -> {
+            // sessionKey 可能为 null（如 projectSessionKeys 没有映射时）
+            // 这种情况下，使用 CLI 通道作为默认输出
+            if (sessionKey == null || sessionKey.isBlank()) {
+                // 尝试从 metadata 获取 session_key
+                if (metadata != null && metadata.containsKey("cli_session_id")) {
+                    // 使用 CLI 直接输出通道
+                    sessionKey = "cli:direct";
+                } else {
+                    log.debug("CLI Agent output without sessionKey, skipping: {}", message);
+                    return;
+                }
+            }
+
             // sessionKey 格式: "channel:chatId"
             String[] parts = sessionKey.split(":", 2);
             String channel = parts[0];
@@ -216,23 +229,48 @@ public class AgentLoop {
                     metadata != null ? metadata : Map.of()
             ));
 
-            // 如果是 CLI 子代理输出, 记录到主代理对话历史
+            // 如果是 CLI 子代理输出
+            // 通道通知保留（用户需要感知 CC 状态），但主 session 只记录引用
             if (metadata != null && Boolean.TRUE.equals(metadata.get("cliAgentOutput"))) {
                 String project = (String) metadata.get("project");
-                // 格式: [CC/p1] 或 [OpenCode/p2]
-                String historyContent = message;  // 原始消息已经包含项目信息
+                String agentType = (String) metadata.get("agent_type");
+                String cliSessionId = (String) metadata.get("cli_session_id");
 
-                // 记录到会话历史
+                // 记录引用标记到主会话，而非完整内容
                 Session session = sessions.getOrCreate(sessionKey);
                 if (session != null) {
-                    session.addMessage("assistant", historyContent, Map.of(
-                            "source", "cli_subagent",
+                    // 只记录简短的引用标记，避免污染主上下文
+                    String referenceMarker = "[CLI Session: " + (agentType != null ? agentType : "unknown") + "/" + project + "]";
+
+                    // 构建 CLI session 文件名
+                    // 格式: {channel}_{chatId}_{project}_{agentType}_{sessionId}.jsonl
+                    // 使用上面已经解析的 channel 和 chatId
+                    String safeChannel = channel.replaceAll("[^a-zA-Z0-9_-]", "_");
+                    String safeChatId = chatId.replaceAll("[^a-zA-Z0-9_-]", "_");
+
+                    String cliSessionFile = safeChannel + "_" + safeChatId + "_" +
+                            (project != null ? project : "unknown") + "_" +
+                            (agentType != null ? agentType : "unknown") + "_" +
+                            (cliSessionId != null ? cliSessionId : "default") + ".jsonl";
+
+                    session.addMessage("assistant", referenceMarker, Map.of(
+                            "source", "cli_session_ref",
                             "project", project,
-                            "agent_type", project != null && project.contains("opencode") ? "opencode" : "claude"
+                            "agent_type", agentType,
+                            "cli_session_id", cliSessionId,
+                            "cli_session_file", cliSessionFile,
+                            "session_key", sessionKey
                     ));
-                    log.debug("Recorded CLI subagent output to session history: project={}, chars={}", project, historyContent.length());
+
+                    log.debug("Recorded CLI session reference: project={}, agentType={}, sessionId={}, file={}",
+                            project, agentType, cliSessionId, cliSessionFile);
                 }
             }
+        });
+
+        // 设置 CLI Agent 完成回调：通知主代理 CLI Agent 已完成
+        this.cliAgentHandler.getAgentPool().setCompletionCallback(completionEvent -> {
+            handleCliAgentCompletion(completionEvent);
         });
 
         // 注册工具
@@ -1353,7 +1391,14 @@ public class AgentLoop {
                 } catch (Exception ignored) {
                 }
 
+                // 设置当前 sessionKey 供 Tool 使用
+                cliAgentHandler.setCurrentSessionKey(sessionKey);
+
                 return tools.execute(tc.getName(), tc.getArguments())
+                        .whenComplete((result, ex) -> {
+                            // 清除 sessionKey
+                            cliAgentHandler.clearCurrentSessionKey();
+                        })
                         .thenAccept(rawResult -> {
                             if (isStopRequested(sessionKey)) {
                                 throw new CancellationException("session stopped");
@@ -1412,6 +1457,67 @@ public class AgentLoop {
 
     private static String safeOneLine(String s) {
         return (s == null) ? "" : s.replace("\n", " ").replace("\r", " ");
+    }
+
+    /**
+     * 处理 CLI Agent 完成事件
+     * 发送消息给主代理，让其感知并决定下一步操作
+     */
+    private void handleCliAgentCompletion(providers.cli.CliAgentPool.CliAgentCompletionEvent event) {
+        if (event.sessionKey() == null || event.sessionKey().isBlank()) {
+            log.warn("CLI Agent completion event without sessionKey, skipping notification");
+            return;
+        }
+
+        // 解析 sessionKey
+        String[] parts = event.sessionKey().split(":", 2);
+        String channel = parts[0];
+        String chatId = parts.length > 1 ? parts[1] : "";
+
+        // 构建通知消息内容
+        StringBuilder content = new StringBuilder();
+        content.append("🔔 CLI Agent 执行完成\n\n");
+        content.append("- **项目**: ").append(event.project()).append("\n");
+        content.append("- **类型**: ").append(event.agentType()).append("\n");
+        content.append("- **状态**: ").append(event.success() ? "✅ 成功" : "❌ 失败").append("\n");
+        content.append("- **耗时**: ").append(event.durationMs() / 1000.0).append("秒\n");
+        content.append("- **Token**: ").append(event.inputTokens()).append("/").append(event.outputTokens()).append("\n");
+
+        if (!event.success() && event.errorMessage() != null) {
+            content.append("- **错误**: ").append(event.errorMessage()).append("\n");
+        }
+
+        content.append("- **会话文件**: `").append(workspace.resolve("sessions").resolve("cliagent").resolve(event.sessionFile()).toAbsolutePath().toString()).append("`\n");
+        content.append("\n如需了解详细执行过程，请读取上述会话文件。");
+
+        // 构建元数据
+        Map<String, Object> metadata = new HashMap<>();
+        metadata.put("cli_agent_complete", true);
+        metadata.put("project", event.project());
+        metadata.put("agent_type", event.agentType());
+        metadata.put("session_id", event.sessionId());
+        metadata.put("session_file", event.sessionFile());
+        metadata.put("success", event.success());
+        metadata.put("duration_ms", event.durationMs());
+        metadata.put("input_tokens", event.inputTokens());
+        metadata.put("output_tokens", event.outputTokens());
+
+        // 发送 InboundMessage 到主代理
+        // 使用特殊的 senderId 标识这是系统通知
+        InboundMessage notification = new InboundMessage(
+                channel,
+                "cli-agent-system",
+                chatId,
+                content.toString(),
+                List.of(),
+                metadata
+        );
+
+        // 发布到 MessageBus，主代理会收到并处理
+        bus.publishInbound(notification);
+
+        log.info("Sent CLI Agent completion notification to main agent: sessionKey={}, project={}, success={}",
+                event.sessionKey(), event.project(), event.success());
     }
 
     private static String safeTruncate(String s, int maxLen) {
