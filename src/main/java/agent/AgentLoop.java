@@ -403,8 +403,8 @@ public class AgentLoop {
         sharedTools.register(new MemorySearchTool(workspace));
 
         // 搜索工具（对齐 Claude Code 的 Grep/Glob 工具）
-        sharedTools.register(new GrepTool(workspace, allowedDir));
-        sharedTools.register(new GlobTool(workspace, allowedDir));
+        sharedTools.register(new GrepTool(workspace, allowedDir, cliAgentHandler.getProjectRegistry()));
+        sharedTools.register(new GlobTool(workspace, allowedDir, cliAgentHandler.getProjectRegistry()));
 
         // CLI Agent 工具（开发者模式下可用）
         if (currentConfig().getAgents().getDefaults().isDevelopment()) {
@@ -495,8 +495,8 @@ public class AgentLoop {
         localTools.register(new ReadFileTool(workspace, null));
         localTools.register(new EditTool(workspace, null));
         localTools.register(new WriteTool(workspace, null));
-        localTools.register(new GlobTool(workspace, null));
-        localTools.register(new GrepTool(workspace, null));
+        localTools.register(new GlobTool(workspace, null, cliAgentHandler.getProjectRegistry()));
+        localTools.register(new GrepTool(workspace, null, cliAgentHandler.getProjectRegistry()));
 
         // 添加记忆压缩工具
         localTools.register(new PruneMessagesTool(sessions, sessionKey));

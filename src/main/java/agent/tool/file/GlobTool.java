@@ -2,6 +2,7 @@ package agent.tool.file;
 
 import agent.tool.Tool;
 import cn.hutool.core.util.StrUtil;
+import providers.cli.ProjectRegistry;
 import utils.PathUtil;
 
 import java.io.BufferedReader;
@@ -39,10 +40,12 @@ public final class GlobTool extends Tool {
 
     private final Path workspace;
     private final Path allowedDir;
+    private final ProjectRegistry projectRegistry;
 
-    public GlobTool(Path workspace, Path allowedDir) {
+    public GlobTool(Path workspace, Path allowedDir, ProjectRegistry projectRegistry) {
         this.workspace = workspace;
         this.allowedDir = allowedDir;
+        this.projectRegistry = projectRegistry;
     }
 
     // ---------- Line 57-58: name = 'Glob' ----------

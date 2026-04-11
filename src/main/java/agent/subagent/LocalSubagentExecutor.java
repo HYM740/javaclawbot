@@ -16,6 +16,7 @@ import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
 import providers.LLMResponse;
 import providers.ToolCallRequest;
+import providers.cli.CliAgentCommandHandler;
 
 import java.nio.file.Path;
 import java.util.*;
@@ -264,8 +265,10 @@ public class LocalSubagentExecutor implements SubagentExecutor {
         tools.register(new EditTool(workspace, null, fileStateCache));
         tools.register(new WriteTool(workspace, null, fileStateCache));
         tools.register(new ListFilesTool(workspace, allowedDir));
-        tools.register(new GlobTool(workspace, allowedDir));
-        tools.register(new GrepTool(workspace, allowedDir));
+        CliAgentCommandHandler handler = new CliAgentCommandHandler(workspace);
+        handler.close();
+        tools.register(new GlobTool(workspace, allowedDir, handler.getProjectRegistry()));
+        tools.register(new GrepTool(workspace, allowedDir, handler.getProjectRegistry()));
         /*tools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
         tools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
