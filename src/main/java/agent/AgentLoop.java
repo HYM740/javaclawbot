@@ -469,8 +469,8 @@ public class AgentLoop {
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
         localTools.register(new ReadFileTool(workspace, null));
-        localTools.register(new GlobTool(workspace, null));
-        localTools.register(new GrepTool(workspace, null));
+        localTools.register(new GlobTool(workspace, null, cliAgentHandler.getProjectRegistry()));
+        localTools.register(new GrepTool(workspace, null, cliAgentHandler.getProjectRegistry()));
         localTools.register(new EditTool(workspace, null));
         localTools.register(new WriteTool(workspace, null));
         localTools.register(new SkillTool(commandManager, skillsLoader));
