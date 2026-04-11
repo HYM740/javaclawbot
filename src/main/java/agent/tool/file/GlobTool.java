@@ -1,12 +1,14 @@
 package agent.tool.file;
 
 import agent.tool.Tool;
+import cn.hutool.core.util.StrUtil;
 import utils.PathUtil;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -74,7 +76,7 @@ public final class GlobTool extends Tool {
         ));
         props.put("path", Map.of(
                 "type", "string",
-                "description", "The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter \"undefined\" or \"null\" - simply omit it for the default behavior. Must be a valid directory path if provided."
+                "description", "The directory to search in.  Defaults to current project directory(main agent project). if current project dir is null -> workspace directory IMPORTANT: Omit this field to use the default directory. DO NOT enter \"undefined\" or \"null\" - simply omit it for the default behavior. Must be a valid directory path if provided."
         ));
 
         Map<String, Object> schema = new LinkedHashMap<>();
@@ -97,10 +99,21 @@ public final class GlobTool extends Tool {
             // ---------- Line 88-89: getPath ----------
             Path searchDir;
             if (path != null && !path.isEmpty()) {
+                searchDir = Paths.get(path);
+            } else {
+                // 先从主项目中配置
+                String mainProjectPath = projectRegistry.getMainProjectPath();
+                if (StrUtil.isBlank(mainProjectPath)) {
+                    searchDir = workspace;
+                }else {
+                    searchDir = Paths.get(mainProjectPath);
+                }
+            }
+            /*if (path != null && !path.isEmpty()) {
                 searchDir = PathUtil.resolvePath(path, workspace, allowedDir);
             } else {
                 searchDir = workspace;
-            }
+            }*/
 
             // ---------- Line 94-110: validateInput ----------
             if (path != null && !path.isEmpty()) {

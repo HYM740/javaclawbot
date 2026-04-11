@@ -1,6 +1,8 @@
 package agent.tool.file;
 
 import agent.tool.Tool;
+import cn.hutool.core.util.StrUtil;
+import providers.cli.ProjectRegistry;
 import utils.PathUtil;
 
 import java.io.BufferedReader;
@@ -8,6 +10,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.attribute.FileTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -51,10 +54,12 @@ public final class GrepTool extends Tool {
 
     private final Path workspace;
     private final Path allowedDir;
+    private final ProjectRegistry projectRegistry;
 
-    public GrepTool(Path workspace, Path allowedDir) {
+    public GrepTool(Path workspace, Path allowedDir, ProjectRegistry projectRegistry) {
         this.workspace = workspace;
         this.allowedDir = allowedDir;
+        this.projectRegistry = projectRegistry;
     }
 
     // ---------- Line 169: userFacingName → "Search" ----------
@@ -92,7 +97,7 @@ public final class GrepTool extends Tool {
         ));
         props.put("path", Map.of(
                 "type", "string",
-                "description", "File or directory to search in (rg PATH). Defaults to current working directory."
+                "description", "File or directory to search in (rg PATH). Defaults to current project directory(main agent project). if current project dir is null -> workspace directory"
         ));
         props.put("glob", Map.of(
                 "type", "string",
@@ -207,9 +212,16 @@ public final class GrepTool extends Tool {
             // ---------- Line 329: resolve absolute path ----------
             Path absolutePath;
             if (path != null && !path.isEmpty()) {
-                absolutePath = PathUtil.resolvePath(path, workspace, allowedDir);
+                //absolutePath = PathUtil.resolvePath(path, workspace, allowedDir);
+                absolutePath = Paths.get(path);
             } else {
-                absolutePath = workspace;
+                // 先从主项目中配置
+                String mainProjectPath = projectRegistry.getMainProjectPath();
+                if (StrUtil.isBlank(mainProjectPath)) {
+                    absolutePath = workspace;
+                }else {
+                    absolutePath = Paths.get(mainProjectPath);
+                }
             }
 
             // Validate path exists
