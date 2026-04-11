@@ -3,6 +3,7 @@ package providers.cli;
 import lombok.extern.slf4j.Slf4j;
 import providers.cli.model.PermissionResult;
 import providers.cli.CliAgentSession;
+import utils.GsonFactory;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -125,6 +126,10 @@ public class CliAgentOutputHandler {
             case PERMISSION_REQUEST -> {
                 // 由 PermissionEngine 处理，不应该到达这里
                 log.warn("Permission request should be handled by PermissionEngine: {}", event);
+            }
+            default -> {
+                sendToChatWithMeta(prefix, "cli-agent 报告 : " + GsonFactory.toJson(event), project, agentType, sessionId);
+                log.warn("未知的事件: {}", event);
             }
         }
     }
