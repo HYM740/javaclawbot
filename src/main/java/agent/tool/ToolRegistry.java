@@ -47,7 +47,7 @@ public class ToolRegistry {
     public void register(Tool tool) {
         if (tool == null) return;
         tools.put(tool.name(), tool);
-        log.info("注册工具: {}", tool.name());
+        //log.info("注册工具: {}", tool.name());
     }
 
     /**
@@ -93,7 +93,9 @@ public class ToolRegistry {
         for (Tool t : tools.values()) {
             out.add(t.toSchema());
         }
-        log.debug("获取工具定义，共 {} 个工具", out.size());
+        /*if (log.isDebugEnabled()){
+            log.debug("获取工具定义，共 {} 个工具", out.size());
+        }*/
         return out;
     }
 

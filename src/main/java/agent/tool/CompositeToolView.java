@@ -36,7 +36,7 @@ public final class CompositeToolView implements ToolView {
             }
         }
 
-        log.debug("获取复合工具定义，合并后共 {} 个工具", merged.size());
+        //log.debug("获取复合工具定义，合并后共 {} 个工具", merged.size());
         return new ArrayList<>(merged.values());
     }
 
