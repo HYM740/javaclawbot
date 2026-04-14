@@ -57,7 +57,7 @@ public class McpReloadTool extends Tool {
             return CompletableFuture.completedFuture("Error: server_name is required and cannot be empty");
         }
 
-        log.info("执行工具: mcp_reload, server: {}", serverName);
+        log.debug("mcp_reload server: {}", serverName);
 
         return mcpManager.reconnectServer(serverName).thenApply(error -> {
             if (error == null) {

@@ -72,7 +72,7 @@ public class OfficialMcpToolWrapper extends Tool {
     public CompletableFuture<String> execute(Map<String, Object> args) {
         Map<String, Object> safeArgs = (args == null) ? Map.of() : args;
 
-        log.info("执行 MCP 工具: {}, 参数: {}", exposedName, safeArgs);
+        log.debug("MCP tool: {}, args: {}", exposedName, safeArgs);
 
         return CompletableFuture.supplyAsync(() -> {
             try {

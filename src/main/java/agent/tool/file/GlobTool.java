@@ -101,7 +101,7 @@ public final class GlobTool extends Tool {
             String pattern = asString(args.get("pattern"));
             String path = asString(args.get("path"));
 
-            log.info("执行工具: Glob, 参数: pattern={}, path={}", pattern, path);
+            log.debug("Glob pattern={}, path={}", pattern, path);
 
             // ---------- Line 88-89: getPath ----------
             Path searchDir;

@@ -283,13 +283,14 @@ public class McpManager {
                                 // 新增 server：直接新建连接
                                 connectOneServer(serverName, newCfg);
                                 log.info("[MCP] 新增并连接 server: {}", serverName);
-                            } else if (needsReconnect(oldHandle.config(), newCfg)) {
-                                // 连接参数发生变化：必须重连
-                                removeServer(serverName);
+                            } else if (needsReconnect(oldHandle.config(), newCfg)
+                                    || isStdioType(newCfg)) {
+                                // 连接参数发生变化，或 stdio 类型（进程可能已死）：必须完整重连
+                                forceRemoveServer(serverName);
                                 connectOneServer(serverName, newCfg);
-                                log.info("[MCP] server 配置变更，已重连: {}", serverName);
+                                log.info("[MCP] server 已重连: {}", serverName);
                             } else {
-                                // 连接参数没变：复用旧 client 刷新工具列表
+                                // HTTP 类型且配置没变：复用旧 client 刷新工具列表
                                 refreshOneServer(serverName, newCfg);
                                 log.info("[MCP] server 工具已刷新: {}", serverName);
                             }
@@ -374,6 +375,23 @@ public class McpManager {
 
     public boolean isConnected() {
         return connected;
+    }
+
+    /**
+     * 判断配置是否为 stdio 类型。
+     *
+     * stdio 类型的底层进程死亡后，StdioClientTransport 的 Reactor scheduler
+     * 会进入不可恢复状态（SinkManyUnicast 只允许一次 subscribe），
+     * 即使 initialize() 可能成功，后续 callTool() 仍会失败。
+     */
+    private static boolean isStdioType(MCPServerConfig cfg) {
+        if (cfg == null) return false;
+        String type = cfg.getType();
+        if (type != null && !type.isBlank()) {
+            return "stdio".equalsIgnoreCase(type.trim());
+        }
+        // 未指定 type 但有 command → 推断为 stdio
+        return cfg.getCommand() != null && !cfg.getCommand().isBlank();
     }
 
     /**
@@ -481,6 +499,11 @@ public class McpManager {
      * 策略：
      * - 已有 handle：复用 client，只更新工具集
      * - 没有 handle：按首次连接处理
+     * - 复用失败（进程死亡/连接断开）：降级为完整重连
+     *
+     * 注意：stdio 类型 server 在底层进程死亡后，client 的 Reactor scheduler
+     * 会进入 Terminated 状态且不可恢复。此时必须先 removeServer 彻底清理，
+     * 再创建全新 client，不能仅尝试 initialize 恢复。
      */
     private void refreshOneServer(String serverName, MCPServerConfig cfg) {
         ServerHandle oldHandle = handles.get(serverName);
@@ -492,20 +515,27 @@ public class McpManager {
 
         McpAsyncClient client = oldHandle.client();
 
-        // 有些服务端会在连接长期空闲后失效，这里保险起见重新 initialize 一次
-        client.initialize().block(Duration.ofSeconds(20));
-        McpSchema.ListToolsResult toolsResult = client.listTools().block(Duration.ofSeconds(20));
+        try {
+            // 有些服务端会在连接长期空闲后失效，这里保险起见重新 initialize 一次
+            client.initialize().block(Duration.ofSeconds(20));
+            McpSchema.ListToolsResult toolsResult = client.listTools().block(Duration.ofSeconds(20));
 
-        List<Tool> newRegistered = buildWrappedTools(serverName, client, cfg, toolsResult);
+            List<Tool> newRegistered = buildWrappedTools(serverName, client, cfg, toolsResult);
 
-        // 先卸旧，再注新
-        unregisterTools(oldHandle.registeredTools());
+            // 先卸旧，再注新
+            unregisterTools(oldHandle.registeredTools());
 
-        for (Tool tool : newRegistered) {
-            mcpTools.register(tool);
+            for (Tool tool : newRegistered) {
+                mcpTools.register(tool);
+            }
+
+            handles.put(serverName, new ServerHandle(serverName, client, newRegistered, copyCfg(cfg)));
+        } catch (Exception e) {
+            log.warn("[MCP] 复用 client 刷新失败，降级为重连: {}, 原因: {}", serverName, e.getMessage());
+            // 关键：必须先完整移除旧 client（包括清理 Reactor scheduler），再创建新的
+            forceRemoveServer(serverName);
+            connectOneServer(serverName, cfg);
         }
-
-        handles.put(serverName, new ServerHandle(serverName, client, newRegistered, copyCfg(cfg)));
     }
 
     /**
@@ -522,6 +552,30 @@ public class McpManager {
         try {
             handle.client().closeGracefully().block(Duration.ofSeconds(5));
         } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 强制移除某个 server。
+     *
+     * 与 removeServer 的区别：
+     * - removeServer 使用 closeGracefully()，优雅关闭但可能在 stdio 进程已死时超时
+     * - forceRemoveServer 使用 close() 直接关闭，不等待优雅握手，
+     *   确保损坏的 Reactor scheduler 尽快被释放，避免 RejectedExecutionException 连锁反应
+     */
+    private void forceRemoveServer(String serverName) {
+        ServerHandle handle = handles.remove(serverName);
+        if (handle == null) {
+            return;
+        }
+
+        unregisterTools(handle.registeredTools());
+
+        // 直接关闭，不等优雅握手的超时
+        try {
+            handle.client().close();
+        } catch (Exception ignored) {
+            // transport 可能已损坏，忽略
         }
     }
 
@@ -600,9 +654,11 @@ public class McpManager {
                     builder.env(cfg.getEnv());
                 }
 
-                return new StdioClientTransport(
-                        builder.build(),
-                        createJsonMapper()
+                return new IdempotentStdioTransport(
+                        new StdioClientTransport(
+                                builder.build(),
+                                createJsonMapper()
+                        )
                 );
             }
             case "sse" -> {

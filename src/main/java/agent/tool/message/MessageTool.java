@@ -145,7 +145,7 @@ public class MessageTool extends Tool {
         String effectiveChatId = isBlank(chatId) ? defaultChatId : chatId;
         String effectiveMessageId = isBlank(messageIdArg) ? defaultMessageId : messageIdArg;
 
-        log.info("执行工具: message, 目标: {}:{}, 内容长度: {}", effectiveChannel, effectiveChatId, content == null ? 0 : content.length());
+        log.debug("message target: {}:{}, content length: {}", effectiveChannel, effectiveChatId, content == null ? 0 : content.length());
 
         if (isBlank(effectiveChannel) || isBlank(effectiveChatId)) {
             log.warn("发送消息失败: 未指定目标频道/聊天");

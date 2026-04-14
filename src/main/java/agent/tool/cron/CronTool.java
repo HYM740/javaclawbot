@@ -118,7 +118,7 @@ public class CronTool extends Tool {
     @Override
     public CompletionStage<String> execute(Map<String, Object> args) {
         String action = str(args.get("action"));
-        log.info("执行工具: cron, 动作: {}", action);
+        log.debug("cron action: {}", action);
 
         if ("add".equals(action)) {
             String message = str(args.get("message"));

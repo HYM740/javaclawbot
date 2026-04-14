@@ -94,7 +94,7 @@ public class SkillTool extends Tool {
         }
 
         action = action.trim().toLowerCase(Locale.ROOT);
-        log.info("执行工具: skill, 动作: {}", action);
+        log.debug("skill action: {}", action);
 
         return switch (action) {
             case "load" -> executeLoad(params);

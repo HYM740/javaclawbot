@@ -305,7 +305,7 @@ public class ExecTool extends Tool {
             return CompletableFuture.completedFuture("Error: command is required");
         }
 
-        log.info("执行工具: Bash, 命令: {}, 描述: {}", command, description);
+        log.debug("Bash command: {}, description: {}", command, description);
 
         // Safety guard
         String cwd = Shell.pwd();

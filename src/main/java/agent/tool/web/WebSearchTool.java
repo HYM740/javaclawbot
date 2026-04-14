@@ -142,7 +142,7 @@ public class WebSearchTool extends Tool {
         if (c instanceof Number n) count = n.intValue();
         int n = Math.min(Math.max(count != null ? count : this.maxResults, 1), 10);
 
-        log.info("执行工具: web_search, 参数: query={}, count={}", query, n);
+        log.debug("web_search query={}, count={}", query, n);
 
         String url = API_ENDPOINT
                 + "?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)

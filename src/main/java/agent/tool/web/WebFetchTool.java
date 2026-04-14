@@ -127,7 +127,7 @@ public class WebFetchTool extends Tool {
         Object mc = args.get("maxChars");
         if (mc instanceof Number n) maxChars = n.intValue();
 
-        log.info("执行工具: web_fetch, 参数: url={}, extractMode={}, maxChars={}", url, extractMode, maxChars);
+        log.debug("web_fetch url={}, extractMode={}, maxChars={}", url, extractMode, maxChars);
 
         // validate url first
         UrlCheck chk = validateUrl(url);

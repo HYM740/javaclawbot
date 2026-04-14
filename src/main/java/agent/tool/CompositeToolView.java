@@ -42,7 +42,6 @@ public final class CompositeToolView implements ToolView {
 
     @Override
     public CompletionStage<String> execute(String name, Map<String, Object> args) {
-        log.info("执行工具: {}, 参数: {}", name, args);
         for (int i = registries.size() - 1; i >= 0; i--) {
             ToolRegistry registry = registries.get(i);
             if (registry != null && registry.get(name) != null) {

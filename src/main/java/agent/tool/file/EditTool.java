@@ -160,7 +160,7 @@ public final class EditTool extends Tool {
         String newString = FileSystemTools.asString(args.get("new_string"));
         boolean replaceAll = FileSystemTools.asBool(args.get("replace_all"), false);
 
-        log.info("执行工具: edit_file, 参数: file_path={}, replace_all={}", filePath, replaceAll);
+        log.debug("edit_file file_path={}, replace_all={}", filePath, replaceAll);
 
         if (filePath == null) {
             return CompletableFuture.completedFuture("Error: file_path is required");
