@@ -4,15 +4,13 @@ description: Use when starting any conversation - establishes how to find and us
 ---
 
 <SUBAGENT-STOP>
-If you were dispatched as a subagent to execute a specific task, skip this skill.
+若您你作子代理被派遣执行特定任务，则无需掌握此技能。
 </SUBAGENT-STOP>
 
 <EXTREMELY-IMPORTANT>
-If you think there is even a 1% chance a skill might apply to what you are doing, you ABSOLUTELY MUST invoke the skill.
-
-IF A SKILL APPLIES TO YOUR TASK, YOU DO NOT HAVE A CHOICE. YOU MUST USE IT.
-
-This is not negotiable. This is not optional. You cannot rationalize your way out of this.
+若你认为某项技能有1%的可能性适用于你的工作，就务必加以运用。
+若某项技能适用于你的任务，你别无选择，必须运用它。
+这毫无商量余地。这并非可选项。你无法用理性为自己开脱。
 </EXTREMELY-IMPORTANT>
 
 ## 指令优先级
@@ -27,9 +25,7 @@ zjkycode skills 覆盖默认系统提示行为，但**用户指令始终优先**
 
 ## 如何访问 Skills
 
-**在 Claude Code 中：** 使用 `Skill` 工具。当你调用 skill 时，其内容会被加载并呈现给你 — 直接遵循它。永远不要使用 Read 工具读取 skill 文件。
-
-**在 javaclawbot 中：** 使用 `Skill` 工具。当你调用 skill 时，其内容会被加载并呈现给你 — 直接遵循它。永远不要使用 Read 工具读取 skill 文件。
+**使用 `Skill` 工具**。当你调用 skill 时，其内容会被加载并呈现给你 — 直接遵循它。永远不要使用 Read 工具读取 skill 文件。
 
 # 使用 Skills
 
@@ -144,7 +140,7 @@ Skill 本身会告诉你属于哪种类型。
 步骤 3: 执行
         │
         ├─ subagent-driven-development（推荐）
-        │   每个任务派发子代理 + 两阶段审查
+        │   每个任务派发子代理(支持cli-agent,需要询问用户使用哪种) + 两阶段审查
         │
         └─ executing-plans（备选）
             批量执行 + 检查点审查
