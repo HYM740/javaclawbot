@@ -19,7 +19,7 @@ import java.util.regex.Pattern;
 /**
  * 技能加载器：
  * - 技能以目录形式存在，每个技能目录内包含 SKILL.md
- * - 支持从“工作区技能目录”和“内置技能目录”加载，工作区优先级更高
+ * - 支持从"工作区技能目录"和"内置技能目录"加载，工作区优先级更高
  * - 支持解析 SKILL.md 顶部的 YAML 头信息（仅支持简单 key: value）
  * - 支持从头信息中的 metadata 字段解析 JSON，并读取 javaclawbot/openclaw 下的配置
  * - 支持检查技能依赖（可执行命令、环境变量），并按需过滤不可用技能
@@ -63,23 +63,30 @@ public class SkillsLoader {
 
     /**
      * 列出指定path下的所有技能
-     * @return 技能信息列表，每项包含：name、path、source
+     * @return 技能信息列表，每项包含：name（相对路径）、path、source
      */
     public List<Map<String, String>> listSkills(Path skillPath) {
         List<Map<String, String>> skills = new ArrayList<>();
-        listSkillsRecursive(skillPath, skills, new HashSet<>());
+        listSkillsRecursive(skillPath, skillPath, skills, new HashSet<>());
         return skills;
     }
 
-    private void listSkillsRecursive(Path skillPath,
+    /**
+     * 递归查找技能目录
+     * @param skillsRoot 技能根目录（用于计算相对路径）
+     * @param currentPath 当前查找路径
+     * @param skills 结果列表
+     * @param visited 已访问路径（防循环）
+     */
+    private void listSkillsRecursive(Path skillsRoot, Path currentPath,
                                      List<Map<String, String>> skills,
                                      Set<Path> visited) {
-        if (skillPath == null) {
+        if (currentPath == null) {
             return;
         }
 
         try {
-            Path realPath = skillPath.toRealPath();
+            Path realPath = currentPath.toRealPath();
 
             // 防止循环递归（符号链接 / junction / 重复路径）
             if (!visited.add(realPath)) {
@@ -99,9 +106,12 @@ public class SkillsLoader {
                     Path skillFile = skillDir.resolve("SKILL.md");
 
                     if (Files.exists(skillFile) && Files.isRegularFile(skillFile)) {
-                        skills.add(skillInfo(skillDir.getFileName().toString(), skillFile, "workspace"));
+                        // name = skillsRoot 到 skillDir 的相对路径
+                        String name = skillsRoot.relativize(skillDir).toString();
+                        skills.add(skillInfo(name, skillFile, "workspace"));
                     } else {
-                        listSkillsRecursive(skillDir, skills, visited);
+                        // 继续递归，skillsRoot 保持不变
+                        listSkillsRecursive(skillsRoot, skillDir, skills, visited);
                     }
                 }
             }
@@ -114,44 +124,31 @@ public class SkillsLoader {
     /**
      * 列出所有技能
      * @param filterUnavailable 是否过滤依赖不满足的技能
-     * @return 技能信息列表，每项包含：name、path、source
+     * @return 技能信息列表，每项包含：name（相对路径如 zjkycode/visual-companion）、path、source
      */
     public List<Map<String, String>> listSkills(boolean filterUnavailable) {
         List<Map<String, String>> skills = new ArrayList<>();
+        Set<String> addedNames = new HashSet<>();
 
-        // 工作区技能（优先级最高）
+        // 工作区技能（优先级最高，递归查找）
         if (Files.exists(workspaceSkills) && Files.isDirectory(workspaceSkills)) {
-            try (DirectoryStream<Path> ds = Files.newDirectoryStream(workspaceSkills)) {
-                for (Path skillDir : ds) {
-                    if (Files.isDirectory(skillDir)) {
-                        Path skillFile = skillDir.resolve("SKILL.md");
-                        if (Files.exists(skillFile) && Files.isRegularFile(skillFile)) {
-                            skills.add(skillInfo(skillDir.getFileName().toString(), skillFile, "workspace"));
-                        }
-                    }
-                }
-            } catch (IOException ignored) {
-                // 列表获取失败时保持“尽力而为”的行为
+            listSkillsRecursive(workspaceSkills, workspaceSkills, skills, new HashSet<>());
+            for (Map<String, String> s : skills) {
+                addedNames.add(s.get("name"));
             }
         }
 
-        // 内置技能
+        // 内置技能（递归查找，workspace 已有的跳过）
         if (builtinSkills != null && Files.exists(builtinSkills) && Files.isDirectory(builtinSkills)) {
-            try (DirectoryStream<Path> ds = Files.newDirectoryStream(builtinSkills)) {
-                for (Path skillDir : ds) {
-                    if (Files.isDirectory(skillDir)) {
-                        Path skillFile = skillDir.resolve("SKILL.md");
-                        if (Files.exists(skillFile) && Files.isRegularFile(skillFile)) {
-                            String name = skillDir.getFileName().toString();
-                            boolean already = skills.stream().anyMatch(s -> name.equals(s.get("name")));
-                            if (!already) {
-                                skills.add(skillInfo(name, skillFile, "builtin"));
-                            }
-                        }
-                    }
+            List<Map<String, String>> builtinList = new ArrayList<>();
+            listSkillsRecursive(builtinSkills, builtinSkills, builtinList, new HashSet<>());
+            for (Map<String, String> s : builtinList) {
+                String name = s.get("name");
+                if (!addedNames.contains(name)) {
+                    s.put("source", "builtin");
+                    skills.add(s);
+                    addedNames.add(name);
                 }
-            } catch (IOException ignored) {
-                // 同上：尽力而为
             }
         }
 
@@ -186,29 +183,124 @@ public class SkillsLoader {
     }*/
 
     private static final String skill_format = "Base directory for this skill: %s\n\n%s";
+
     /**
      * 按名称加载技能内容
-     * @param name 技能目录名
-     * @return 文件内容；不存在返回 null
+     * @param name 技能名称（如 "visual-companion" 或 "zjkycode/visual-companion" 或 "zjkycode/visual-companion/SKILL.md"）
+     * @return 文件内容；不存在返回空字符串
      */
     public String loadSkill(String name) {
-        // 先查工作区
-        Path workspaceSkill = workspaceSkills.resolve(name).resolve("SKILL.md");
+        if (name == null || name.isBlank()) {
+            return "";
+        }
+
+        // 规范化：去掉可能存在的 SKILL.md 后缀
+        String normalized = normalizeSkillName(name);
+
+        // 1. 精确匹配 - 先查工作区
+        Path workspaceSkill = workspaceSkills.resolve(normalized).resolve("SKILL.md");
         if (Files.exists(workspaceSkill) && Files.isRegularFile(workspaceSkill)) {
             String context = stripFrontmatter(readUtf8(workspaceSkill));
             return String.format(skill_format, workspaceSkill.getParent(), context);
         }
 
-        // 再查内置
+        // 精确匹配 - 再查内置
         if (builtinSkills != null) {
-            Path builtinSkill = builtinSkills.resolve(name).resolve("SKILL.md");
+            Path builtinSkill = builtinSkills.resolve(normalized).resolve("SKILL.md");
             if (Files.exists(builtinSkill) && Files.isRegularFile(builtinSkill)) {
                 String context = stripFrontmatter(readUtf8(builtinSkill));
                 return String.format(skill_format, builtinSkill.getParent(), context);
             }
         }
 
+        // 2. 模糊匹配 - 从 listSkillNames 结果中找
+        String fuzzyResult = tryFuzzyMatch(normalized);
+        if (fuzzyResult != null) {
+            return fuzzyResult;
+        }
+
+        // 3. 触发 listSkills 后再模糊匹配一次（可能是新添加的技能）
+        fuzzyResult = tryFuzzyMatchWithRefresh(normalized);
+        if (fuzzyResult != null) {
+            return fuzzyResult;
+        }
+
         return "";
+    }
+
+    /**
+     * 规范化技能名称：去掉可能存在的 SKILL.md 后缀
+     */
+    private static String normalizeSkillName(String name) {
+        String n = name.trim();
+        // 处理正斜杠和反斜杠两种分隔符
+        if (n.endsWith("/SKILL.md")) {
+            n = n.substring(0, n.length() - "/SKILL.md".length());
+        } else if (n.endsWith("\\SKILL.md")) {
+            n = n.substring(0, n.length() - "\\SKILL.md".length());
+        } else if (n.endsWith("SKILL.md")) {
+            n = n.substring(0, n.length() - "SKILL.md".length());
+            // 去掉可能残留的分隔符
+            if (n.endsWith("/") || n.endsWith("\\")) {
+                n = n.substring(0, n.length() - 1);
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 模糊匹配：从 listSkillNames 中找 endsWith("/" + normalized) 的技能
+     */
+    private String tryFuzzyMatch(String normalized) {
+        List<String> candidates = findSkillCandidates(normalized, listSkillNames(false));
+        return tryLoadFromCandidates(candidates);
+    }
+
+    /**
+     * 触发 listSkills 刷新后再模糊匹配
+     */
+    private String tryFuzzyMatchWithRefresh(String normalized) {
+        // 这里 listSkills(false) 会重新扫描目录
+        List<String> candidates = findSkillCandidates(normalized, listSkillNames(false));
+        return tryLoadFromCandidates(candidates);
+    }
+
+    /**
+     * 从候选技能名列表中尝试加载（优先 workspace）
+     */
+    private String tryLoadFromCandidates(List<String> candidates) {
+        // 优先 workspace
+        for (String candidate : candidates) {
+            Path p = workspaceSkills.resolve(candidate).resolve("SKILL.md");
+            if (Files.exists(p) && Files.isRegularFile(p)) {
+                String context = stripFrontmatter(readUtf8(p));
+                return String.format(skill_format, p.getParent(), context);
+            }
+        }
+        // 其次 builtin
+        if (builtinSkills != null) {
+            for (String candidate : candidates) {
+                Path p = builtinSkills.resolve(candidate).resolve("SKILL.md");
+                if (Files.exists(p) && Files.isRegularFile(p)) {
+                    String context = stripFrontmatter(readUtf8(p));
+                    return String.format(skill_format, p.getParent(), context);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 从技能名列表中筛选候选：精确匹配或结尾匹配
+     */
+    private List<String> findSkillCandidates(String normalized, List<String> skillNames) {
+        List<String> candidates = new ArrayList<>();
+        for (String skillName : skillNames) {
+            if (skillName.equals(normalized) || skillName.endsWith("/" + normalized)) {
+                candidates.add(skillName);
+            }
+        }
+        return candidates;
     }
 
 
