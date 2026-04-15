@@ -5,6 +5,7 @@ import utils.PathUtil;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,6 +55,25 @@ public final class ReadFileTool extends Tool {
     private static final String FILE_UNCHANGED_STUB =
             "File unchanged since last read. The content from the earlier read_file tool_result in this conversation is still current - refer to that instead of re-reading.";
 
+    /**
+     * Supported image extensions and their MIME types
+     */
+    private static final Map<String, String> IMAGE_MIME_TYPES = Map.of(
+            "jpg", "image/jpeg",
+            "jpeg", "image/jpeg",
+            "png", "image/png",
+            "gif", "image/gif",
+            "webp", "image/webp",
+            "bmp", "image/bmp",
+            "ico", "image/x-icon",
+            "svg", "image/svg+xml"
+    );
+
+    /**
+     * Maximum image file size to read (10MB)
+     */
+    private static final long MAX_IMAGE_SIZE_BYTES = 10L * 1024 * 1024;
+
     private final Path workspace;
     private final Path allowedDir;
     private final FileStateCache fileStateCache;
@@ -89,6 +109,7 @@ public final class ReadFileTool extends Tool {
                 "- Any lines longer than 2000 characters will be truncated",
                 "- Results are returned using cat -n format, with line numbers starting at 1",
                 "- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.",
+                "- This tool can read image files (jpg, jpeg, png, gif, webp, bmp, ico, svg) and returns them as base64 data URIs with MIME type prefix (max 10MB).",
                 "- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.",
                 "- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents."
         ));
@@ -160,6 +181,14 @@ public final class ReadFileTool extends Tool {
             }
             if (!Files.isRegularFile(resolvedPath)) {
                 return CompletableFuture.completedFuture("Error: Not a file: " + filePath);
+            }
+
+            // --- Check if file is an image ---
+            String extension = getFileExtension(resolvedPath.toString());
+            String mimeType = IMAGE_MIME_TYPES.get(extension);
+            if (mimeType != null) {
+                // Handle image file: read as binary and encode to base64
+                return readImageAsBase64(resolvedPath, mimeType);
             }
 
             // --- Port of Claude Code: file_unchanged dedup ---
@@ -274,6 +303,37 @@ public final class ReadFileTool extends Tool {
         } catch (Exception e) {
             return CompletableFuture.completedFuture("Error reading file: " + e.getMessage());
         }
+    }
+
+    /**
+     * Read an image file and return as base64 data URI
+     */
+    private CompletableFuture<String> readImageAsBase64(Path filePath, String mimeType) {
+        try {
+            long fileSize = Files.size(filePath);
+            if (fileSize > MAX_IMAGE_SIZE_BYTES) {
+                return CompletableFuture.completedFuture(
+                        String.format("Error: Image file too large (%.1f MB, max 10 MB)", fileSize / (1024.0 * 1024.0)));
+            }
+
+            byte[] bytes = Files.readAllBytes(filePath);
+            String base64 = Base64.getEncoder().encodeToString(bytes);
+            String dataUri = "data:" + mimeType + ";base64," + base64;
+
+            return CompletableFuture.completedFuture(dataUri);
+        } catch (Exception e) {
+            return CompletableFuture.completedFuture("Error reading image file: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Get file extension in lowercase
+     */
+    private static String getFileExtension(String filename) {
+        if (filename == null) return null;
+        int lastDot = filename.lastIndexOf('.');
+        if (lastDot < 0 || lastDot >= filename.length() - 1) return null;
+        return filename.substring(lastDot + 1).toLowerCase();
     }
 
     /**
