@@ -264,9 +264,9 @@ public class LocalSubagentExecutor implements SubagentExecutor {
 
         tools.register(new EditTool(workspace, null, fileStateCache));
         tools.register(new WriteTool(workspace, null, fileStateCache));
-        tools.register(new ListFilesTool(workspace, allowedDir));
         CliAgentCommandHandler handler = new CliAgentCommandHandler(workspace);
         handler.close();
+        tools.register(new ListFilesTool(workspace, allowedDir, handler.getProjectRegistry()));
         tools.register(new GlobTool(workspace, allowedDir, handler.getProjectRegistry()));
         tools.register(new GrepTool(workspace, allowedDir, handler.getProjectRegistry()));
         // MCP 重载工具：按名称刷新指定 MCP server

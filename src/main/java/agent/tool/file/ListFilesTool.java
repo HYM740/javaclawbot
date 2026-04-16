@@ -1,6 +1,8 @@
 package agent.tool.file;
 
 import agent.tool.Tool;
+import cn.hutool.core.util.StrUtil;
+import providers.cli.ProjectRegistry;
 import utils.PathUtil;
 
 import java.nio.file.*;
@@ -29,10 +31,16 @@ import static agent.tool.file.FileSystemTools.schemaPathOnly;
 public final class ListFilesTool extends Tool {
     private final Path workspace;
     private final Path allowedDir;
+    private final ProjectRegistry projectRegistry;
 
-    public ListFilesTool(Path workspace, Path allowedDir) {
+    public ListFilesTool(Path workspace, Path allowedDir, ProjectRegistry projectRegistry) {
         this.workspace = workspace;
         this.allowedDir = allowedDir;
+        this.projectRegistry = projectRegistry;
+    }
+
+    public ListFilesTool(Path workspace, Path allowedDir) {
+        this(workspace, allowedDir, null);
     }
 
     @Override
@@ -57,9 +65,24 @@ public final class ListFilesTool extends Tool {
     public CompletionStage<String> execute(Map<String, Object> args) {
         String path = asString(args.get("path"));
         try {
-            Path dirPath = PathUtil.resolvePath(path, workspace, allowedDir);
+            Path dirPath;
+            if (path != null && !path.isEmpty()) {
+                dirPath = PathUtil.resolvePath(path, workspace, allowedDir);
+            } else {
+                // 默认路径逻辑：优先使用主项目路径
+                if (projectRegistry != null) {
+                    String mainProjectPath = projectRegistry.getMainProjectPath();
+                    if (StrUtil.isNotBlank(mainProjectPath)) {
+                        dirPath = Paths.get(mainProjectPath);
+                    } else {
+                        dirPath = workspace;
+                    }
+                } else {
+                    dirPath = workspace;
+                }
+            }
             if (!Files.exists(dirPath)) {
-                return CompletableFuture.completedFuture("Error: Directory not found: " + path);
+                return CompletableFuture.completedFuture("Error: Directory not found: " + (path != null ? path : dirPath.toString()));
             }
             if (!Files.isDirectory(dirPath)) {
                 return CompletableFuture.completedFuture("Error: Not a directory: " + path);

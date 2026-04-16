@@ -372,7 +372,7 @@ public class AgentLoop {
         sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));
         sharedTools.register(new FileSystemTools.ReadWordStructuredTool(workspace, allowedDir));
 
-        sharedTools.register(new ListFilesTool(workspace, allowedDir));
+        sharedTools.register(new ListFilesTool(workspace, allowedDir, cliAgentHandler.getProjectRegistry()));
 //        sharedTools.register(new FileSystemTools.ReadPptTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadPptStructuredTool(workspace, allowedDir));
 //        sharedTools.register(new FileSystemTools.ReadWordTool(workspace, allowedDir));

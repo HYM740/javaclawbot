@@ -190,9 +190,12 @@ public final class GlobTool extends Tool {
         String searchPattern = filePattern;
 
         // ---------- Line 78-84: handle absolute paths ----------
-        if (Path.of(filePattern).isAbsolute()) {
-            ExtractBaseResult baseResult = extractGlobBaseDirectory(filePattern);
-            if (baseResult.baseDir != null && !baseResult.baseDir.isEmpty()) {
+        // 修复: 不能直接用 Path.of(pattern) 因为 glob 字符 (*, ?, [, {) 在 Windows 上是非法路径字符
+        // 先提取基础目录，再判断是否绝对路径
+        ExtractBaseResult baseResult = extractGlobBaseDirectory(filePattern);
+        if (baseResult.baseDir != null && !baseResult.baseDir.isEmpty()) {
+            Path basePath = Paths.get(baseResult.baseDir);
+            if (basePath.isAbsolute()) {
                 searchDir = baseResult.baseDir;
                 searchPattern = baseResult.relativePattern;
             }
