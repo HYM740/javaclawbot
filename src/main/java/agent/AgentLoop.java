@@ -111,6 +111,9 @@ public class AgentLoop {
      */
     private final CliAgentCommandHandler cliAgentHandler;
 
+    // 跟踪已记录的 CLI session ID，避免重复添加 reference marker
+    private final Set<String> recordedCliSessions = ConcurrentHashMap.newKeySet();
+
     private final ConcurrentHashMap<String, CopyOnWriteArrayList<CompletableFuture<?>>> activeTasks = new ConcurrentHashMap<>();
 
     /**
@@ -233,41 +236,40 @@ public class AgentLoop {
                     metadata != null ? metadata : Map.of()
             ));
 
-            // 如果是 CLI 子代理输出
-            // 通道通知保留（用户需要感知 CC 状态），但主 session 只记录引用
+            // 如果是 CLI 子代理输出（仅 TEXT、RESULT、ERROR 等带 cliAgentOutput=true 的消息）
+            // 通道通知保留，但主 session 只记录一次引用
             if (metadata != null && Boolean.TRUE.equals(metadata.get("cliAgentOutput"))) {
                 String project = (String) metadata.get("project");
                 String agentType = (String) metadata.get("agent_type");
                 String cliSessionId = (String) metadata.get("cli_session_id");
 
-                // 记录引用标记到主会话，而非完整内容
-                Session session = sessions.getOrCreate(sessionKey);
-                if (session != null) {
-                    // 只记录简短的引用标记，避免污染主上下文
-                    String referenceMarker = "[CLI Session: " + (agentType != null ? agentType : "unknown") + "/" + project + "]";
+                // 去重：每个 CLI session 只记录一次 reference marker
+                String sessionFileKey = sessionKey + ":" + cliSessionId;
+                if (recordedCliSessions.add(sessionFileKey)) {
+                    Session session = sessions.getOrCreate(sessionKey);
+                    if (session != null) {
+                        String referenceMarker = "[CLI Session: " + (agentType != null ? agentType : "unknown") + "/" + project + "]";
 
-                    // 构建 CLI session 文件名
-                    // 格式: {channel}_{chatId}_{project}_{agentType}_{sessionId}.jsonl
-                    // 使用上面已经解析的 channel 和 chatId
-                    String safeChannel = channel.replaceAll("[^a-zA-Z0-9_-]", "_");
-                    String safeChatId = chatId.replaceAll("[^a-zA-Z0-9_-]", "_");
+                        String safeChannel = channel.replaceAll("[^a-zA-Z0-9_-]", "_");
+                        String safeChatId = chatId.replaceAll("[^a-zA-Z0-9_-]", "_");
 
-                    String cliSessionFile = safeChannel + "_" + safeChatId + "_" +
-                            (project != null ? project : "unknown") + "_" +
-                            (agentType != null ? agentType : "unknown") + "_" +
-                            (cliSessionId != null ? cliSessionId : "default") + ".jsonl";
+                        String cliSessionFile = safeChannel + "_" + safeChatId + "_" +
+                                (project != null ? project : "unknown") + "_" +
+                                (agentType != null ? agentType : "unknown") + "_" +
+                                (cliSessionId != null ? cliSessionId : "default") + ".jsonl";
 
-                    session.addMessage("assistant", referenceMarker, Map.of(
-                            "source", "cli_session_ref",
-                            "project", project,
-                            "agent_type", agentType,
-                            "cli_session_id", cliSessionId,
-                            "cli_session_file", cliSessionFile,
-                            "session_key", sessionKey
-                    ));
+                        session.addMessage("assistant", referenceMarker, Map.of(
+                                "source", "cli_session_ref",
+                                "project", project,
+                                "agent_type", agentType,
+                                "cli_session_id", cliSessionId,
+                                "cli_session_file", cliSessionFile,
+                                "session_key", sessionKey
+                        ));
 
-                    log.debug("Recorded CLI session reference: project={}, agentType={}, sessionId={}, file={}",
-                            project, agentType, cliSessionId, cliSessionFile);
+                        log.debug("Recorded CLI session reference: project={}, agentType={}, sessionId={}, file={}",
+                                project, agentType, cliSessionId, cliSessionFile);
+                    }
                 }
             }
         });

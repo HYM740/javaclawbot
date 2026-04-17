@@ -71,30 +71,29 @@ public class CliAgentOutputHandler {
 
         switch (event.type()) {
             case TEXT -> {
-                // 文本内容直接输出
+                // 文本内容输出到渠道，不记录 session（主代理可通过会话文件查看完整内容）
                 if (event.content() != null && !event.content().isBlank()) {
-                    sendToChatWithMeta(prefix, event.content(), project, agentType, sessionId);
+                    sendToChatOnly(prefix, event.content(), project);
                 }
             }
 
             case THINKING -> {
-                // thinking 可以折叠或者简化输出
+                // 发送到渠道但不记录 session
                 if (event.content() != null && !event.content().isBlank()) {
                     String truncated = truncate(event.content(), 200);
-                    sendToChatWithMeta(prefix, "💭 " + truncated + (event.content().length() > 200 ? "..." : ""), project, agentType, sessionId);
+                    sendToChatOnly(prefix, "💭 " + truncated + (event.content().length() > 200 ? "..." : ""), project);
                 }
             }
 
             case TOOL_USE -> {
-                // 工具调用
-                String toolInfo = formatToolUse(event);
-                sendToChatWithMeta(prefix, "▶ " + toolInfo, project, agentType, sessionId);
+                // 仅日志，不发送到渠道也不记录 session
+                log.debug("[{}/{}] tool: {}", agentType, project, formatToolUse(event));
             }
 
             case TOOL_RESULT -> {
-                // 工具结果
+                // 发送到渠道但不记录 session
                 String resultInfo = formatToolResult(event);
-                sendToChatWithMeta(prefix, "  " + resultInfo, project, agentType, sessionId);
+                sendToChatOnly(prefix, "  " + resultInfo, project);
             }
 
             case RESULT -> {
@@ -239,7 +238,30 @@ public class CliAgentOutputHandler {
     }
 
     /**
-     * 发送消息到群聊（带元数据）
+     * 发送消息到群聊（仅渠道通知，完全不记录 session）
+     * 不设 cliAgentOutput metadata，AgentLoop 不会将其记录到主 session
+     *
+     * @param prefix  前缀，如 [CC/p1]
+     * @param message 消息内容
+     * @param project 项目名，用于路由到正确的渠道
+     */
+    private void sendToChatOnly(String prefix, String message, String project) {
+        String formatted = prefix + " " + message;
+
+        if (sendToChatWithMetaCallback != null) {
+            Map<String, Object> metadata = new HashMap<>();
+            metadata.put("project", project);
+            // 不设 cliAgentOutput=true，避免 AgentLoop 记录到 session
+            sendToChatWithMetaCallback.accept(formatted, project, metadata);
+        } else if (sendToChatCallback != null) {
+            sendToChatCallback.accept(formatted, project);
+        } else {
+            log.info("{} {}", prefix, message);
+        }
+    }
+
+    /**
+     * 发送消息到群聊（带元数据，默认记录 session）
      *
      * @param prefix     前缀，如 [CC/p1]
      * @param message    消息内容
@@ -248,11 +270,26 @@ public class CliAgentOutputHandler {
      * @param sessionId  CLI 会话 ID
      */
     private void sendToChatWithMeta(String prefix, String message, String project, String agentType, String sessionId) {
+        sendToChatWithMeta(prefix, message, project, agentType, sessionId, true);
+    }
+
+    /**
+     * 发送消息到群聊（带元数据，可控是否记录 session）
+     *
+     * @param prefix     前缀，如 [CC/p1]
+     * @param message    消息内容
+     * @param project    项目名，用于路由到正确的渠道
+     * @param agentType  Agent 类型
+     * @param sessionId  CLI 会话 ID
+     * @param recordInSession 是否记录到主 session
+     */
+    private void sendToChatWithMeta(String prefix, String message, String project, String agentType, String sessionId, boolean recordInSession) {
         String formatted = prefix + " " + message;
 
         if (sendToChatWithMetaCallback != null) {
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("cliAgentOutput", true);
+            metadata.put("recordInSession", recordInSession);
             metadata.put("project", project);
             metadata.put("agent_type", agentType);
             if (sessionId != null) {
