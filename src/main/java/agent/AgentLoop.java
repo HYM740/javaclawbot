@@ -96,6 +96,10 @@ public class AgentLoop {
      * 全局共享工具
      */
     private final ToolRegistry sharedTools;
+    /**
+     * 共享 FileStateCache：Read 读入缓存 → Edit/Write 校验通过
+     */
+    private final FileStateCache sharedFileCache;
     private volatile boolean running = false;
     private final Map<String, MCPServerConfig> mcpServers;
     /**
@@ -275,6 +279,7 @@ public class AgentLoop {
 
         // 注册工具
         this.sharedTools = new ToolRegistry();
+        this.sharedFileCache = new FileStateCache();
 
         // 技能工具
         this.skillsLoader = new SkillsLoader(workspace);
@@ -363,7 +368,6 @@ public class AgentLoop {
         java.nio.file.Path allowedDir = restrictToWorkspace ? workspace : null;
 
         // 共享 FileStateCache：Read 读入缓存 → Edit/Write 校验通过
-        FileStateCache sharedFileCache = new FileStateCache();
 
         // 文件/命令/网络工具：无会话上下文，可共享
         sharedTools.register(new ReadFileTool(workspace, allowedDir, sharedFileCache));
@@ -471,11 +475,11 @@ public class AgentLoop {
 
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
-        localTools.register(new ReadFileTool(workspace, null));
+        localTools.register(new ReadFileTool(workspace, null, sharedFileCache));
         localTools.register(new GlobTool(workspace, null, cliAgentHandler.getProjectRegistry()));
         localTools.register(new GrepTool(workspace, null, cliAgentHandler.getProjectRegistry()));
-        localTools.register(new EditTool(workspace, null));
-        localTools.register(new WriteTool(workspace, null));
+        localTools.register(new EditTool(workspace, null, sharedFileCache));
+        localTools.register(new WriteTool(workspace, null, sharedFileCache));
         localTools.register(new SkillTool(commandManager, skillsLoader));
 
         return new CompositeToolView(localTools);
@@ -495,9 +499,9 @@ public class AgentLoop {
 
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
-        localTools.register(new ReadFileTool(workspace, null));
-        localTools.register(new EditTool(workspace, null));
-        localTools.register(new WriteTool(workspace, null));
+        localTools.register(new ReadFileTool(workspace, null, sharedFileCache));
+        localTools.register(new EditTool(workspace, null, sharedFileCache));
+        localTools.register(new WriteTool(workspace, null, sharedFileCache));
         localTools.register(new GlobTool(workspace, null, cliAgentHandler.getProjectRegistry()));
         localTools.register(new GrepTool(workspace, null, cliAgentHandler.getProjectRegistry()));
 

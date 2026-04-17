@@ -112,7 +112,7 @@ public class ContextPruner {
         // 但保留最后 N 次工具调用
 
         if (ratio >= consolidateThreshold) {
-            int prunedCurrentTurn = pruneCurrentTurnTools(result, cutoffIndex, settings, isToolPrunable);
+            int prunedCurrentTurn = pruneCurrentTurnTools(result, cutoffIndex, settings, isToolPrunable, charWindow, consolidateThreshold);
             log.debug("裁剪当前轮次工具：{} 个", prunedCurrentTurn);
         }
 
@@ -148,7 +148,7 @@ public class ContextPruner {
 
         String trimmed = head + "\n...\n" + tail;
         String note = String.format(
-                "\n\n[Tool result trimmed: kept first %d chars and last %d chars of %d chars.]",
+                "\n\n[Tool result trimmed: kept first %d chars and last %d chars of %d chars.if you need,please read raw memory: {workspace}/memory/yyyy-MM-dd.md]",
                 headChars, tailChars, contentStr.length());
 
         Map<String, Object> result = new LinkedHashMap<>(msg);
@@ -158,30 +158,32 @@ public class ContextPruner {
 
     /**
      * 裁剪当前轮次（最后一个用户消息之后）的工具调用
-     * 保留最后 keepLastToolsInTurn 次工具调用
+     * 多级渐进修剪策略：
+     * 1. 第一轮：保留前 5 个 + 后 10 个
+     * 2. 如果仍超阈值：保留前 2 个 + 后 5 个
+     * 3. 如果仍超阈值：只保留后 5 个
      *
-     * @param messages       消息列表（会被修改）
-     * @param lastUserIndex  最后一个用户消息的索引
-     * @param settings       修剪配置
-     * @param isToolPrunable 判断工具是否可修剪
+     * @param messages           消息列表（会被修改）
+     * @param lastUserIndex      最后一个用户消息的索引
+     * @param settings           修剪配置
+     * @param isToolPrunable     判断工具是否可修剪
+     * @param charWindow         字符窗口大小
+     * @param consolidateThreshold 合并阈值
      * @return 被裁剪的工具数量
      */
     private static int pruneCurrentTurnTools(
             List<Map<String, Object>> messages,
             int lastUserIndex,
             ContextPruningSettings settings,
-            Predicate<String> isToolPrunable
+            Predicate<String> isToolPrunable,
+            int charWindow,
+            double consolidateThreshold
     ) {
         if (lastUserIndex < 0 || lastUserIndex >= messages.size() - 1) {
-            return 0; // 没有当前轮次的内容
+            return 0;
         }
 
-        int keepLast = settings.getKeepLastToolsInTurn();
-        if (keepLast <= 0) {
-            return 0; // 不保留任何工具，但这里我们不处理，因为可能会丢失重要信息
-        }
-
-        // 收集当前轮次（最后一个用户消息之后）的工具索引
+        // 收集当前轮次可修剪的工具索引
         List<Integer> currentTurnToolIndexes = new ArrayList<>();
         for (int i = lastUserIndex + 1; i < messages.size(); i++) {
             Map<String, Object> msg = messages.get(i);
@@ -196,26 +198,56 @@ public class ContextPruner {
             currentTurnToolIndexes.add(i);
         }
 
-        // 如果工具数量少于保留数量，不裁剪
-        if (currentTurnToolIndexes.size() <= keepLast) {
+        int totalTools = currentTurnToolIndexes.size();
+        if (totalTools <= 0) {
             return 0;
         }
 
-        // 计算需要裁剪的工具数量（跳过最后 keepLast 个）
-        int pruneCount = currentTurnToolIndexes.size() - keepLast;
+        // 定义多级渐进保留策略：{keepFront, keepBack}
+        int[][] strategies = {
+                {5, 10}, // 第一轮：前5 + 后10
+                {2, 5},  // 第二轮：前2 + 后5
+                {0, 5},  // 第三轮：只后5
+        };
+
         int actuallyPruned = 0;
 
-        // 从前往后裁剪（保留最后 keepLast 个）
-        for (int i = 0; i < pruneCount; i++) {
-            int msgIndex = currentTurnToolIndexes.get(i);
-            Map<String, Object> msg = messages.get(msgIndex);
-            if (msg == null) continue;
+        for (int[] strategy : strategies) {
+            int keepFront = strategy[0];
+            int keepBack = strategy[1];
 
-            // 尝试软修剪
-            Map<String, Object> trimmed = softTrimToolResult(msg, settings);
-            if (trimmed != null) {
-                messages.set(msgIndex, trimmed);
-                actuallyPruned++;
+            // 计算需要保留的索引集合
+            Set<Integer> keepIndexes = new HashSet<>();
+            for (int i = 0; i < Math.min(keepFront, totalTools); i++) {
+                keepIndexes.add(currentTurnToolIndexes.get(i));
+            }
+            for (int i = 0; i < Math.min(keepBack, totalTools); i++) {
+                keepIndexes.add(currentTurnToolIndexes.get(totalTools - 1 - i));
+            }
+
+            // 对不在保留集合中的工具进行软修剪
+            int prunedThisRound = 0;
+            for (int i = 0; i < totalTools; i++) {
+                int msgIndex = currentTurnToolIndexes.get(i);
+                if (keepIndexes.contains(msgIndex)) continue;
+
+                Map<String, Object> msg = messages.get(msgIndex);
+                if (msg == null) continue;
+
+                Map<String, Object> trimmed = softTrimToolResult(msg, settings);
+                if (trimmed != null) {
+                    messages.set(msgIndex, trimmed);
+                    prunedThisRound++;
+                }
+            }
+
+            actuallyPruned += prunedThisRound;
+
+            // 检查修剪后是否仍超阈值
+            int totalChars = estimateContextChars(messages);
+            double ratio = (double) totalChars / charWindow;
+            if (ratio < consolidateThreshold) {
+                break; // 已低于阈值，不需要继续降级修剪
             }
         }
 
