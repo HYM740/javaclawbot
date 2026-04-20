@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
  * - call() → execute()
  * - mapToolResultToToolResultBlockParam → result formatting in execute()
  */
+@Slf4j
 public final class GrepTool extends Tool {
 
     // ---------- Line 95-102: VCS_DIRECTORIES_TO_EXCLUDE ----------
@@ -478,25 +479,150 @@ public final class GrepTool extends Tool {
      * - Exit code 0 = matches found, 1 = no matches (both success)
      * - Returns list of output lines (empty list for no matches)
      */
-    private static List<String> ripGrep(List<String> args, String target) throws Exception {
+    private List<String> ripGrep(List<String> args, String target) throws Exception {
+        // Get ripgrep configuration with fallback logic
+        RipgrepConfig config = RipgrepConfig.getRipgrepConfig();
+
         // Build command: rg [args] [target]
         List<String> command = new ArrayList<>();
-        command.add("rg");
+        command.add(config.getCommand());
         command.addAll(args);
         command.add(target);
 
         ProcessBuilder pb = new ProcessBuilder(command);
         pb.redirectErrorStream(false);
 
-        // 20s timeout (matching Claude Code default)
+        try {
+            // 20s timeout (matching Claude Code default)
+            Process process = pb.start();
+
+            // Read stdout
+            List<String> lines = readProcessOutput(process);
+
+            // Wait with timeout
+            boolean finished = process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                // For timeouts with no results, throw so caller knows search didn't complete
+                if (lines.isEmpty()) {
+                    throw new RuntimeException("Ripgrep search timed out after 20 seconds. Try searching a more specific path or pattern.");
+                }
+                // For timeouts with partial results, drop last line (may be incomplete)
+                if (!lines.isEmpty()) {
+                    lines.remove(lines.size() - 1);
+                }
+                return lines;
+            }
+
+            int exitCode = process.exitValue();
+
+            // Exit code 0 = matches found, 1 = no matches (both are success)
+            if (exitCode == 0 || exitCode == 1) {
+                return lines;
+            }
+
+            // Exit code 2 = ripgrep error; check for EAGAIN
+            if (exitCode == 2) {
+                // Check stderr
+                String stderr = getStderr(process);
+                if (stderr.contains("os error 11") || stderr.contains("Resource temporarily unavailable")) {
+                    // Retry with single-threaded mode (-j 1)
+                    return ripGrepWithSingleThread(args, target);
+                }
+            }
+
+            // For other errors, return whatever we got
+            return lines;
+
+        } catch (IOException e) {
+            // Check if this is ENOENT (ripgrep not found)
+            if (e.getMessage() != null && e.getMessage().contains("Cannot run program") && e.getMessage().contains("error=2")) {
+                log.warn("System ripgrep not found, falling back to vendored ripgrep");
+                return ripGrepWithBuiltin(args, target);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Retry ripgrep with single-threaded mode for EAGAIN errors.
+     */
+    private List<String> ripGrepWithSingleThread(List<String> args, String target) throws Exception {
+        RipgrepConfig config = RipgrepConfig.getRipgrepConfig();
+
+        List<String> command = new ArrayList<>();
+        command.add(config.getCommand());
+        command.add("-j");
+        command.add("1");
+        command.addAll(args);
+        command.add(target);
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(false);
+        Process process = pb.start();
+
+        List<String> lines = readProcessOutput(process);
+        process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
+        int exitCode = process.exitValue();
+        if (exitCode == 0 || exitCode == 1) {
+            return lines;
+        }
+        return lines;
+    }
+
+    /**
+     * Execute ripgrep using the vendored (builtin) ripgrep binary.
+     */
+    private List<String> ripGrepWithBuiltin(List<String> args, String target) throws Exception {
+        RipgrepConfig config = RipgrepConfig.getRipgrepConfig();
+
+        // Use the binary path from config
+        String rgCmd = config.getExecutablePath().toString();
+
+        List<String> command = new ArrayList<>();
+        command.add(rgCmd);
+        command.addAll(args);
+        command.add(target);
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(false);
+
         Process process = pb.start();
 
         // Read stdout
+        List<String> lines = readProcessOutput(process);
+
+        // Wait with timeout
+        boolean finished = process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroyForcibly();
+            if (lines.isEmpty()) {
+                throw new RuntimeException("Ripgrep search timed out after 20 seconds. Try searching a more specific path or pattern.");
+            }
+            if (!lines.isEmpty()) {
+                lines.remove(lines.size() - 1);
+            }
+            return lines;
+        }
+
+        int exitCode = process.exitValue();
+        if (exitCode == 0 || exitCode == 1) {
+            return lines;
+        }
+
+        // For other errors, return whatever we got
+        return lines;
+    }
+
+    /**
+     * Read process stdout and return as list of lines.
+     */
+    private static List<String> readProcessOutput(Process process) throws IOException {
         List<String> lines = new ArrayList<>();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                // Strip trailing \r for Windows compatibility (matches ripgrep.ts line 370)
+                // Strip trailing \r for Windows compatibility
                 if (line.endsWith("\r")) {
                     line = line.substring(0, line.length() - 1);
                 }
@@ -505,73 +631,21 @@ public final class GrepTool extends Tool {
                 }
             }
         }
+        return lines;
+    }
 
-        // Read stderr for error diagnostics
-        String stderr = "";
+    /**
+     * Get stderr from a process.
+     */
+    private static String getStderr(Process process) throws IOException {
+        StringBuilder sb = new StringBuilder();
         try (BufferedReader errReader = new BufferedReader(new InputStreamReader(process.getErrorStream()))) {
-            StringBuilder sb = new StringBuilder();
             String line;
             while ((line = errReader.readLine()) != null) {
                 sb.append(line).append("\n");
             }
-            stderr = sb.toString();
         }
-
-        // Wait with timeout
-        boolean finished = process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
-        if (!finished) {
-            process.destroyForcibly();
-            // For timeouts with no results, throw so caller knows search didn't complete
-            if (lines.isEmpty()) {
-                throw new RuntimeException("Ripgrep search timed out after 20 seconds. Try searching a more specific path or pattern.");
-            }
-            // For timeouts with partial results, drop last line (may be incomplete)
-            if (!lines.isEmpty()) {
-                lines.remove(lines.size() - 1);
-            }
-            return lines;
-        }
-
-        int exitCode = process.exitValue();
-
-        // Exit code 0 = matches found, 1 = no matches (both are success) — ripgrep.ts line 192
-        if (exitCode == 0 || exitCode == 1) {
-            return lines;
-        }
-
-        // Exit code 2 = ripgrep error; check for EAGAIN — ripgrep.ts line 394
-        if (exitCode == 2 && stderr.contains("os error 11") || stderr.contains("Resource temporarily unavailable")) {
-            // Retry with single-threaded mode (-j 1) — ripgrep.ts line 399-408
-            List<String> retryCommand = new ArrayList<>();
-            retryCommand.add("rg");
-            retryCommand.add("-j");
-            retryCommand.add("1");
-            retryCommand.addAll(args);
-            retryCommand.add(target);
-
-            ProcessBuilder retryPb = new ProcessBuilder(retryCommand);
-            retryPb.redirectErrorStream(false);
-            Process retryProcess = retryPb.start();
-
-            List<String> retryLines = new ArrayList<>();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(retryProcess.getInputStream()))) {
-                String l;
-                while ((l = reader.readLine()) != null) {
-                    if (l.endsWith("\r")) l = l.substring(0, l.length() - 1);
-                    if (!l.isEmpty()) retryLines.add(l);
-                }
-            }
-            retryProcess.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
-            int retryExitCode = retryProcess.exitValue();
-            if (retryExitCode == 0 || retryExitCode == 1) {
-                return retryLines;
-            }
-            // Even on retry failure, return partial results
-            return retryLines;
-        }
-
-        // For other errors, return whatever we got — ripgrep.ts line 456
-        return lines;
+        return sb.toString();
     }
 
     // ======================== helpers ========================

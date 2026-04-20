@@ -1,5 +1,8 @@
 package session;
 
+import agent.Usage;
+import agent.UsageAccumulator;
+
 import java.time.LocalDateTime;
 import java.util.*;
 
@@ -96,6 +99,20 @@ public final class Session {
 
     /** 缓存写入 token 数 */
     private int cacheWrite = 0;
+
+    // ==================== 上一次对话的上下文大小（用于判断压缩必要性） ====================
+
+    /** 上一次对话的输入 token 数 */
+    private int lastCallInput = 0;
+
+    /** 上一次对话的输出 token 数 */
+    private int lastCallOutput = 0;
+
+    /** 上一次对话的缓存读取 token 数 */
+    private int lastCallCacheRead = 0;
+
+    /** 上一次对话的缓存写入 token 数 */
+    private int lastCallCacheWrite = 0;
 
     /** 模型名称 */
     private String model;
@@ -287,6 +304,27 @@ public final class Session {
         this.cacheWrite = cacheWrite;
     }
 
+    // ==================== 上一次对话的上下文大小 ====================
+
+    public int getLastCallInput() { return lastCallInput; }
+    public void setLastCallInput(int lastCallInput) { this.lastCallInput = lastCallInput; }
+
+    public int getLastCallOutput() { return lastCallOutput; }
+    public void setLastCallOutput(int lastCallOutput) { this.lastCallOutput = lastCallOutput; }
+
+    public int getLastCallCacheRead() { return lastCallCacheRead; }
+    public void setLastCallCacheRead(int lastCallCacheRead) { this.lastCallCacheRead = lastCallCacheRead; }
+
+    public int getLastCallCacheWrite() { return lastCallCacheWrite; }
+    public void setLastCallCacheWrite(int lastCallCacheWrite) { this.lastCallCacheWrite = lastCallCacheWrite; }
+
+    /**
+     * 获取上一次对话的 prompt tokens（上下文大小）
+     */
+    public long getLastCallPromptTokens() {
+        return (long) lastCallInput + lastCallCacheRead + lastCallCacheWrite;
+    }
+
     public String getModel() {
         return model;
     }
@@ -313,4 +351,21 @@ public final class Session {
         this.cacheWrite += cacheWrite;
         this.totalTokens = this.inputTokens + this.outputTokens + this.cacheRead + this.cacheWrite;
     }
+
+    public UsageAccumulator obtainLastUsage() {
+
+        UsageAccumulator accumulator = new UsageAccumulator();
+        Usage usage = new Usage();
+        // 使用 lastCall 而非累积值，这样 context ratio 反映的是最后一次对话的实际上下文大小
+        long promptTokens = getLastCallPromptTokens();
+        long totalTokens = promptTokens + lastCallOutput;
+        usage.setInput(this.lastCallInput)
+                .setTotal(totalTokens)
+                .setOutput(this.lastCallOutput)
+                .setCacheRead(this.lastCallCacheRead)
+                .setCacheWrite(this.lastCallCacheWrite);
+        accumulator.accumulate(usage);
+        return accumulator;
+    }
+
 }

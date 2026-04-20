@@ -1,5 +1,8 @@
 package agent;
 
+import lombok.Data;
+import lombok.experimental.Accessors;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -14,6 +17,8 @@ import java.util.Map;
  * - 缓存 token 统计
  * - 成本估算
  */
+@Accessors(chain = true)
+@Data
 public class Usage {
 
     // ==================== 字段 ====================
@@ -158,48 +163,6 @@ public class Usage {
         if (cacheWrite > 0) map.put("cacheWrite", cacheWrite);
         if (total > 0) map.put("total", total);
         return map;
-    }
-
-    // ==================== Getter/Setter ====================
-
-    public long getInput() {
-        return input;
-    }
-
-    public void setInput(long input) {
-        this.input = input;
-    }
-
-    public long getOutput() {
-        return output;
-    }
-
-    public void setOutput(long output) {
-        this.output = output;
-    }
-
-    public long getCacheRead() {
-        return cacheRead;
-    }
-
-    public void setCacheRead(long cacheRead) {
-        this.cacheRead = cacheRead;
-    }
-
-    public long getCacheWrite() {
-        return cacheWrite;
-    }
-
-    public void setCacheWrite(long cacheWrite) {
-        this.cacheWrite = cacheWrite;
-    }
-
-    public long getTotal() {
-        return total;
-    }
-
-    public void setTotal(long total) {
-        this.total = total;
     }
 
     // ==================== toString ====================

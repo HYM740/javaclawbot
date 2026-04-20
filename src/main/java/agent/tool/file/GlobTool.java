@@ -7,6 +7,7 @@ import providers.cli.ProjectRegistry;
 import utils.PathUtil;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -297,9 +298,66 @@ public final class GlobTool extends Tool {
      * Execute ripgrep --files for glob matching.
      * Simpler than GrepTool's ripGrep since we only need file listing.
      */
-    private static List<String> ripGlobFiles(List<String> args, String target) throws Exception {
+    private List<String> ripGlobFiles(List<String> args, String target) throws Exception {
+        // Get ripgrep configuration with fallback logic
+        RipgrepConfig config = RipgrepConfig.getRipgrepConfig();
+
         List<String> command = new ArrayList<>();
-        command.add("rg");
+        command.add(config.getCommand());
+        command.addAll(args);
+        command.add(target);
+
+        ProcessBuilder pb = new ProcessBuilder(command);
+        pb.redirectErrorStream(false);
+
+        try {
+            Process process = pb.start();
+
+            List<String> lines = new ArrayList<>();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.endsWith("\r")) line = line.substring(0, line.length() - 1);
+                    if (!line.isEmpty()) lines.add(line);
+                }
+            }
+
+            boolean finished = process.waitFor(20, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroyForcibly();
+                if (lines.isEmpty()) {
+                    throw new RuntimeException("Glob search timed out after 20 seconds. Try a more specific path or pattern.");
+                }
+                return lines;
+            }
+
+            int exitCode = process.exitValue();
+            // Exit code 0 = files found, 1 = no files (both success)
+            if (exitCode == 0 || exitCode == 1) {
+                return lines;
+            }
+
+            return lines;
+
+        } catch (IOException e) {
+            // Check if this is ENOENT (ripgrep not found)
+            if (e.getMessage() != null && e.getMessage().contains("Cannot run program") && e.getMessage().contains("error=2")) {
+                log.warn("System ripgrep not found, falling back to vendored ripgrep");
+                return ripGlobFilesWithBuiltin(args, target);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Execute ripgrep --files using vendored ripgrep binary.
+     */
+    private List<String> ripGlobFilesWithBuiltin(List<String> args, String target) throws Exception {
+        RipgrepConfig config = RipgrepConfig.getRipgrepConfig();
+        String rgCmd = config.getExecutablePath().toString();
+
+        List<String> command = new ArrayList<>();
+        command.add(rgCmd);
         command.addAll(args);
         command.add(target);
 
@@ -327,7 +385,6 @@ public final class GlobTool extends Tool {
         }
 
         int exitCode = process.exitValue();
-        // Exit code 0 = files found, 1 = no files (both success)
         if (exitCode == 0 || exitCode == 1) {
             return lines;
         }

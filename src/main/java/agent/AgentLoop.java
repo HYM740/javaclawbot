@@ -48,6 +48,7 @@ import session.Session;
 import session.SessionManager;
 import skills.SkillsLoader;
 import utils.GsonFactory;
+import utils.Helpers;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -332,6 +333,19 @@ public class AgentLoop {
     }
 
     /**
+     * 从 usage map 中获取整数值（支持多种 key 名称，对齐 Claude Code）
+     */
+    private int getUsageInt(Map<String, Integer> usage, String... keys) {
+        for (String key : keys) {
+            Integer value = usage.get(key);
+            if (value != null && value > 0) {
+                return value;
+            }
+        }
+        return 0;
+    }
+
+    /**
      * 从配置创建 ContextPruningSettings
      */
     private ContextPruningSettings createPruningSettings() {
@@ -351,6 +365,24 @@ public class AgentLoop {
 
     private int currentMaxTokens() {
         return runtimeSnapshot().maxTokens();
+    }
+
+    /**
+     * 计算当前上下文比例（使用真实 token 数据，不再估算）
+     * 
+     * @param usageAcc   Usage 累积器
+     * @param messages   当前消息列表（仅在第一轮无真实数据时使用）
+     * @return 上下文比例 (0.0 ~ 1.0)
+     */
+    private double getContextRatioByUsage(UsageAccumulator usageAcc, List<Map<String, Object>> messages) {
+        // 如果有真实数据（后续轮次），用真实的 prompt_tokens，不再乘系数
+        if (usageAcc != null && usageAcc.hasData()) {
+            long promptTokens = usageAcc.getContextSize();
+            return contextWindow > 0 ? (double) promptTokens / (double) contextWindow : 0;
+        }
+        // 第一轮没有数据，用字符估算（只是粗估，用于第一次发送前判断）
+        int estimatedChars = ContextPruner.estimateContextChars(messages);
+        return currentContextWindowChars() > 0 ? (double) estimatedChars / currentContextWindowChars() : 0;
     }
 
 
@@ -484,7 +516,7 @@ public class AgentLoop {
         localTools.register(new WriteTool(workspace, null, sharedFileCache));
         localTools.register(new SkillTool(commandManager, skillsLoader));
 
-        return new CompositeToolView(localTools);
+        return new CompositeToolView(localTools, sharedTools);
     }
 
     /**
@@ -510,7 +542,7 @@ public class AgentLoop {
         // 添加记忆压缩工具
         localTools.register(new PruneMessagesTool(sessions, sessionKey));
 
-        return new CompositeToolView(localTools);
+        return new CompositeToolView(localTools, sharedTools);
     }
 
     public CronTool getCronTool() {
@@ -754,15 +786,22 @@ public class AgentLoop {
         Session session = sessions.getOrCreate(sessionKey);
         List<Map<String, Object>> history = session.getHistory();
 
-        int estimatedChars = ContextPruner.estimateContextChars(history);
-        double contextRatio = currentContextWindowChars() > 0
-                ? (double) estimatedChars / currentContextWindowChars() : 0;
+        // 使用 Session 中持久化的 usage 数据计算上下文比例
+        // 注意：usageAcc 是内存中的，重启后为空，所以直接使用 session 的 usage 数据
         double threshold = currentConsolidateThreshold();
+        long totalUsedTokens = session.getTotalTokens();
+        UsageAccumulator usageAcc = session.obtainLastUsage();
 
+        double contextRatio = getContextRatioByUsage(usageAcc, history);
+        String totalUsedStr = totalUsedTokens >= 1_000_000
+                ? String.format("%.1fM", totalUsedTokens / 1_000_000.0)
+                : totalUsedTokens >= 1_000
+                        ? String.format("%.1fK", totalUsedTokens / 1_000.0)
+                        : String.valueOf(totalUsedTokens);
         if (contextRatio > threshold) {
-            log.info("入口检测：上下文使用率 {}% > 阈值 {}%，执行压缩",
+            log.info("入口检测：上下文使用率 {}% (已用 {} tokens)，执行压缩",
                     String.format("%.1f", contextRatio * 100),
-                    String.format("%.0f", threshold * 100));
+                    totalUsedStr);
 
             // 通知用户
             bus.publishOutbound(new OutboundMessage(
@@ -796,32 +835,48 @@ public class AgentLoop {
         var sessionKey = message.getSessionKey();
         var chatId = message.getChatId();
 
-        // 构建压缩消息系统提示词
-        List<Map<String, Object>> initial = context.buildContextCompressMessages(
-                sessions.getOrCreate(sessionKey).getHistory(),
-                MemoryStore.PRUNE_SYSTEM_PROMPT.replaceAll("\\{workspace}", workspace.toAbsolutePath().toString()),
-                null, channel, chatId
-        );
-        ToolView tools = buildContextCompressRequestTools(sessionKey, channel, chatId, null);
+        // 保存当前 lastCall（压缩的 usage 不应覆盖原本消息的 usage）
+        Session sess = sessions.getOrCreate(sessionKey);
+        int savedLastCallInput = sess.getLastCallInput();
+        int savedLastCallOutput = sess.getLastCallOutput();
+        int savedLastCallCacheRead = sess.getLastCallCacheRead();
+        int savedLastCallCacheWrite = sess.getLastCallCacheWrite();
 
-        // 创建临时消息用于 runAgentLoop
-        InboundMessage compressMsg = new InboundMessage();
-        compressMsg.setChannel(channel);
-        compressMsg.setSenderId(message.getSenderId());
-        compressMsg.setContent("");
-        compressMsg.setSessionKeyOverride(sessionKey);
+        try {
+            // 构建压缩消息系统提示词
+            List<Map<String, Object>> initial = context.buildContextCompressMessages(
+//                sessions.getOrCreate(sessionKey).getHistory(),
+                    List.of(),
+                    MemoryStore.PRUNE_SYSTEM_PROMPT.replaceAll("\\{workspace}", workspace.toAbsolutePath().toString()),
+                    null, channel, chatId
+            );
+            ToolView tools = buildContextCompressRequestTools(sessionKey, channel, chatId, null);
 
-        // 同步执行（不需要保存到 session）
-        runAgentLoop(compressMsg, initial
-                , tools, false
-                , (context, toolHit) -> bus.publishOutbound(new OutboundMessage(
-                message.getChannel()
-                , message.getChatId()
-                , "(上下文压缩进程) " + context
-                , List.of()
-                , Map.of()
-                )
-        ), false).toCompletableFuture().join();
+            // 创建临时消息用于 runAgentLoop
+            InboundMessage compressMsg = new InboundMessage();
+            compressMsg.setChannel(channel);
+            compressMsg.setSenderId(message.getSenderId());
+            compressMsg.setContent("");
+            compressMsg.setSessionKeyOverride(sessionKey);
+
+            // 同步执行（不需要保存到 session）
+            runAgentLoop(compressMsg, initial
+                    , tools, false
+                    , (context, toolHit) -> bus.publishOutbound(new OutboundMessage(
+                    message.getChannel()
+                            , message.getChatId()
+                            , "(上下文压缩进程) " + context
+                            , List.of()
+                            , Map.of()
+                    )
+            ), false).toCompletableFuture().join();
+        } finally {
+            // 恢复原本的 lastCall（压缩的 usage 不计入 session 的 lastCall）
+            sess.setLastCallInput(savedLastCallInput);
+            sess.setLastCallOutput(savedLastCallOutput);
+            sess.setLastCallCacheRead(savedLastCallCacheRead);
+            sess.setLastCallCacheWrite(savedLastCallCacheWrite);
+        }
     }
 
     private CompletionStage<OutboundMessage> processMessage(InboundMessage msg, String sessionKeyOverride, ProgressCallback onProgress) {
@@ -1140,19 +1195,39 @@ public class AgentLoop {
                 }
 
 
-                // 检查是否需要执行硬压缩（阻塞 + 通知用户）
-                int estimatedChars = ContextPruner.estimateContextChars(messages);
-                // 当前上下文比例
-                double contextRatio = contextWindow > 0 ? (double) estimatedChars / currentContextWindowChars() : 0;
+                // 检查上下文使用情况
+                double contextRatio = getContextRatioByUsage(usageAcc, messages);
                 double consolidateThreshold = currentConsolidateThreshold();
-                if (contextRatio > consolidateThreshold) {
-                    // 通知用户正在压缩
-                    log.info("上下文使用率 {}% > 阈值 {}%",
-                            String.format("%.1f", contextRatio * 100),
-                            String.format("%.0f", consolidateThreshold * 100));
-                }
+                // 获取会话累积已使用 token 总数
+                Session sessForUsage = sessions.getOrCreate(msg.getSessionKey());
+                long totalUsedTokens = sessForUsage.getTotalTokens();
+                String totalUsedStr = totalUsedTokens >= 1_000_000
+                        ? String.format("%.1fM", totalUsedTokens / 1_000_000.0)
+                        : totalUsedTokens >= 1_000
+                                ? String.format("%.1fK", totalUsedTokens / 1_000.0)
+                                : String.valueOf(totalUsedTokens);
+                long currentTokens = usageAcc.hasData() ? usageAcc.getContextSize() : 0;
+                String currentStr = currentTokens >= 1_000_000
+                        ? String.format("%.1fM", currentTokens / 1_000_000.0)
+                        : currentTokens >= 1_000
+                                ? String.format("%.1fK", currentTokens / 1_000.0)
+                                : String.valueOf(currentTokens);
+                String thresholdStr = contextWindow >= 1_000_000
+                        ? String.format("%.1fM", contextWindow / 1_000_000.0)
+                        : contextWindow >= 1_000
+                                ? String.format("%.1fK", contextWindow / 1_000.0)
+                                : String.valueOf(contextWindow);
+                // 打印上下文统计
+                log.info("上下文统计：已用 {} tokens，上下文使用率 {}% ({}{})，压缩阈值 {}% ({})",
+                        totalUsedStr,
+                        String.format("%.0f", contextRatio * 100),
+                        currentStr,
+                        contextRatio > consolidateThreshold ? " ⚠️" : "",
+                        String.format("%.0f", consolidateThreshold * 100),
+                        thresholdStr);
+
                 // 执行上下文修剪（软裁剪，只裁剪过大的内容）
-                if (isContextPress) {
+                if (isContextPress && contextRatio > consolidateThreshold) {
                     var session = sessions.getOrCreate(msg.getSessionKey());
                     List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
                             messages, consolidateThreshold,  currentSoftTrimThreshold(), pruningSettings, contextWindow,
@@ -1161,7 +1236,19 @@ public class AgentLoop {
                     );
                     int beforeChars = ContextPruner.estimateContextChars(messages);
                     int afterChars = ContextPruner.estimateContextChars(prunedMessages);
-                    log.info("上下文已修剪: {} 字符 -> {} 字符", beforeChars, afterChars);
+                    long beforeTokens = usageAcc.hasData() ? usageAcc.getContextSize() : (long)(beforeChars / ContextPruningSettings.CHARS_PER_TOKEN_ESTIMATE);
+                    long afterTokens = (long)(afterChars / ContextPruningSettings.CHARS_PER_TOKEN_ESTIMATE);
+                    String beforeStr = beforeTokens >= 1_000_000
+                            ? String.format("%.1fM", beforeTokens / 1_000_000.0)
+                            : beforeTokens >= 1_000
+                                    ? String.format("%.1fK", beforeTokens / 1_000.0)
+                                    : String.valueOf(beforeTokens);
+                    String afterStr = afterTokens >= 1_000_000
+                            ? String.format("%.1fM", afterTokens / 1_000_000.0)
+                            : afterTokens >= 1_000
+                                    ? String.format("%.1fK", afterTokens / 1_000.0)
+                                    : String.valueOf(afterTokens);
+                    log.info("上下文修剪：{} tokens -> {} tokens", beforeStr, afterStr);
                     messages.clear();
                     messages.addAll(prunedMessages);
                     // 修剪场景：过滤后替换 session 的消息列表
@@ -1243,13 +1330,51 @@ public class AgentLoop {
                         return;
                     }
 
+
+                    // =================== 以下代表执行成功 ===================
+                    // 如果推理为空，从 content 中提取 think 标签并设置到 ReasoningContent
+                    if(StrUtil.isBlank(resp.getReasoningContent())) {
+                        String thinkBlock = Helpers.obtainThinkBlock(resp.getContent());
+                        if(StrUtil.isNotBlank(thinkBlock)) {
+                            resp.setReasoningContent(thinkBlock);
+                        }
+                    }
+
+                    // 记录思考内容
+                    if(StrUtil.isNotBlank(resp.getReasoningContent())) {
+                        log.info("LLM 思考: \n{}", resp.getReasoningContent());
+                    }
+
+                    // 移除思考标签，获取干净的内容
+                    String clean = stripThink(resp.getContent());
+                    if(StrUtil.isNotBlank(clean)) {
+                        log.info("LLM 回复:\n{} \n\n", clean);
+                    }
+
                     usageAcc.accumulate(resp);
+
+                    // 更新 Session 的 usage 汇总（持久化）
+                    Map<String, Integer> usageMap = resp.getUsage();
+                    if (usageMap != null && !usageMap.isEmpty()) {
+                        Session sess = sessions.getOrCreate(msg.getSessionKey());
+                        int input = getUsageInt(usageMap, "prompt_tokens", "input_tokens", "input");
+                        int output = getUsageInt(usageMap, "completion_tokens", "output_tokens", "output");
+                        int cacheRead = getUsageInt(usageMap, "cache_read_input_tokens", "cached_tokens", "cache_read");
+                        int cacheWrite = getUsageInt(usageMap, "cache_creation_input_tokens", "cache_write");
+                        sess.addUsage(input, output, cacheRead, cacheWrite);
+                        // 记录最后一次对话的上下文大小（用于判断压缩必要性）
+                        sess.setLastCallInput(input);
+                        sess.setLastCallOutput(output);
+                        sess.setLastCallCacheRead(cacheRead);
+                        sess.setLastCallCacheWrite(cacheWrite);
+                    }
 
                     if (resp.hasToolCalls()) {
                         if (onProgress != null) {
                             // 移除思考标签
-                            String clean = stripThink(resp.getContent());
-                            if (clean != null) onProgress.onProgress(clean, false);
+                            if (clean != null) {
+                                onProgress.onProgress(clean, false);
+                            }
                             onProgress.onProgress(toolHint(resp.getToolCalls()), true);
                         }
 
@@ -1326,21 +1451,24 @@ public class AgentLoop {
                         return;
                     }
 
-                    // =================== 以下代表执行成功 ===================
-
-                    log.info("思考: \n{}", resp.getReasoningContent());
-                    // 移除思考标签
-                    String clean = stripThink(resp.getContent());
-
-                    // 添加原始日志
+                    // 添加原始日志（包含 usage，对齐 Claude Code）
                     Map<String, Object> assistant = new HashMap<>();
                     assistant.put("role", "assistant");
                     assistant.put("content", clean);
                     assistant.put("reasoning_content", resp.getReasoningContent());
                     assistant.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+                    // 添加 usage 字段（对齐 Claude Code 每条消息记录 usage）
+                    if (usageMap != null && !usageMap.isEmpty()) {
+                        Map<String, Object> usageEntry = new HashMap<>();
+                        usageEntry.put("input_tokens", getUsageInt(usageMap, "prompt_tokens", "input_tokens", "input"));
+                        usageEntry.put("output_tokens", getUsageInt(usageMap, "completion_tokens", "output_tokens", "output"));
+                        usageEntry.put("cache_creation_input_tokens", getUsageInt(usageMap, "cache_creation_input_tokens", "cache_write"));
+                        usageEntry.put("cache_read_input_tokens", getUsageInt(usageMap, "cache_read_input_tokens", "cached_tokens", "cache_read"));
+                        assistant.put("usage", usageEntry);
+                    }
                     memoryStore.appendToToday(GsonFactory.getGson().toJson(assistant));
 
-                    log.info("LLM 回复:\n{} \n\n", clean);
+
 
                     List<Map<String, Object>> updated = context.addAssistantMessage(
                             messages,
@@ -1442,6 +1570,19 @@ public class AgentLoop {
                             if (root instanceof CancellationException || isStopRequested(sessionKey)) {
                                 throw new CompletionException(root);
                             }
+
+                            // 通知用户工具执行失败
+                            String errMsg = root.toString();
+                            if (errMsg.length() > 200) {
+                                errMsg = errMsg.substring(0, 200) + "...";
+                            }
+                            bus.publishOutbound(new OutboundMessage(
+                                    msg.getChannel(),
+                                    msg.getChatId(),
+                                    "❌ 工具执行失败: " + tc.getName() + " - " + errMsg,
+                                    List.of(),
+                                    Map.of("_progress", true)
+                            ));
 
                             String err = formatToolError(tc.getName(), ex);
                             List<Map<String, Object>> updated =

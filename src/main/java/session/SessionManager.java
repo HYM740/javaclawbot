@@ -160,6 +160,22 @@ public final class SessionManager {
                 metaLine.put("updated_at", session.getUpdatedAt().toString());
                 metaLine.put("metadata", safeMetadata);
                 metaLine.put("last_consolidated", session.getLastConsolidated());
+                // 保存 usage 数据（对齐 Claude Code）
+                Map<String, Object> usageData = new LinkedHashMap<>();
+                usageData.put("input_tokens", session.getInputTokens());
+                usageData.put("output_tokens", session.getOutputTokens());
+                usageData.put("cache_read", session.getCacheRead());
+                usageData.put("cache_write", session.getCacheWrite());
+                usageData.put("total_tokens", session.getTotalTokens());
+                metaLine.put("usage", usageData);
+
+                // 保存上一次对话的上下文大小（用于判断压缩必要性）
+                Map<String, Object> lastCallData = new LinkedHashMap<>();
+                lastCallData.put("input_tokens", session.getLastCallInput());
+                lastCallData.put("output_tokens", session.getLastCallOutput());
+                lastCallData.put("cache_read", session.getLastCallCacheRead());
+                lastCallData.put("cache_write", session.getLastCallCacheWrite());
+                metaLine.put("last_call", lastCallData);
 
                 w.write(objectMapper.writeValueAsString(metaLine));
                 w.write("\n");
@@ -315,6 +331,8 @@ public final class SessionManager {
 
         List<Map<String, Object>> messages = new ArrayList<>();
         Map<String, Object> metadata = new HashMap<>();
+        Map<String, Object> usageData = new HashMap<>();
+        Map<String, Object> lastCallData = new HashMap<>();
         LocalDateTime createdAt = null;
         String sessionId = null;
         int lastConsolidated = 0;
@@ -365,6 +383,18 @@ public final class SessionManager {
                             lastConsolidated = 0;
                         }
 
+                        // 加载 usage 数据
+                        Object usageObj = data.get("usage");
+                        if (usageObj instanceof Map<?, ?> u) {
+                            usageData = castMap(deepSanitize(u));
+                        }
+
+                        // 加载 last_call 数据
+                        Object lastCallObj = data.get("last_call");
+                        if (lastCallObj instanceof Map<?, ?> lastCallMap) {
+                            lastCallData = castMap(deepSanitize(lastCallMap));
+                        }
+
                     } else {
                         messages.add(castMap(deepSanitize(data)));
                     }
@@ -385,7 +415,8 @@ public final class SessionManager {
                 sessionId = Session.generateSessionId();
             }
 
-            return new Session(
+            // 创建 Session 并设置 usage 数据
+            Session session = new Session(
                     key,
                     sessionId,
                     messages,
@@ -395,10 +426,44 @@ public final class SessionManager {
                     lastConsolidated
             );
 
+            // 恢复 usage 数据
+            if (!usageData.isEmpty()) {
+                session.setInputTokens(getIntValue(usageData, "input_tokens", 0));
+                session.setOutputTokens(getIntValue(usageData, "output_tokens", 0));
+                session.setCacheRead(getIntValue(usageData, "cache_read", 0));
+                session.setCacheWrite(getIntValue(usageData, "cache_write", 0));
+                session.setTotalTokens(getIntValue(usageData, "total_tokens", 0));
+            }
+
+            // 恢复 last_call 数据
+            if (!lastCallData.isEmpty()) {
+                session.setLastCallInput(getIntValue(lastCallData, "input_tokens", 0));
+                session.setLastCallOutput(getIntValue(lastCallData, "output_tokens", 0));
+                session.setLastCallCacheRead(getIntValue(lastCallData, "cache_read", 0));
+                session.setLastCallCacheWrite(getIntValue(lastCallData, "cache_write", 0));
+            }
+
+            return session;
+
         } catch (Exception e) {
             LOG.log(Level.WARNING, "加载会话失败：" + key + "，原因：" + e.getMessage(), e);
             backupCorruptedFile(path);
             return null;
+        }
+    }
+
+    /**
+     * 从 Map 中安全获取 int 值
+     */
+    private int getIntValue(Map<String, Object> map, String key, int defaultValue) {
+        try {
+            Object val = map.get(key);
+            if (val instanceof Number n) {
+                return n.intValue();
+            }
+            return defaultValue;
+        } catch (Exception e) {
+            return defaultValue;
         }
     }
 

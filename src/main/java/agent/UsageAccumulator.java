@@ -61,8 +61,6 @@ public class UsageAccumulator {
         if (recordHistory) {
             history.add(usage.copy());
         }
-
-        log.debug("使用量累计: {} (总计: {})", usage.toShortString(), total.toShortString());
     }
 
     /**

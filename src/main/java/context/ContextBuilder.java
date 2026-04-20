@@ -415,7 +415,6 @@ public class ContextBuilder {
 
         // 当前用户内容（文本 + 可选图片）
         // 是否需要引导，设置引导用户
-
         out.add(mapOf(
                 "role", "user",
                 "content", buildUserContent("开始执行上下文压缩", media)
