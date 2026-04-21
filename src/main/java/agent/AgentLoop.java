@@ -1234,7 +1234,7 @@ public class AgentLoop {
                         String.format("%.1f", softTrimThreshold * 100), softThresholdStr);
 
                 // 执行上下文修剪（软裁剪，只裁剪过大的内容）
-                if (isContextPress && (contextRatio > consolidateThreshold || contextRatio > softTrimThreshold)) {
+                if (isContextPress && (contextRatio > consolidateThreshold || contextRatio > softTrimThreshold )) {
                     var session = sessions.getOrCreate(msg.getSessionKey());
                     List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
                             messages, consolidateThreshold,  currentSoftTrimThreshold(), pruningSettings, contextWindow,
