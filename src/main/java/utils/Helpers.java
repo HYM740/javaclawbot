@@ -50,9 +50,10 @@ public final class Helpers {
 
     public static String stripThink(String text) {
         if (text == null || text.isBlank()) return null;
+        // 删除整个 think 块（包括标签和内容）
         String cleaned = THINK_BLOCK.matcher(text).replaceAll("").trim();
-        String thinkCleaned = THINKING_BLOCK.matcher(text).replaceAll("").trim();
-        return cleaned.isBlank() ? thinkCleaned.isBlank()? null : thinkCleaned : cleaned;
+        String thinkCleaned = THINKING_BLOCK.matcher(cleaned).replaceAll("").trim();
+        return thinkCleaned.isBlank() ? null : thinkCleaned;
     }
 
     /**

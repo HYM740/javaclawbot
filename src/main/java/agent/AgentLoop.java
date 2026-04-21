@@ -1224,7 +1224,7 @@ public class AgentLoop {
                                 ? String.format("%.1fK", contextWindow * softTrimThreshold / 1_000.0)
                                 : String.valueOf(contextWindow * softTrimThreshold);
                 // 打印上下文统计
-                log.info("上下文统计：已用 {} tokens，上下文使用率 {}% ({}{})，压缩阈值 {}% ({}),软裁剪阈值: {}% ({}%)",
+                log.info("上下文统计：已用 {} tokens，上下文使用率 {}% ({}{})，压缩阈值 {}% ({}),软裁剪阈值: {}% ({})",
                         totalUsedStr,
                         String.format("%.1f", contextRatio * 100),
                         currentStr,
@@ -1400,7 +1400,7 @@ public class AgentLoop {
 
                         List<Map<String, Object>> updated = context.addAssistantMessage(
                                 messages,
-                                resp.getContent(),
+                                clean,
                                 toolCallDicts,
                                 resp.getReasoningContent(),
                                 resp.getThinkingBlocks()

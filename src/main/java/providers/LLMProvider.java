@@ -199,8 +199,9 @@ public abstract class LLMProvider {
      * 记录重试日志
      */
     private void logRetry(int attempt, int delayMs, String content) {
-        String preview = content != null && content.length() > 120
-                ? content.substring(0, 120) : content;
+        /*String preview = content != null && content.length() > 120
+                ? content.substring(0, 120) : content;*/
+        String preview = content ;
         log.warn("LLM error (attempt {}/{}), retrying in {}ms: {}",
                 attempt + 1, CHAT_RETRY_DELAYS.size(), delayMs, preview);
     }
