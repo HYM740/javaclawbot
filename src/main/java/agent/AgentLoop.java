@@ -1198,6 +1198,7 @@ public class AgentLoop {
                 // 检查上下文使用情况
                 double contextRatio = getContextRatioByUsage(usageAcc, messages);
                 double consolidateThreshold = currentConsolidateThreshold();
+                double softTrimThreshold = currentSoftTrimThreshold();
                 // 获取会话累积已使用 token 总数
                 Session sessForUsage = sessions.getOrCreate(msg.getSessionKey());
                 long totalUsedTokens = sessForUsage.getTotalTokens();
@@ -1218,13 +1219,14 @@ public class AgentLoop {
                                 ? String.format("%.1fK", contextWindow / 1_000.0)
                                 : String.valueOf(contextWindow);
                 // 打印上下文统计
-                log.info("上下文统计：已用 {} tokens，上下文使用率 {}% ({}{})，压缩阈值 {}% ({})",
+                log.info("上下文统计：已用 {} tokens，上下文使用率 {}% ({}{})，压缩阈值 {}% ({}),软裁剪阈值: {}%",
                         totalUsedStr,
-                        String.format("%.0f", contextRatio * 100),
+                        String.format("%.1f", contextRatio * 100),
                         currentStr,
                         contextRatio > consolidateThreshold ? " ⚠️" : "",
-                        String.format("%.0f", consolidateThreshold * 100),
-                        thresholdStr);
+                        String.format("%.1f", consolidateThreshold * 100),
+                        thresholdStr,
+                        String.format("%.1f", softTrimThreshold * 100));
 
                 // 执行上下文修剪（软裁剪，只裁剪过大的内容）
                 if (isContextPress && contextRatio > consolidateThreshold) {
