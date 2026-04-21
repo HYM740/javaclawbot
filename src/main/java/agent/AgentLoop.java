@@ -915,7 +915,7 @@ public class AgentLoop {
         if ("/init".equalsIgnoreCase(cmd)) {
             String initPrompt = ResourceUtil.readUtf8Str("templates/init/INIT.md");
             commandManager.addLocalCommand(new LocalCommand(cmd, ""));
-            bus.publishInbound(new InboundMessage(msg.getChannel(), msg.getSenderId(), msg.getChatId(), initPrompt));
+            bus.publishInbound(new InboundMessage("system", msg.getSenderId(), msg.getChatId(), initPrompt));
             return CompletableFuture.completedFuture(new OutboundMessage(
                     msg.getChannel(),
                     msg.getChatId(),
