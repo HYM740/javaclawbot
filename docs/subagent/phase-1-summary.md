@@ -1,7 +1,7 @@
 # Phase 1: Fork 核心 完成总结
 
 ## 交付物
-
+必须按照源码功能逻辑，完整的复刻，包括if switch 等，源码逐行复刻，并且碰到依赖npm的也必须做到java语义上一致
 ### Fork 机制 (`src/main/java/agent/subagent/fork/`)
 | Java 类 | Open-ClaudeCode 源码 | 说明 |
 |---------|---------------------|------|

@@ -1,10 +1,13 @@
 package agent.subagent.types;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import java.time.Instant;
 
 /**
  * 任务状态基类
+ *
+ * 对应 Open-ClaudeCode: src/Task.ts - TaskStateBase
+ *
+ * 所有任务状态类型的基类，包含共享字段
  */
 public abstract class TaskState {
     /** 任务 ID */
@@ -28,6 +31,9 @@ public abstract class TaskState {
     /** 结束时间 */
     protected long endTime;
 
+    /** 总暂停时间（毫秒） */
+    protected long totalPausedMs;
+
     /** 输出文件路径 */
     protected String outputFile;
 
@@ -45,6 +51,7 @@ public abstract class TaskState {
     public String getToolUseId() { return toolUseId; }
     public long getStartTime() { return startTime; }
     public long getEndTime() { return endTime; }
+    public long getTotalPausedMs() { return totalPausedMs; }
     public String getOutputFile() { return outputFile; }
     public long getOutputOffset() { return outputOffset; }
     public boolean isNotified() { return notified; }
@@ -54,9 +61,12 @@ public abstract class TaskState {
     public void setEndTime(long endTime) { this.endTime = endTime; }
     public void setNotified(boolean notified) { this.notified = notified; }
     public void setStartTime(long startTime) { this.startTime = startTime; }
+    public void setTotalPausedMs(long totalPausedMs) { this.totalPausedMs = totalPausedMs; }
+    public void setOutputOffset(long outputOffset) { this.outputOffset = outputOffset; }
 
     /**
      * 判断是否为终态
+     * 对应 Open-ClaudeCode: isTerminalTaskStatus()
      */
     @JsonIgnore
     public boolean isTerminal() {
@@ -69,7 +79,7 @@ public abstract class TaskState {
     @JsonIgnore
     public long getRuntimeMs() {
         if (startTime == 0) return 0;
-        long end = endTime > 0 ? endTime : Instant.now().toEpochMilli();
+        long end = endTime > 0 ? endTime : System.currentTimeMillis();
         return end - startTime;
     }
 }

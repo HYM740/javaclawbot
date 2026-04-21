@@ -96,7 +96,9 @@ public class ForkAgentExecutor {
         LocalAgentTaskState taskState = LocalAgentTaskState.create(
                 runId,
                 forkContext.getDirective(),
-                null
+                null,  // toolUseId
+                forkContext.getDirective(),  // prompt
+                null   // agentType
         );
         taskState.setBackgrounded(true);
         taskState.setProgressTracker(progressTracker);

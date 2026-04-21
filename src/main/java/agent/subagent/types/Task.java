@@ -2,6 +2,8 @@ package agent.subagent.types;
 
 /**
  * Task 接口 - 任务定义
+ *
+ * 对应 Open-ClaudeCode: src/Task.ts - Task
  */
 public interface Task {
     /**
