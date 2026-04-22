@@ -1,7 +1,6 @@
 package providers;
 
 import config.Config;
-import config.ConfigSchema;
 import config.agent.AgentDefaults;
 import config.provider.ProviderConfig;
 

@@ -1,5 +1,7 @@
 package agent.subagent.team.backends;
 
+import agent.subagent.team.backends.iterm2.ITerm2Backend;
+import agent.subagent.team.backends.tmux.TmuxBackend;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

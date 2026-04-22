@@ -107,6 +107,29 @@ public class ContextPruner {
         // 但保留最后 N 次工具调用
 
         if (ratio >= consolidateThreshold) {
+            /*int prunedCurrentTurn = pruneCurrentTurnTools(result, cutoffIndex, settings, isToolPrunable, charWindow, consolidateThreshold);
+            log.debug("裁剪当前轮次工具：{} 个", prunedCurrentTurn);*/
+            for (int i = pruneStartIndex; i < cutoffIndex; i++) {
+                Map<String, Object> msg = messages.get(i);
+                if (msg == null) continue;
+
+                Object role = msg.get("role");
+                if (!"tool".equals(role)) continue;
+
+                String toolName = getToolName(msg);
+                if (!isToolPrunable.test(toolName)) continue;
+
+                prunableToolIndexes.add(i);
+
+                // 尝试软修剪
+                Map<String, Object> trimmed = softTrimAllToolResult(msg, settings);
+                if (trimmed != null) {
+                    int beforeChars = estimateMessageChars(msg);
+                    int afterChars = estimateMessageChars(trimmed);
+                    totalChars += afterChars - beforeChars;
+                    result.set(i, trimmed);
+                }
+            }
             int prunedCurrentTurn = pruneCurrentTurnTools(result, cutoffIndex, settings, isToolPrunable, charWindow, consolidateThreshold);
             log.debug("裁剪当前轮次工具：{} 个", prunedCurrentTurn);
         }
@@ -128,6 +151,40 @@ public class ContextPruner {
         String contentStr = content instanceof String ? (String) content : "";
 
         if (contentStr.length() <= settings.getSoftTrim().getMaxChars()) {
+            return null; // 不需要修剪
+        }
+
+        int headChars = settings.getSoftTrim().getHeadChars();
+        int tailChars = settings.getSoftTrim().getTailChars();
+
+        if (headChars + tailChars >= contentStr.length()) {
+            return null; // 不需要修剪
+        }
+
+        String head = contentStr.substring(0, Math.min(headChars, contentStr.length()));
+        String tail = contentStr.substring(Math.max(0, contentStr.length() - tailChars));
+
+        String trimmed = head + "\n...\n" + tail;
+        String note = String.format(
+                "\n\n[Tool result trimmed: kept first %d chars and last %d chars of %d chars.if you need,can Reread or read memory or read raw session: {workspace}/memory/yyyy-MM-dd.md](File too large)",
+                headChars, tailChars, contentStr.length());
+
+        Map<String, Object> result = new LinkedHashMap<>(msg);
+        result.put("content", trimmed + note);
+        return result;
+    }
+
+    /**
+     * 软修剪工具结果
+     */
+    private static Map<String, Object> softTrimAllToolResult(
+            Map<String, Object> msg,
+            ContextPruningSettings settings
+    ) {
+        Object content = msg.get("content");
+        String contentStr = content instanceof String ? (String) content : "";
+
+        if (contentStr.length() <= 800) {
             return null; // 不需要修剪
         }
 
