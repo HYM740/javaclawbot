@@ -9,7 +9,8 @@ public enum BackendType {
     IN_PROCESS("in_process"),
     TMUX("tmux"),
     ITERM2("iterm2"),
-    CONPTY("conpty");  // 预留
+    CONPTY("conpty"),  // 预留
+    REMOTE("remote");   // CCR 远程执行
 
     private final String value;
 
