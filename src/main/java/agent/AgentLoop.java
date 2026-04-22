@@ -2,12 +2,17 @@ package agent;
 
 import agent.command.CommandQueueManager;
 import agent.command.LocalCommand;
-import agent.subagent.SessionsSpawnTool;
-import agent.subagent.SubagentManager;
-import agent.subagent.SubagentsControlTool;
+import agent.subagent.task.AppState;
+import agent.subagent.task.TaskControlService;
+import agent.subagent.task.TaskRegistry;
+import agent.subagent.fork.ForkAgentExecutor;
+import agent.subagent.fork.ForkSubagentTool;
+import agent.subagent.fork.ForkContext;
+import agent.subagent.context.SubagentContext;
 import agent.tool.*;
 import agent.tool.cli.CliAgentTool;
 import agent.tool.cron.CronTool;
+import agent.subagent.task.todo.TodoWriteTool;
 import agent.tool.file.*;
 import agent.tool.mcp.McpManager;
 import agent.tool.message.MessageTool;
@@ -87,7 +92,22 @@ public class AgentLoop {
      */
     private final ContextBuilder context;
     private final SessionManager sessions;
-    private final SubagentManager subagents;
+    /**
+     * 任务系统状态（Phase 4 集成）
+     */
+    private final AppState appState;
+    /**
+     * 任务注册表（Phase 4 集成）
+     */
+    private final TaskRegistry taskRegistry;
+    /**
+     * 任务控制服务（Phase 4 集成）
+     */
+    private final TaskControlService taskControl;
+    /**
+     * Fork 代理执行器（Phase 4 集成）
+     */
+    private final ForkAgentExecutor forkAgentExecutor;
     private final AgentRuntimeSettings runtimeSettings;
     private final ExecutorService executor;
     private final MemoryStore memoryStore;
@@ -200,10 +220,19 @@ public class AgentLoop {
                     }
                 }
         );
-        this.subagents = new SubagentManager(
-                provider, workspace, bus, this.model, this.temperature, this.maxTokens,
-                this.reasoningEffort, currentTools(), restrictToWorkspace, null
-        );
+
+        // Phase 4: 初始化任务系统
+        this.appState = new AppState();
+        this.taskRegistry = TaskRegistry.getInstance();
+        this.taskControl = new TaskControlService(taskRegistry);
+        // Phase 4: 初始化 ForkAgentExecutor（传入 AppState 和 Setter）
+        this.forkAgentExecutor = new ForkAgentExecutor(provider, workspace, maxIterations,
+            (runId, directive, result) -> {
+                // Fork 完成回调 - 通知任务完成
+                log.info("Fork [{}] completed: {}", runId, directive);
+            },
+            appState,
+            appState.setter());
         this.mcpServers = (mcpServers != null) ? mcpServers : Map.of();
         this.mcpManager = new McpManager(workspace, mcpServers, executor);
 
@@ -475,14 +504,49 @@ public class AgentLoop {
         // 每次请求独立创建 MessageTool，避免串会话
         localTools.register(new MessageTool(bus::publishOutbound, channel, chatId, messageId));
 
-        // ========== 多 Agent / subagent 相关 ==========
-        SessionsSpawnTool spawnTool = new agent.subagent.SessionsSpawnTool(subagents);
-        spawnTool.setContext(sessionKy, channel, chatId);
-        localTools.register(spawnTool);
+        // ========== Phase 4: Fork 子代理工具 ==========
+        // 创建 ForkExecutorCallback - 用于执行 Fork 子代理
+        ForkSubagentTool.ForkExecutorCallback forkCallback = (task, label, runInBackground) -> {
+            try {
+                // 获取当前会话的消息历史
+                Session session = sessions.getOrCreate(sessionKy);
+                List<Map<String, Object>> parentMessages = session != null ? session.getMessages() : List.of();
 
-        SubagentsControlTool subagentsControlTool = new SubagentsControlTool(subagents);
-        subagentsControlTool.setAgentSessionKey(sessionKy);  // 关键：设置会话Key以便查询子代理
-        localTools.register(subagentsControlTool);
+                // 构建 ForkContext
+                ForkContext forkContext = ForkContext.builder()
+                        .parentAgentId("main")
+                        .directive(task)
+                        .parentMessages(parentMessages)
+                        .build();
+
+                // 创建 SubagentContext（简化版本）
+                SubagentContext subagentContext = SubagentContext.builder()
+                        .progressTracker(null)
+                        .parentAbortSignal(null)
+                        .build();
+
+                // 执行 Fork
+                String runId = UUID.randomUUID().toString().substring(0, 8);
+                forkAgentExecutor.execute(forkContext, subagentContext);
+
+                return ForkSubagentTool.ForkExecutionResult.success(runId, "Fork started");
+            } catch (Exception e) {
+                log.error("Fork execution failed", e);
+                return ForkSubagentTool.ForkExecutionResult.failure(e.getMessage());
+            }
+        };
+
+        // 注册 ForkSubagentTool (sessions_spawn)
+        ForkSubagentTool forkTool = new ForkSubagentTool(forkCallback, sessions);
+        forkTool.setSessionKey(sessionKy);
+        localTools.register(forkTool);
+
+        // TaskStopTool: 允许 Agent 停止任务
+        localTools.register(new agent.subagent.task.TaskStopTool(
+                taskControl,
+                () -> appState,
+                appState.setter()
+        ));
 
 
         // CronTool 带 channel/chatId 上下文，也做成每请求独立
@@ -491,6 +555,14 @@ public class AgentLoop {
             cronTool.setContext(channel, chatId);
             localTools.register(cronTool);
         }
+
+        // TodoWriteTool - 任务列表管理
+        TodoWriteTool todoWriteTool = new TodoWriteTool(
+                () -> appState,
+                appState.setter()
+        );
+        todoWriteTool.setAgentId(sessionKy);
+        localTools.register(todoWriteTool);
 
         // MCP 动态工具快照
         ToolRegistry mcpTools = mcpManager.snapshotRegistry();
@@ -688,6 +760,7 @@ public class AgentLoop {
 
     /**
      * 处理 /stop 命令（公开方法，供外部直接调用）
+     * 对应 Open-ClaudeCode: useCancelRequest.ts - handleCancel()
      */
     public CompletionStage<Void> handleStopCommand(InboundMessage msg) {
         String sessionKey = msg.getSessionKey();
@@ -708,17 +781,21 @@ public class AgentLoop {
             // 移除同步等待，直接继续
         }
 
-        int finalCancelled = cancelled;
-        return subagents.cancelBySession(sessionKey).thenCompose(subCancelled -> {
-            int total = finalCancelled + subCancelled;
-            return bus.publishOutbound(new OutboundMessage(
-                    msg.getChannel(),
-                    msg.getChatId(),
-                    total > 0 ? "⏹ 已停止 " + total + " 个任务。" : "没有活动任务可停止。",
-                    List.of(),
-                    Map.of()
-            ));
-        });
+        // 3) 使用 TaskControlService 杀死所有 Agent 任务（Phase 4 集成）
+        int agentTasksKilled = 0;
+        if (taskControl != null && appState != null) {
+            agentTasksKilled = taskControl.killAllAgentTasks(appState, appState.setter());
+            log.info("handleStopCommand: killed {} agent tasks via TaskControlService", agentTasksKilled);
+        }
+
+        int total = cancelled + agentTasksKilled;
+        return bus.publishOutbound(new OutboundMessage(
+                msg.getChannel(),
+                msg.getChatId(),
+                total > 0 ? "⏹ 已停止 " + total + " 个任务。" : "没有活动任务可停止。",
+                List.of(),
+                Map.of()
+        ));
     }
 
     /**
@@ -1981,5 +2058,43 @@ public class AgentLoop {
                 }
             }
         });
+    }
+
+    // =================== Phase 4: 任务系统取消处理方法 ===================
+    
+    /**
+     * 处理取消请求（对应 useCancelRequest.ts - handleCancel）
+     * 使用 TaskControlService 终止所有 Agent 任务
+     */
+    private void handleCancel() {
+        if (taskControl != null && appState != null) {
+            taskControl.killAllAgentTasks(appState, appState.setter());
+            log.info("handleCancel: killed all agent tasks via TaskControlService");
+        }
+    }
+
+    /**
+     * 处理终止所有 Agent 请求（对应 useCancelRequest.ts - handleKillAgents）
+     * 使用 TaskControlService 终止所有 Agent 任务
+     */
+    private void handleKillAgents() {
+        if (taskControl != null && appState != null) {
+            taskControl.killAllAgentTasks(appState, appState.setter());
+            log.info("handleKillAgents: killed all agent tasks via TaskControlService");
+        }
+    }
+
+    /**
+     * 获取任务控制服务（供外部使用）
+     */
+    public TaskControlService getTaskControl() {
+        return taskControl;
+    }
+
+    /**
+     * 获取应用状态（供外部使用）
+     */
+    public AppState getAppState() {
+        return appState;
     }
 }
