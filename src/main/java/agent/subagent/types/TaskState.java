@@ -1,80 +1,111 @@
 package agent.subagent.types;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import java.time.Instant;
 
-/**
- * 任务状态基类
- *
- * 对应 Open-ClaudeCode: src/Task.ts - TaskStateBase
- *
- * 所有任务状态类型的基类，包含共享字段
- */
 public abstract class TaskState {
-    /** 任务 ID */
-    protected String id;
+    private String id;
+    private TaskType type;
+    private TaskStatus status;
+    private String description;
+    private String toolUseId;
+    private Instant startTime;
+    private Instant endTime;
+    private String outputFile;
+    private Long outputOffset;
+    private boolean notified;
 
-    /** 任务类型 */
-    protected TaskType type;
+    public String getId() {
+        return id;
+    }
 
-    /** 任务状态 */
-    protected TaskStatus status;
+    public void setId(String id) {
+        this.id = id;
+    }
 
-    /** 任务描述 */
-    protected String description;
+    public TaskType getType() {
+        return type;
+    }
 
-    /** 关联的 tool_use ID */
-    protected String toolUseId;
+    public void setType(TaskType type) {
+        this.type = type;
+    }
 
-    /** 开始时间 */
-    protected long startTime;
+    public TaskStatus getStatus() {
+        return status;
+    }
 
-    /** 结束时间 */
-    protected long endTime;
+    public void setStatus(TaskStatus status) {
+        this.status = status;
+    }
 
-    /** 输出文件路径 */
-    protected String outputFile;
+    public String getDescription() {
+        return description;
+    }
 
-    /** 输出偏移量 */
-    protected long outputOffset;
+    public void setDescription(String description) {
+        this.description = description;
+    }
 
-    /** 是否已通知 */
-    protected boolean notified;
+    public String getToolUseId() {
+        return toolUseId;
+    }
 
-    // Getters
-    public String getId() { return id; }
-    public TaskType getType() { return type; }
-    public TaskStatus getStatus() { return status; }
-    public String getDescription() { return description; }
-    public String getToolUseId() { return toolUseId; }
-    public long getStartTime() { return startTime; }
-    public long getEndTime() { return endTime; }
-    public String getOutputFile() { return outputFile; }
-    public long getOutputOffset() { return outputOffset; }
-    public boolean isNotified() { return notified; }
+    public void setToolUseId(String toolUseId) {
+        this.toolUseId = toolUseId;
+    }
 
-    // Setters
-    public void setStatus(TaskStatus status) { this.status = status; }
-    public void setEndTime(long endTime) { this.endTime = endTime; }
-    public void setNotified(boolean notified) { this.notified = notified; }
-    public void setStartTime(long startTime) { this.startTime = startTime; }
-    public void setOutputOffset(long outputOffset) { this.outputOffset = outputOffset; }
+    public Instant getStartTime() {
+        return startTime;
+    }
 
-    /**
-     * 判断是否为终态
-     * 对应 Open-ClaudeCode: isTerminalTaskStatus()
-     */
+    public void setStartTime(Instant startTime) {
+        this.startTime = startTime;
+    }
+
+    public Instant getEndTime() {
+        return endTime;
+    }
+
+    public void setEndTime(Instant endTime) {
+        this.endTime = endTime;
+    }
+
+    public String getOutputFile() {
+        return outputFile;
+    }
+
+    public void setOutputFile(String outputFile) {
+        this.outputFile = outputFile;
+    }
+
+    public Long getOutputOffset() {
+        return outputOffset;
+    }
+
+    public void setOutputOffset(Long outputOffset) {
+        this.outputOffset = outputOffset;
+    }
+
+    public boolean isNotified() {
+        return notified;
+    }
+
+    public void setNotified(boolean notified) {
+        this.notified = notified;
+    }
+
     @JsonIgnore
     public boolean isTerminal() {
         return status != null && status.isTerminal();
     }
 
-    /**
-     * 获取运行时长（毫秒）
-     */
     @JsonIgnore
     public long getRuntimeMs() {
-        if (startTime == 0) return 0;
-        long end = endTime > 0 ? endTime : System.currentTimeMillis();
-        return end - startTime;
+        if (startTime == null) {
+            return 0;
+        }
+        Instant end = (endTime != null) ? endTime : Instant.now();
+        return end.toEpochMilli() - startTime.toEpochMilli();
     }
 }

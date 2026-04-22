@@ -1,14 +1,11 @@
 package agent.subagent.types;
 
-/**
- * 任务状态枚举
- */
 public enum TaskStatus {
-    PENDING("pending"),      // 等待中
-    RUNNING("running"),      // 运行中
-    COMPLETED("completed"),  // 已完成
-    FAILED("failed"),       // 失败
-    KILLED("killed");       // 被终止
+    PENDING("pending"),
+    RUNNING("running"),
+    COMPLETED("completed"),
+    FAILED("failed"),
+    KILLED("killed");
 
     private final String value;
 
@@ -20,9 +17,15 @@ public enum TaskStatus {
         return value;
     }
 
-    /**
-     * 判断是否为终态
-     */
+    public static TaskStatus fromValue(String value) {
+        for (TaskStatus status : TaskStatus.values()) {
+            if (status.value.equals(value)) {
+                return status;
+            }
+        }
+        throw new IllegalArgumentException("Unknown TaskStatus value: " + value);
+    }
+
     public boolean isTerminal() {
         return this == COMPLETED || this == FAILED || this == KILLED;
     }
