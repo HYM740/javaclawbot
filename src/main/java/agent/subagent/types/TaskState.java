@@ -31,9 +31,6 @@ public abstract class TaskState {
     /** 结束时间 */
     protected long endTime;
 
-    /** 总暂停时间（毫秒） */
-    protected long totalPausedMs;
-
     /** 输出文件路径 */
     protected String outputFile;
 
@@ -51,7 +48,6 @@ public abstract class TaskState {
     public String getToolUseId() { return toolUseId; }
     public long getStartTime() { return startTime; }
     public long getEndTime() { return endTime; }
-    public long getTotalPausedMs() { return totalPausedMs; }
     public String getOutputFile() { return outputFile; }
     public long getOutputOffset() { return outputOffset; }
     public boolean isNotified() { return notified; }
@@ -61,7 +57,6 @@ public abstract class TaskState {
     public void setEndTime(long endTime) { this.endTime = endTime; }
     public void setNotified(boolean notified) { this.notified = notified; }
     public void setStartTime(long startTime) { this.startTime = startTime; }
-    public void setTotalPausedMs(long totalPausedMs) { this.totalPausedMs = totalPausedMs; }
     public void setOutputOffset(long outputOffset) { this.outputOffset = outputOffset; }
 
     /**

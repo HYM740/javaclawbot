@@ -14,13 +14,10 @@ public class TaskUtils {
     private static final java.util.Map<TaskType, String> TASK_ID_PREFIXES = new java.util.EnumMap<>(TaskType.class);
 
     static {
-        TASK_ID_PREFIXES.put(TaskType.LOCAL_BASH, "b");
         TASK_ID_PREFIXES.put(TaskType.LOCAL_AGENT, "a");
         TASK_ID_PREFIXES.put(TaskType.REMOTE_AGENT, "r");
         TASK_ID_PREFIXES.put(TaskType.IN_PROCESS_TEAMMATE, "t");
         TASK_ID_PREFIXES.put(TaskType.LOCAL_WORKFLOW, "w");
-        TASK_ID_PREFIXES.put(TaskType.MONITOR_MCP, "m");
-        TASK_ID_PREFIXES.put(TaskType.DREAM, "d");
     }
 
     /** Case-insensitive-safe alphabet for task IDs (digits + lowercase) */
