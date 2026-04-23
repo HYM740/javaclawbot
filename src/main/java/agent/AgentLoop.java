@@ -1571,7 +1571,7 @@ public class AgentLoop {
                                     msg.getChatId(),
                                     userPreview,
                                     List.of(),
-                                    Map.of("_progress", true)
+                                    Map.of("_result", true)
                             ));
 
                             List<Map<String, Object>> updated =
