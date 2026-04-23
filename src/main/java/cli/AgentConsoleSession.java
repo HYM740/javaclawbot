@@ -115,9 +115,15 @@ public final class AgentConsoleSession {
 
                     Map<String, Object> meta = out.getMetadata() != null ? out.getMetadata() : Map.of();
                     boolean isProgress = Boolean.TRUE.equals(meta.get("_progress"));
+                    boolean isResult = Boolean.TRUE.equals(meta.get("_result"));
 
                     if (isProgress) {
                         System.out.println("  ↳ " + (out.getContent() == null ? "" : out.getContent()));
+                        continue;
+                    }
+
+                    if(isResult) {
+                        System.out.println("  命令执行结果：" + (out.getContent() == null ? "" : out.getContent()));
                         continue;
                     }
 
