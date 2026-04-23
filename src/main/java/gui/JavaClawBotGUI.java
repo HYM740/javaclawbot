@@ -1407,6 +1407,7 @@ public class JavaClawBotGUI extends JFrame {
                     Map<String, Object> meta = out.getMetadata() != null ? out.getMetadata() : Map.of();
                     boolean isProgress = Boolean.TRUE.equals(meta.get("_progress"));
                     boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
+                    boolean isResult = Boolean.TRUE.equals(meta.get("_result"));
 
                     if (isProgress) {
                         // GUI 直连模式：工具调用提示始终显示，不受 ChannelsConfig.sendToolHints 控制
@@ -1419,6 +1420,16 @@ public class JavaClawBotGUI extends JFrame {
                         }
 
                         String content = out.getContent() == null ? "" : out.getContent();
+                        ui(() -> appendProgress(content));
+                        continue;
+                    }
+
+                    if(isResult){
+                        if (!config.getChannels().isSendToolResult()) {
+                            continue;
+                        }
+
+                        String content = out.getContent() == null ? "<NO OUTPUT>" : out.getContent();
                         ui(() -> appendProgress(content));
                         continue;
                     }
@@ -2848,7 +2859,7 @@ public class JavaClawBotGUI extends JFrame {
         }
     }
 
-    
+
 
     public static void main(String[] args) {
         try {

@@ -86,9 +86,7 @@ public final class Helpers {
             if (!(val instanceof String s)) {
                 parts.add(tc.getName());
             } else {
-                parts.add(s.length() > 40
-                        ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")"
-                        : tc.getName() + "(\"" + s + "\")");
+                parts.add(tc.getName() + "(\"" + s + "\")");
             }
         }
         return String.join(", ", parts);

@@ -244,6 +244,7 @@ public interface ConfigConvert {
         // 基础布尔字段直接拷贝
         target.setSendProgress( source.isSendProgress() );
         target.setSendToolHints( source.isSendToolHints() );
+        target.setSendToolResult( source.isSendToolResult() );
 
         // 各渠道配置：非空才拷贝（使用 target 的默认值作为判断）
         if ( source.getWhatsapp() != null && !isAllFieldsEmpty( source.getWhatsapp() ) ) {

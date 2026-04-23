@@ -360,6 +360,13 @@ public class ChannelManager {
                         }
                     }
 
+                    // 过滤 _result
+                    if(isTrue(msg.getMetadata().get("_result"))) {
+                        if (!config.getChannels().isSendToolResult()) {
+                            continue;
+                        }
+                    }
+
                     BaseChannel channel = channels.get(msg.getChannel());
                     if (channel != null) {
                         try {

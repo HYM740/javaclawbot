@@ -9,6 +9,7 @@ import config.channel.EmailMonitorConfig;
     public  class ChannelsConfig {
         private boolean sendProgress = true;
         private boolean sendToolHints = false;
+        private boolean sendToolResult = false;
 
         private WhatsAppConfig whatsapp = new WhatsAppConfig();
         private TelegramConfig telegram = new TelegramConfig();
@@ -29,6 +30,10 @@ import config.channel.EmailMonitorConfig;
 
         public boolean isSendToolHints() { return sendToolHints; }
         public void setSendToolHints(boolean sendToolHints) { this.sendToolHints = sendToolHints; }
+
+        public boolean isSendToolResult() { return sendToolResult; }
+
+        public void setSendToolResult(boolean sendToolResult) { this.sendToolResult = sendToolResult; }
 
         public WhatsAppConfig getWhatsapp() { return whatsapp; }
         public void setWhatsapp(WhatsAppConfig whatsapp) { this.whatsapp = (whatsapp != null) ? whatsapp : new WhatsAppConfig(); }
