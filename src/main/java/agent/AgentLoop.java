@@ -369,7 +369,7 @@ public class AgentLoop {
 
     /**
      * 计算当前上下文比例（使用真实 token 数据，不再估算）
-     * 
+     *
      * @param usageAcc   Usage 累积器
      * @param messages   当前消息列表（仅在第一轮无真实数据时使用）
      * @return 上下文比例 (0.0 ~ 1.0)
@@ -1562,6 +1562,18 @@ public class AgentLoop {
                             // 检查工具结果大小，过大则持久化到磁盘
                             String result = maybePersistToolResult(tools, tc.getName(), tc.getId(), rawResult);
 
+                            // 用户展示截断为前3行，每行80字符
+                            String userPreview = truncateForUser(rawResult, USER_PREVIEW_MAX_LINES, USER_PREVIEW_MAX_CHARS_PER_LINE);
+
+                            // 发送到渠道
+                            bus.publishOutbound(new OutboundMessage(
+                                    msg.getChannel(),
+                                    msg.getChatId(),
+                                    userPreview,
+                                    List.of(),
+                                    Map.of("_progress", true)
+                            ));
+
                             List<Map<String, Object>> updated =
                                     context.addToolResult(messages, tc.getId(), tc.getName(), result);
 
@@ -1687,6 +1699,16 @@ public class AgentLoop {
     private static final int TOOL_RESULT_PREVIEW_CHARS = 2_000;
 
     /**
+     * 用户预览最大行数
+     */
+    private static final int USER_PREVIEW_MAX_LINES = 3;
+
+    /**
+     * 用户预览每行最大字符数
+     */
+    private static final int USER_PREVIEW_MAX_CHARS_PER_LINE = 80;
+
+    /**
      * 如果工具结果过大，持久化到磁盘并返回预览。
      * 对齐 Claude Code 的 toolResultStorage.maybePersistLargeToolResult()。
      */
@@ -1755,6 +1777,42 @@ public class AgentLoop {
         return truncated;
     }
 
+
+    /**
+     * 为用户展示截断：取前N行，每行最多M字符
+     *
+     * @param full           完整预览文本
+     * @param maxLines       最大行数
+     * @param maxCharsPerLine 每行最大字符数
+     * @return 截断后的展示文本
+     */
+    private static String truncateForUser(String full, int maxLines, int maxCharsPerLine) {
+        if (full == null || full.isEmpty()) {
+            return full;
+        }
+
+        String[] lines = full.split("\n", maxLines + 1); // 分割maxLines+1次，保留超过部分
+        StringBuilder sb = new StringBuilder();
+
+        int linesToShow = Math.min(maxLines, lines.length);
+        for (int i = 0; i < linesToShow; i++) {
+            if (i > 0) {
+                sb.append("\n");
+            }
+            String line = lines[i];
+            if (line.length() > maxCharsPerLine) {
+                line = line.substring(0, maxCharsPerLine);
+            }
+            sb.append(line);
+        }
+
+        // 如果有更多行，追加截断提示
+        if (lines.length > maxLines) {
+            sb.append("\n... (truncated, ").append(lines.length - maxLines).append(" more lines)");
+        }
+
+        return sb.toString();
+    }
 
     /**
      * saveTurn - 将本轮新增的消息清洗后追加到 Session
