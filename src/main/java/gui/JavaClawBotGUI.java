@@ -1431,6 +1431,7 @@ public class JavaClawBotGUI extends JFrame {
 
                         String content = out.getContent() == null ? "<NO OUTPUT>" : out.getContent();
                         ui(() -> appendProgress(content));
+                        continue;
                     }
 
                     TurnContext turn = activeTurnRef.get();
