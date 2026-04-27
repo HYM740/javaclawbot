@@ -128,6 +128,11 @@ public class CompletionPopup {
 
         String trimmed = text.trim();
         if (trimmed.startsWith("/")) {
+            // 命令后已有空格说明命令已补全，用户正在输入参数，不再弹窗
+            if (trimmed.indexOf(' ') > 0) {
+                hide();
+                return;
+            }
             filterCommands(trimmed);
         } else if (trimmed.startsWith("@")) {
             filterFiles(trimmed.substring(1));

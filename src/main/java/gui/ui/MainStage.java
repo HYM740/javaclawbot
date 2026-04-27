@@ -113,7 +113,35 @@ public class MainStage {
         sidebar = new Sidebar();
         // 窗口拖拽支持（TRANSPARENT 无原生标题栏，从 sidebar 顶部拖动）
         sidebar.setWindowDragHandler(stage);
-        sidebar.addPageChangeListener(this::showPage);
+        sidebar.addPageChangeListener(page -> {
+            showPage(page);
+            if ("chat".equalsIgnoreCase(page.replace(" ", "")) && backendBridge != null) {
+                CompletableFuture.runAsync(() -> {
+                    List<Map<String, Object>> sessions = backendBridge.getSessionManager().listSessions();
+                    Platform.runLater(() -> {
+                        sidebar.refreshHistory(sessions);
+                        // 最近会话是今天则恢复，否则新会话
+                        if (!sessions.isEmpty()) {
+                            Map<String, Object> recent = sessions.get(0);
+                            if (isToday(recent.get("updated_at"))) {
+                                String sid = (String) recent.get("session_id");
+                                if (sid != null && !sid.isBlank()) {
+                                    backendBridge.resumeSession(sid);
+                                    List<Map<String, Object>> history = backendBridge.getSessionHistory(sid);
+                                    chatPage.loadMessages(history);
+                                    return;
+                                }
+                            }
+                        }
+                        // 无今日会话，开启新会话
+                        backendBridge.resetTitleCounter();
+                        backendBridge.newSession();
+                        chatPage.clearMessages();
+                        sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
+                    });
+                });
+            }
+        });
         sidebar.addNewChatListener(() -> {
             if (backendBridge != null) {
                 backendBridge.resetTitleCounter();
@@ -273,5 +301,16 @@ public class MainStage {
                     chatPage.setStatusText("\u25CF 初始化失败: " + e.getMessage()));
             }
         }, "javaclawbot-fx-init").start();
+    }
+
+    /** 判断 updated_at 是否为今天 */
+    private static boolean isToday(Object updatedAt) {
+        if (!(updatedAt instanceof String s)) return false;
+        try {
+            java.time.LocalDateTime dt = java.time.LocalDateTime.parse(s);
+            return dt.toLocalDate().equals(java.time.LocalDate.now());
+        } catch (Exception e) {
+            return false;
+        }
     }
 }
