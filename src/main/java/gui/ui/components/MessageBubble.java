@@ -1,5 +1,6 @@
 package gui.ui.components;
 
+import gui.ui.JavaClawBotApp;
 import io.github.raghultech.markdown.javafx.preview.MarkdownWebView;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -41,7 +42,7 @@ public class MessageBubble extends HBox {
             avatar.setMinSize(32, 32);
 
             // 使用 MarkdownWebView (Flexmark + WebView) 渲染助手消息
-            MarkdownWebView md = new MarkdownWebView(content, null);
+            MarkdownWebView md = new MarkdownWebView(content, JavaClawBotApp.getAppHostServices());
             WebView webView = md.launch();
             webView.setMaxWidth(MAX_WIDTH);
             webView.setPrefWidth(MAX_WIDTH);
