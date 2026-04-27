@@ -45,9 +45,12 @@ public class ChatPage extends VBox {
         // 跟踪滚动位置，判断是否在底部
         scrollPane.vvalueProperty().addListener((obs, old, val) -> {
             double scrollBottom = val.doubleValue();
-            // vvalue 1.0 = 滚动到底部; 容差 0.05
+            // 内容未溢出时 vvalue 恒为 0，不显示按钮
+            double viewHeight = scrollPane.getViewportBounds().getHeight();
+            double contentHeight = messageContainer.getHeight();
+            boolean canScroll = contentHeight > viewHeight + 1;
             boolean atBottom = scrollBottom >= 0.95;
-            if (atBottom) {
+            if (!canScroll || atBottom) {
                 autoScroll = true;
                 scrollToBottomBtn.setVisible(false);
             } else {
@@ -81,32 +84,35 @@ public class ChatPage extends VBox {
 
     private Label createScrollToBottomButton() {
         Label btn = new Label("\u2B07");
-        btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08);"
+        btn.setStyle("-fx-background-color: rgba(255, 255, 255, 0.85);"
             + " -fx-background-radius: 999px;"
             + " -fx-pref-width: 40px; -fx-pref-height: 40px;"
             + " -fx-alignment: center;"
-            + " -fx-font-size: 18px;"
+            + " -fx-font-size: 20px;"
             + " -fx-cursor: hand;"
-            + " -fx-text-fill: rgba(0, 0, 0, 0.5);");
+            + " -fx-text-fill: rgba(0, 0, 0, 0.5);"
+            + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 4, 0, 0, 1);");
         btn.setVisible(false);
-        btn.setManaged(false);
+        // 不设 managed=false，让 StackPane 正确布局
         btn.setOnMouseClicked(e -> scrollToBottom());
         btn.setOnMouseEntered(e ->
-            btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.15);"
+            btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.12);"
                 + " -fx-background-radius: 999px;"
                 + " -fx-pref-width: 40px; -fx-pref-height: 40px;"
                 + " -fx-alignment: center;"
-                + " -fx-font-size: 18px;"
+                + " -fx-font-size: 20px;"
                 + " -fx-cursor: hand;"
-                + " -fx-text-fill: rgba(0, 0, 0, 0.7);"));
+                + " -fx-text-fill: rgba(0, 0, 0, 0.7);"
+                + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 4, 0, 0, 1);"));
         btn.setOnMouseExited(e ->
-            btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08);"
+            btn.setStyle("-fx-background-color: rgba(255, 255, 255, 0.85);"
                 + " -fx-background-radius: 999px;"
                 + " -fx-pref-width: 40px; -fx-pref-height: 40px;"
                 + " -fx-alignment: center;"
-                + " -fx-font-size: 18px;"
+                + " -fx-font-size: 20px;"
                 + " -fx-cursor: hand;"
-                + " -fx-text-fill: rgba(0, 0, 0, 0.5);"));
+                + " -fx-text-fill: rgba(0, 0, 0, 0.5);"
+                + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 4, 0, 0, 1);"));
         return btn;
     }
 

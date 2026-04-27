@@ -51,8 +51,29 @@ public class MainStage {
         stage.setMinWidth(MIN_WIDTH);
         stage.setMinHeight(MIN_HEIGHT);
 
+        // 窗口圆角（参考消息气泡 16px 圆角）
+        root.setStyle("-fx-background-radius: 20px; -fx-background-color: #f1ede1;");
+        root.setPadding(new javafx.geometry.Insets(0));
+
         Scene scene = new Scene(root, DEFAULT_WIDTH, DEFAULT_HEIGHT);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         stage.setScene(scene);
+
+        // 裁剪窗口为圆角矩形
+        javafx.scene.shape.Rectangle clip = new javafx.scene.shape.Rectangle();
+        clip.setWidth(DEFAULT_WIDTH);
+        clip.setHeight(DEFAULT_HEIGHT);
+        clip.setArcWidth(40);
+        clip.setArcHeight(40);
+        root.setClip(clip);
+
+        // 窗口大小变化时更新裁剪
+        scene.widthProperty().addListener((obs, o, w) -> {
+            clip.setWidth(w.doubleValue());
+        });
+        scene.heightProperty().addListener((obs, o, h) -> {
+            clip.setHeight(h.doubleValue());
+        });
 
         stage.setOnCloseRequest(e -> {
             if (backendBridge != null) backendBridge.shutdown();

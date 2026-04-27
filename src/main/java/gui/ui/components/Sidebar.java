@@ -82,13 +82,34 @@ public class Sidebar extends VBox {
 
     private Button createNewChatButton() {
         Button btn = new Button("+ 新对话");
-        btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.05); -fx-background-radius: 8px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-padding: 10px 12px;");
         btn.setMaxWidth(Double.MAX_VALUE);
+        btn.getStyleClass().add("new-chat-btn");
         VBox.setMargin(btn, new Insets(8));
-        btn.setOnAction(e -> {
+
+        // 悬停和点击交互反馈（参考 nav-item 样式）
+        btn.setOnMouseEntered(e ->
+            btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08); -fx-background-radius: 8px;"
+                + " -fx-font-size: 14px; -fx-font-weight: 500; -fx-padding: 10px 12px;"
+                + " -fx-cursor: hand;"));
+        btn.setOnMouseExited(e ->
+            btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.05); -fx-background-radius: 8px;"
+                + " -fx-font-size: 14px; -fx-font-weight: 500; -fx-padding: 10px 12px;"
+                + " -fx-cursor: hand;"));
+        btn.setOnMousePressed(e ->
+            btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.12); -fx-background-radius: 8px;"
+                + " -fx-font-size: 14px; -fx-font-weight: 500; -fx-padding: 10px 12px;"
+                + " -fx-cursor: hand;"));
+        btn.setOnMouseReleased(e -> {
+            btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08); -fx-background-radius: 8px;"
+                + " -fx-font-size: 14px; -fx-font-weight: 500; -fx-padding: 10px 12px;"
+                + " -fx-cursor: hand;");
             notifyPageChange("chat");
             for (Runnable r : newChatListeners) r.run();
         });
+        // 初始样式
+        btn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.05); -fx-background-radius: 8px;"
+            + " -fx-font-size: 14px; -fx-font-weight: 500; -fx-padding: 10px 12px;"
+            + " -fx-cursor: hand;");
         return btn;
     }
 

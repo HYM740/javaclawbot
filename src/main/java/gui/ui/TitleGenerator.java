@@ -87,15 +87,35 @@ public final class TitleGenerator {
             llmMessages.add(userPrompt);
 
             // 调用 LLM（非流式，使用 chatWithRetry）
-            var response = provider.chatWithRetry(
-                    llmMessages,
-                    null,   // tools
-                    model,
-                    50,     // max_tokens
-                    0.3     // temperature
-            ).get(15, java.util.concurrent.TimeUnit.SECONDS);
+            java.util.concurrent.CompletableFuture<providers.LLMResponse> future;
+            try {
+                future = provider.chatWithRetry(
+                        llmMessages,
+                        null,   // tools
+                        model,
+                        50,     // max_tokens
+                        0.3     // temperature
+                );
+            } catch (Exception ex) {
+                LOG.warning("标题生成: chatWithRetry 调用失败: " + ex.getClass().getName() + " " + ex.getMessage());
+                return null;
+            }
+            if (future == null) {
+                LOG.warning("标题生成: chatWithRetry 返回 null future");
+                return null;
+            }
+            providers.LLMResponse response;
+            try {
+                response = future.get(15, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (Exception ex) {
+                LOG.warning("标题生成: future.get 失败: " + ex.getClass().getName() + " " + ex.getMessage());
+                return null;
+            }
 
             String title = response != null ? response.getContent() : null;
+            if (response == null) {
+                LOG.warning("标题生成: LLM 响应为 null");
+            }
             if (title != null) {
                 title = title.trim()
                         .replaceAll("^[\"'\u201C\u201D\u2018\u2019\u300C\u300D]+", "")
@@ -119,7 +139,13 @@ public final class TitleGenerator {
 
             return null;
         } catch (Exception e) {
-            LOG.warning("标题生成失败: " + e.getMessage());
+            String cause = e.getCause() != null ? e.getCause().toString() : "无cause";
+            LOG.warning("标题生成失败: type=" + e.getClass().getName()
+                + " msg=" + (e.getMessage() != null ? e.getMessage() : "(null)")
+                + " cause=" + cause
+                + " model=" + (provider != null ? provider.getDefaultModel() : "provider为null")
+                + " sessionMsgs=" + (session != null ? session.getMessages().size() : "session为null"));
+            LOG.log(java.util.logging.Level.FINE, "标题生成异常堆栈:", e);
             return null;
         }
     }
