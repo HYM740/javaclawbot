@@ -89,14 +89,15 @@ public class ChatPage extends VBox {
         scrollToBottom();
     }
 
-    public void addToolCallCard(String toolName, String status, String params) {
-        addToolCallCard(toolName, status, params, false);
+    public ToolCallCard addToolCallCard(String toolName, String status, String params) {
+        return addToolCallCard(toolName, status, params, false);
     }
 
-    public void addToolCallCard(String toolName, String status, String params, boolean startExpanded) {
+    public ToolCallCard addToolCallCard(String toolName, String status, String params, boolean startExpanded) {
         ToolCallCard card = new ToolCallCard(toolName, status, params, startExpanded);
         messageContainer.getChildren().add(card);
         scrollToBottom();
+        return card;
     }
 
     private void clearWelcomeIfNeeded() {

@@ -1,6 +1,7 @@
 package gui.ui;
 
 import gui.ui.components.Sidebar;
+import gui.ui.components.ToolCallCard;
 import gui.ui.pages.*;
 import javafx.application.Platform;
 import javafx.scene.Scene;
@@ -29,6 +30,7 @@ public class MainStage {
     private BackendBridge backendBridge;
     private Sidebar sidebar;
     private ChatPage chatPage;
+    private ToolCallCard lastToolCard;
 
     public MainStage(Stage stage) {
         this.stage = stage;
@@ -178,11 +180,21 @@ public class MainStage {
                             text,
                             images.isEmpty() ? null : images,
                             progress -> {
-                                if (progress.isToolHint()) {
-                                    String toolName = extractToolName(progress.content());
-                                    chatPage.addToolCallCard(toolName, "running",
-                                        progress.content(), true);
+                                if (progress.isToolResult()) {
+                                    // 工具结果：收起到最近一个对应的工具调用卡片中
+                                    if (lastToolCard != null) {
+                                        lastToolCard.addResult(progress.content());
+                                    }
+                                } else if (progress.isToolHint()) {
+                                    // 工具调用：创建展开的卡片
+                                    String toolName = progress.toolName() != null
+                                        ? progress.toolName()
+                                        : extractToolName(progress.content());
+                                    ToolCallCard card = chatPage.addToolCallCard(
+                                        toolName, "running", progress.content(), true);
+                                    lastToolCard = card;
                                 }
+                                // 思考内容静默跳过（会在最终回复中体现）
                             },
                             response -> {
                                 chatPage.addAssistantMessage(response);

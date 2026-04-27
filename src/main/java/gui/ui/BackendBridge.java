@@ -41,8 +41,13 @@ import java.util.function.Consumer;
  */
 public class BackendBridge {
 
-    /** 进度事件：区分思考内容和工具调用 */
-    public record ProgressEvent(String content, boolean isToolHint) {}
+    /** 进度事件：区分思考内容、工具调用、工具结果 */
+    public record ProgressEvent(String content, boolean isToolHint,
+                                boolean isToolResult, String toolName, String toolCallId) {
+        public ProgressEvent(String content, boolean isToolHint) {
+            this(content, isToolHint, false, null, null);
+        }
+    }
 
     // ── 后端组件 ──
     private Config config;
@@ -161,12 +166,16 @@ public class BackendBridge {
                     Map<String, Object> meta = out.getMetadata() != null ? out.getMetadata() : Map.of();
                     boolean isProgress = Boolean.TRUE.equals(meta.get("_progress"));
                     boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
+                    boolean isToolResult = Boolean.TRUE.equals(meta.get("_tool_result"));
+                    String toolName = meta.get("tool_name") instanceof String s ? s : null;
+                    String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
 
                     if (isProgress) {
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {
-                            Platform.runLater(() -> cb.accept(new ProgressEvent(content, isToolHint)));
+                            Platform.runLater(() -> cb.accept(
+                                new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId)));
                         }
                     } else {
                         // 最终回复

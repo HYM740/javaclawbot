@@ -2236,6 +2236,18 @@ public class AgentLoop {
                             List<Map<String, Object>> updated =
                                     context.addToolResult(messages, tc.getId(), tc.getName(), result);
 
+                            // 发布工具结果到 bus，供 GUI 展示
+                            bus.publishOutbound(new bus.OutboundMessage(
+                                    msg.getChannel(),
+                                    msg.getChatId(),
+                                    result != null ? result : "",
+                                    List.of(),
+                                    Map.of("_progress", true,
+                                           "_tool_result", true,
+                                           "tool_name", tc.getName(),
+                                           "tool_call_id", tc.getId())
+                            ));
+
                             memoryStore.appendToToday(GsonFactory.getGson().toJson(updated.get(updated.size() - 1)));
 
                             messages.clear();
