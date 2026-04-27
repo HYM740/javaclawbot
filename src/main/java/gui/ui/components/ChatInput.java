@@ -73,7 +73,25 @@ public class ChatInput extends VBox {
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         sendButton = new Button("\u27A4");
-        sendButton.setStyle("-fx-background-color: rgba(0, 0, 0, 0.05); -fx-pref-width: 32px; -fx-pref-height: 32px; -fx-background-radius: 8px;");
+        sendButton.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08); -fx-pref-width: 40px; -fx-pref-height: 40px;"
+            + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
+            + " -fx-text-fill: rgba(0, 0, 0, 0.4);");
+        sendButton.setOnMouseEntered(e ->
+            sendButton.setStyle("-fx-background-color: rgba(0, 0, 0, 0.15); -fx-pref-width: 40px; -fx-pref-height: 40px;"
+                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
+                + " -fx-text-fill: rgba(0, 0, 0, 0.7);"));
+        sendButton.setOnMouseExited(e ->
+            sendButton.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08); -fx-pref-width: 40px; -fx-pref-height: 40px;"
+                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
+                + " -fx-text-fill: rgba(0, 0, 0, 0.4);"));
+        sendButton.setOnMousePressed(e ->
+            sendButton.setStyle("-fx-background-color: rgba(0, 0, 0, 0.22); -fx-pref-width: 40px; -fx-pref-height: 40px;"
+                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
+                + " -fx-text-fill: rgba(0, 0, 0, 0.8);"));
+        sendButton.setOnMouseReleased(e ->
+            sendButton.setStyle("-fx-background-color: rgba(0, 0, 0, 0.15); -fx-pref-width: 40px; -fx-pref-height: 40px;"
+                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
+                + " -fx-text-fill: rgba(0, 0, 0, 0.7);"));
 
         buttonRow.getChildren().addAll(attachBtn, mentionBtn, spacer, sendButton);
 
@@ -97,17 +115,15 @@ public class ChatInput extends VBox {
 
         // 发送按钮事件
         sendButton.setOnAction(e -> sendMessage());
-        inputArea.setOnKeyPressed(e -> {
-            // 若事件已被 popup 消费（如 ENTER 选中文件），则不处理
+
+        // 使用 addEventFilter（捕获阶段）确保在 TextArea 处理 ENTER 之前拦截
+        inputArea.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
             if (e.isConsumed() || completionPopup.isShowing()) return;
-            if (e.getCode() == javafx.scene.input.KeyCode.ENTER) {
-                if (e.isShiftDown()) {
-                    inputArea.insertText(inputArea.getCaretPosition(), "\n");
-                } else {
-                    sendMessage();
-                }
+            if (e.getCode() == javafx.scene.input.KeyCode.ENTER && !e.isShiftDown()) {
                 e.consume();
+                sendMessage();
             }
+            // Shift+Enter 不拦截，让 TextArea 正常插入换行
         });
     }
 

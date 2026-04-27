@@ -24,12 +24,21 @@ public final class TitleGenerator {
 
     /**
      * 使用 LLM 生成会话标题。同步执行，应在后台线程调用。
+     * 如果已有标题则跳过。
+     */
+    public static String generateTitle(LLMProvider provider, Session session) {
+        return generateTitle(provider, session, false);
+    }
+
+    /**
+     * 使用 LLM 生成会话标题。
      *
      * @param provider LLM provider
      * @param session  当前会话
+     * @param force    即使已有标题也重新生成（用于对话深入后更新标题）
      * @return 生成的标题，失败时返回 null
      */
-    public static String generateTitle(LLMProvider provider, Session session) {
+    public static String generateTitle(LLMProvider provider, Session session, boolean force) {
         if (provider == null || session == null) return null;
         try {
             String model = provider.getDefaultModel();
@@ -37,12 +46,14 @@ public final class TitleGenerator {
                 LOG.fine("无法生成标题: provider 没有默认模型");
                 return null;
             }
-            // 检查是否已有标题
+            // 非强制模式下，已有标题则跳过
             Map<String, Object> meta = session.getMetadata();
-            if (meta != null && meta.containsKey("title")) {
-                String existing = (String) meta.get("title");
-                if (existing != null && !existing.isBlank()) {
-                    return null; // 已有标题，不重复生成
+            if (!force) {
+                if (meta != null && meta.containsKey("title")) {
+                    String existing = (String) meta.get("title");
+                    if (existing != null && !existing.isBlank()) {
+                        return null; // 已有标题，不重复生成
+                    }
                 }
             }
 
@@ -106,9 +117,14 @@ public final class TitleGenerator {
             }
             providers.LLMResponse response;
             try {
-                response = future.get(15, java.util.concurrent.TimeUnit.SECONDS);
+                response = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (java.util.concurrent.TimeoutException ex) {
+                LOG.warning("标题生成: 请求超时(30s) model=" + model);
+                return null;
             } catch (Exception ex) {
-                LOG.warning("标题生成: future.get 失败: " + ex.getClass().getName() + " " + ex.getMessage());
+                LOG.warning("标题生成: future.get 失败: type=" + ex.getClass().getSimpleName()
+                    + " msg=" + (ex.getMessage() != null ? ex.getMessage() : "(null)")
+                    + " model=" + model);
                 return null;
             }
 

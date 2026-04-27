@@ -83,6 +83,7 @@ public class BackendBridge {
 
     // ── 标题生成计数器 ──
     private final AtomicBoolean titleGenerationPending = new AtomicBoolean(false);
+    private final AtomicBoolean titleRegenerationPending = new AtomicBoolean(false);
     private int userMessageCount = 0;
 
     /**
@@ -265,10 +266,13 @@ public class BackendBridge {
             }
         }, executor);
 
-        // 标题生成计数：对话2轮后触发后台任务总结title
+        // 标题生成：2轮后首次生成，6轮后更新总结使标题更精确
         userMessageCount++;
         if (userMessageCount >= 2 && titleGenerationPending.compareAndSet(false, true)) {
-            triggerTitleGeneration();
+            triggerTitleGeneration(false);
+        }
+        if (userMessageCount >= 6 && titleRegenerationPending.compareAndSet(false, true)) {
+            triggerTitleGeneration(true);
         }
     }
 
@@ -307,6 +311,7 @@ public class BackendBridge {
         if (sessionManager == null || bus == null) return null;
         userMessageCount = 0;
         titleGenerationPending.set(false);
+        titleRegenerationPending.set(false);
 
         Session newSession = sessionManager.createNew(sessionKey);
 
@@ -336,6 +341,7 @@ public class BackendBridge {
         if (sessionManager == null) return;
         userMessageCount = 0;
         titleGenerationPending.set(false);
+        titleRegenerationPending.set(false);
         sessionManager.resumeSession(sessionKey, sessionId);
         // 清除缓存，强制下次 getOrCreate 从磁盘加载
         sessionManager.evictFromCache(sessionKey);
@@ -353,15 +359,16 @@ public class BackendBridge {
     }
 
     /**
-     * 异步生成会话标题
+     * 异步生成/更新会话标题
+     * @param force 为 true 时即使已有标题也重新生成（对话深入后更新）
      */
-    private void triggerTitleGeneration() {
+    private void triggerTitleGeneration(boolean force) {
         if (provider == null || sessionManager == null) return;
         CompletableFuture.runAsync(() -> {
             try {
                 Session session = getCurrentSession();
                 if (session == null) return;
-                String title = TitleGenerator.generateTitle(provider, session);
+                String title = TitleGenerator.generateTitle(provider, session, force);
                 if (title != null && !title.isBlank()) {
                     sessionManager.save(session);
                 }
@@ -371,11 +378,20 @@ public class BackendBridge {
     }
 
     /**
+     * 删除指定 sessionId 的会话
+     */
+    public boolean deleteSession(String sessionId) {
+        if (sessionManager == null) return false;
+        return sessionManager.deleteSession(sessionId);
+    }
+
+    /**
      * 重置标题生成计数器（切换会话时调用）
      */
     public void resetTitleCounter() {
         userMessageCount = 0;
         titleGenerationPending.set(false);
+        titleRegenerationPending.set(false);
     }
 
     /**

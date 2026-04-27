@@ -24,6 +24,7 @@ public class Sidebar extends VBox {
     private final List<NavigationItem> navItems = new ArrayList<>();
     private final List<Consumer<String>> pageChangeListeners = new ArrayList<>();
     private final List<Consumer<String>> resumeListeners = new ArrayList<>();
+    private final List<Consumer<String>> deleteListeners = new ArrayList<>();
     private final List<Runnable> newChatListeners = new ArrayList<>();
 
     private VBox historyContainer;
@@ -223,6 +224,21 @@ public class Sidebar extends VBox {
         }
     }
 
+    /**
+     * 设置窗口拖拽（TRANSPARENT 无原生标题栏）
+     */
+    public void setWindowDragHandler(javafx.stage.Stage stage) {
+        final double[] dragDelta = {0, 0};
+        setOnMousePressed(e -> {
+            dragDelta[0] = e.getScreenX() - stage.getX();
+            dragDelta[1] = e.getScreenY() - stage.getY();
+        });
+        setOnMouseDragged(e -> {
+            stage.setX(e.getScreenX() - dragDelta[0]);
+            stage.setY(e.getScreenY() - dragDelta[1]);
+        });
+    }
+
     public void toggle() {
         expanded = !expanded;
         int targetWidth = expanded ? EXPANDED_WIDTH : COLLAPSED_WIDTH;
@@ -256,6 +272,10 @@ public class Sidebar extends VBox {
 
     public void addResumeListener(Consumer<String> listener) {
         resumeListeners.add(listener);
+    }
+
+    public void addDeleteListener(Consumer<String> listener) {
+        deleteListeners.add(listener);
     }
 
     /**
@@ -303,6 +323,13 @@ public class Sidebar extends VBox {
             HistoryItem historyItem = new HistoryItem(title != null ? title : sessionId, null);
             historyItem.setOnMouseClicked(e -> {
                 for (Consumer<String> listener : resumeListeners) {
+                    listener.accept(sessionId);
+                }
+            });
+            // 删除按钮
+            historyItem.getDeleteButton().setOnAction(e -> {
+                historyContainer.getChildren().remove(historyItem);
+                for (Consumer<String> listener : deleteListeners) {
                     listener.accept(sessionId);
                 }
             });

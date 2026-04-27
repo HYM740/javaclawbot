@@ -152,6 +152,30 @@ public final class SessionManager {
     }
 
     /**
+     * 删除指定 sessionId 的会话文件。
+     */
+    public boolean deleteSession(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) return false;
+
+        Path sessionPath = getSessionPath(sessionId);
+        boolean deleted = false;
+        try {
+            if (Files.exists(sessionPath)) {
+                Files.delete(sessionPath);
+                deleted = true;
+            }
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "删除会话文件失败: " + sessionId, e);
+            return false;
+        }
+
+        // 清理映射
+        keyToIdMap.values().remove(sessionId);
+        saveKeyToIdMap();
+        return deleted;
+    }
+
+    /**
      * 保存会话（原子写入 + 清洗非法字符 + 同 key 加锁）
      */
     public void save(Session session) {

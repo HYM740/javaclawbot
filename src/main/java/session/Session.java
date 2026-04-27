@@ -22,11 +22,21 @@ import java.util.*;
  */
 public final class Session {
 
+    /** 短 ID 字符集 (小写字母+数字, 无歧义字符) */
+    private static final String ID_CHARS = "abcdefghjkmnpqrstuvwxyz23456789";
+    private static final int ID_LENGTH = 10;
+    private static final java.util.concurrent.ThreadLocalRandom RNG =
+        java.util.concurrent.ThreadLocalRandom.current();
+
     /**
-     * 生成 UUID v4 作为会话唯一标识
+     * 生成短 ID (10 位) 作为会话唯一标识
      */
     public static String generateSessionId() {
-        return java.util.UUID.randomUUID().toString();
+        StringBuilder sb = new StringBuilder(ID_LENGTH);
+        for (int i = 0; i < ID_LENGTH; i++) {
+            sb.append(ID_CHARS.charAt(RNG.nextInt(ID_CHARS.length())));
+        }
+        return sb.toString();
     }
 
     // ==================== 字段 ====================
