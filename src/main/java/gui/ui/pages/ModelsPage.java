@@ -1,7 +1,9 @@
 package gui.ui.pages;
 
 import config.provider.ProviderConfig;
+import config.provider.model.ModelConfig;
 import gui.ui.components.ModelCard;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -109,79 +111,88 @@ public class ModelsPage extends VBox {
         }
     }
 
+    private static final String[] ALL_PROVIDERS = {"openai","anthropic","deepseek","openrouter","groq",
+        "zhipu","dashscope","gemini","moonshot","minimax","aihubmix",
+        "siliconflow","volcengine","vllm","githubCopilot","custom"};
+    private static final String[] ALL_LABELS = {"OpenAI","Anthropic","DeepSeek","OpenRouter","Groq",
+        "智谱 GLM","阿里云 DashScope","Google Gemini","Moonshot","MiniMax","AIHubMix",
+        "SiliconFlow","火山引擎","vLLM","GitHub Copilot","Custom"};
+
+    private String fieldStyle() {
+        return "-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 12px;"
+            + " -fx-border-color: transparent; -fx-font-size: 14px; -fx-padding: 10px 14px;";
+    }
+
     private void showModelDialog(String providerName) {
         config.Config cfg = backendBridge.getConfig();
         config.provider.ProvidersConfig provCfg = cfg.getProviders();
-        boolean isEdit = providerName != null;
 
         Stage dialog = new Stage();
         dialog.initStyle(StageStyle.TRANSPARENT);
         dialog.initModality(Modality.APPLICATION_MODAL);
 
-        VBox root = new VBox(16);
+        VBox root = new VBox(12);
         root.setPadding(new Insets(24));
         root.setStyle("-fx-background-color: #f1ede1; -fx-background-radius: 16px;"
             + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 16px; -fx-border-width: 1px;");
+        root.setMinWidth(560);
 
-        Label title = new Label(isEdit ? "编辑模型配置" : "添加模型配置");
+        Label title = new Label(providerName != null ? "编辑 " + providerName : "添加模型");
         title.setStyle("-fx-font-family: Georgia; -fx-font-size: 24px; -fx-text-fill: rgba(0,0,0,0.7);");
 
-        // Provider 选择
+        // === 第一部分：选择提供商 + API Key ===
+        Label providerTitle = new Label("提供商");
+        providerTitle.setStyle("-fx-font-size: 13px; -fx-font-weight: 500; -fx-text-fill: rgba(0,0,0,0.5);");
+
         ComboBox<String> providerCombo = new ComboBox<>();
-        String[] allProviders = {"openai","anthropic","deepseek","openrouter","groq",
-            "zhipu","dashscope","gemini","moonshot","minimax","aihubmix",
-            "siliconflow","volcengine","vllm","githubCopilot","custom"};
-        String[] allLabels = {"OpenAI","Anthropic","DeepSeek","OpenRouter","Groq",
-            "智谱 GLM","阿里云 DashScope","Google Gemini","Moonshot","MiniMax","AIHubMix",
-            "SiliconFlow","火山引擎","vLLM","GitHub Copilot","Custom"};
-        for (int i = 0; i < allProviders.length; i++) {
-            ProviderConfig pc = provCfg.getByName(allProviders[i]);
+        for (int i = 0; i < ALL_PROVIDERS.length; i++) {
+            ProviderConfig pc = provCfg.getByName(ALL_PROVIDERS[i]);
             String prefix = (pc != null && pc.getApiKey() != null && !pc.getApiKey().isBlank()) ? "✓ " : "  ";
-            providerCombo.getItems().add(prefix + allLabels[i]);
+            providerCombo.getItems().add(prefix + ALL_LABELS[i]);
         }
         providerCombo.setStyle("-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 12px;"
             + " -fx-border-color: transparent; -fx-font-size: 13px;");
         providerCombo.setPrefHeight(40);
 
-        // 预选
-        if (isEdit) {
-            for (int i = 0; i < allProviders.length; i++) {
-                if (allProviders[i].equals(providerName)) {
-                    providerCombo.getSelectionModel().select(i);
-                    break;
-                }
+        // 获取初始选中的 provider
+        String[] currentProvider = {providerName != null ? providerName : ALL_PROVIDERS[0]};
+        if (providerName != null) {
+            for (int i = 0; i < ALL_PROVIDERS.length; i++) {
+                if (ALL_PROVIDERS[i].equals(providerName)) { providerCombo.getSelectionModel().select(i); break; }
             }
         }
 
-        // API Key
-        String initKey = "";
-        if (isEdit) {
-            ProviderConfig pc = provCfg.getByName(providerName);
-            if (pc != null && pc.getApiKey() != null) initKey = pc.getApiKey();
-        }
-        TextField apiKeyField = new TextField(initKey);
+        ProviderConfig initPc = provCfg.getByName(currentProvider[0]);
+        TextField apiKeyField = new TextField(initPc != null && initPc.getApiKey() != null ? initPc.getApiKey() : "");
         apiKeyField.setPromptText("API Key");
-        apiKeyField.setStyle("-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 12px;"
-            + " -fx-border-color: transparent; -fx-font-size: 14px; -fx-padding: 10px 14px;");
-        apiKeyField.setPrefHeight(40);
+        apiKeyField.setStyle(fieldStyle()); apiKeyField.setPrefHeight(38);
 
-        // Base URL
-        String initBase = "";
-        if (isEdit) {
-            ProviderConfig pc = provCfg.getByName(providerName);
-            if (pc != null && pc.getApiBase() != null) initBase = pc.getApiBase();
-        }
-        TextField baseField = new TextField(initBase);
+        TextField baseField = new TextField(initPc != null && initPc.getApiBase() != null ? initPc.getApiBase() : "");
         baseField.setPromptText("API Base URL (可选)");
-        baseField.setStyle(apiKeyField.getStyle());
-        baseField.setPrefHeight(40);
+        baseField.setStyle(fieldStyle()); baseField.setPrefHeight(38);
 
-        // 设为默认
-        String defaultModel = cfg.getAgents().getDefaults().getModel();
-        String defaultProvider = cfg.getProviderName(defaultModel);
-        javafx.scene.control.CheckBox defaultCheck = new javafx.scene.control.CheckBox("设为默认模型");
-        defaultCheck.setStyle("-fx-font-size: 13px;");
-        if (isEdit && providerName.equals(defaultProvider)) defaultCheck.setSelected(true);
+        // 切换 provider 时更新 API Key / Base URL 和模型列表
+        VBox modelsBox = new VBox(8);
+        Runnable refreshModelsBox = () -> {
+            int idx = providerCombo.getSelectionModel().getSelectedIndex();
+            if (idx < 0) return;
+            String sel = ALL_PROVIDERS[idx];
+            currentProvider[0] = sel;
+            ProviderConfig pc = provCfg.getByName(sel);
+            if (pc != null) {
+                apiKeyField.setText(pc.getApiKey() != null ? pc.getApiKey() : "");
+                baseField.setText(pc.getApiBase() != null ? pc.getApiBase() : "");
+            } else {
+                apiKeyField.setText("");
+                baseField.setText("");
+            }
+            rebuildModelList(modelsBox, pc, cfg, dialog);
+        };
+
+        providerCombo.setOnAction(e -> refreshModelsBox.run());
+
+        // === 第二部分：模型列表 ===
+        rebuildModelList(modelsBox, initPc, cfg, dialog);
 
         // 按钮
         HBox btnRow = new HBox(12);
@@ -197,7 +208,7 @@ public class ModelsPage extends VBox {
         saveBtn.setOnAction(e -> {
             int idx = providerCombo.getSelectionModel().getSelectedIndex();
             if (idx < 0) return;
-            String selProvider = allProviders[idx];
+            String selProvider = ALL_PROVIDERS[idx];
             String apiKey = apiKeyField.getText();
             String baseUrl = baseField.getText();
 
@@ -206,26 +217,163 @@ public class ModelsPage extends VBox {
             if (apiKey != null && !apiKey.isBlank()) pc.setApiKey(apiKey);
             if (baseUrl != null && !baseUrl.isBlank()) pc.setApiBase(baseUrl);
 
-            if (defaultCheck.isSelected()) {
-                // Set this provider's first model as default
-                if (pc.getModelConfigs() != null && !pc.getModelConfigs().isEmpty()) {
-                    cfg.getAgents().getDefaults().setModel(pc.getModelConfigs().get(0).getModel());
-                }
-                cfg.getAgents().getDefaults().setProvider(selProvider);
-            }
-
             try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
             dialog.close();
-            refresh();
+            Platform.runLater(() -> refresh());
         });
 
         btnRow.getChildren().addAll(cancelBtn, saveBtn);
-        root.getChildren().addAll(title, providerCombo, apiKeyField, baseField, defaultCheck, btnRow);
 
-        Scene scene = new Scene(root);
+        root.getChildren().addAll(title, providerTitle, providerCombo,
+            newLabel("API Key"), apiKeyField,
+            newLabel("API Base URL (可选)"), baseField,
+            saveBtn, new javafx.scene.control.Separator(),
+            newLabel("模型列表"), modelsBox, btnRow);
+
+        ScrollPane sp = new ScrollPane(root);
+        sp.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
+        sp.setFitToWidth(true);
+        sp.setPrefViewportHeight(600);
+        sp.setMaxHeight(700);
+
+        Scene scene = new Scene(sp);
         scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         dialog.setScene(scene);
         dialog.sizeToScene();
         dialog.showAndWait();
+    }
+
+    private Label newLabel(String text) {
+        Label l = new Label(text);
+        l.setStyle("-fx-font-size: 13px; -fx-font-weight: 500; -fx-text-fill: rgba(0,0,0,0.5);");
+        return l;
+    }
+
+    private void rebuildModelList(VBox box, ProviderConfig pc, config.Config cfg, Stage dialog) {
+        box.getChildren().clear();
+        if (pc == null || pc.getModelConfigs() == null || pc.getModelConfigs().isEmpty()) {
+            Label empty = new Label("（暂无模型）");
+            empty.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0,0,0,0.3); -fx-padding: 8px 0;");
+            box.getChildren().add(empty);
+        } else {
+            String defModel = cfg.getAgents().getDefaults().getModel();
+            for (ModelConfig mc : pc.getModelConfigs()) {
+                HBox row = new HBox(8);
+                row.setAlignment(Pos.CENTER_LEFT);
+                row.setPadding(new Insets(6, 10, 6, 10));
+                row.setStyle("-fx-background-color: rgba(0,0,0,0.02); -fx-background-radius: 8px;");
+
+                String label = mc.getModel();
+                if (mc.getAlias() != null && !mc.getAlias().isBlank()) label += " (" + mc.getAlias() + ")";
+                if (label.equals(defModel)) label += " ★";
+                Label nameLabel = new Label(label);
+                nameLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 500;");
+
+                Label typeBadge = new Label(mc.getType() != null ? mc.getType().name() : "CHAT");
+                typeBadge.setStyle("-fx-background-color: rgba(0,0,0,0.04); -fx-background-radius: 6px;"
+                    + " -fx-font-size: 10px; -fx-padding: 2px 8px;");
+
+                Label tokensLabel = new Label("max: " + (mc.getMaxTokens() != null ? mc.getMaxTokens() : "-"));
+                tokensLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.4);");
+
+                HBox spacer = new HBox(); HBox.setHgrow(spacer, Priority.ALWAYS);
+
+                Button delBtn = new Button("×");
+                delBtn.setStyle("-fx-background-color: transparent; -fx-font-size: 14px;"
+                    + " -fx-text-fill: rgba(0,0,0,0.3); -fx-cursor: hand; -fx-padding: 0 4px;");
+                delBtn.setOnAction(e -> {
+                    pc.getModelConfigs().remove(mc);
+                    try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+                    rebuildModelList(box, pc, cfg, dialog);
+                });
+
+                row.getChildren().addAll(nameLabel, typeBadge, tokensLabel, spacer, delBtn);
+                box.getChildren().add(row);
+            }
+        }
+
+        // 添加模型按钮
+        Button addModelBtn = new Button("+ 添加模型");
+        addModelBtn.getStyleClass().add("pill-button");
+        addModelBtn.setPrefHeight(30);
+        addModelBtn.setOnAction(e -> showAddModelFields(box, pc, cfg, dialog));
+        box.getChildren().add(addModelBtn);
+    }
+
+    private void showAddModelFields(VBox box, ProviderConfig pc, config.Config cfg, Stage dialog) {
+        // 移除添加按钮
+        box.getChildren().remove(box.getChildren().size() - 1);
+
+        VBox form = new VBox(6);
+        form.setPadding(new Insets(8));
+        form.setStyle("-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 8px;");
+
+        TextField modelField = new TextField();
+        modelField.setPromptText("模型名称 (如 gpt-4o)");
+        modelField.setStyle(fieldStyle()); modelField.setPrefHeight(36);
+
+        TextField aliasField = new TextField();
+        aliasField.setPromptText("别名 (可选)");
+        aliasField.setStyle(fieldStyle()); aliasField.setPrefHeight(36);
+
+        ComboBox<String> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll("CHAT","TEXT","VISION","IMAGE_GENERATION","EMBEDDING","AUDIO","RERANK","MODERATION");
+        typeCombo.setValue("CHAT");
+        typeCombo.setStyle(fieldStyle()); typeCombo.setPrefHeight(36);
+
+        HBox numRow = new HBox(8);
+        TextField maxTokensField = new TextField("8192");
+        maxTokensField.setPromptText("Max Tokens"); maxTokensField.setStyle(fieldStyle()); maxTokensField.setPrefHeight(36); maxTokensField.setPrefWidth(120);
+        TextField tempField = new TextField("");
+        tempField.setPromptText("Temperature"); tempField.setStyle(fieldStyle()); tempField.setPrefHeight(36); tempField.setPrefWidth(120);
+        TextField topPField = new TextField("");
+        topPField.setPromptText("Top P"); topPField.setStyle(fieldStyle()); topPField.setPrefHeight(36); topPField.setPrefWidth(120);
+        TextField ctxField = new TextField("");
+        ctxField.setPromptText("Context Window"); ctxField.setStyle(fieldStyle()); ctxField.setPrefHeight(36); ctxField.setPrefWidth(140);
+        numRow.getChildren().addAll(maxTokensField, tempField, topPField, ctxField);
+
+        HBox btnRow = new HBox(8);
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+
+        Button cancelModelBtn = new Button("取消");
+        cancelModelBtn.getStyleClass().add("pill-button");
+        cancelModelBtn.setPrefHeight(30);
+        cancelModelBtn.setOnAction(ev -> rebuildModelList(box, pc, cfg, dialog));
+
+        Button confirmBtn = new Button("确认添加");
+        confirmBtn.getStyleClass().addAll("pill-button", "selected");
+        confirmBtn.setPrefHeight(30);
+        confirmBtn.setOnAction(ev -> {
+            String modelName = modelField.getText();
+            if (modelName == null || modelName.isBlank()) return;
+
+            ModelConfig mc = new ModelConfig();
+            mc.setModel(modelName.trim());
+            if (aliasField.getText() != null && !aliasField.getText().isBlank()) mc.setAlias(aliasField.getText().trim());
+            try { mc.setType(ModelConfig.ModelType.valueOf(typeCombo.getValue())); } catch (Exception ignored) {}
+            try { mc.setMaxTokens(Integer.parseInt(maxTokensField.getText())); } catch (Exception ignored) {}
+            if (tempField.getText() != null && !tempField.getText().isBlank()) {
+                try { mc.setTemperature(Double.parseDouble(tempField.getText())); } catch (Exception ignored) {}
+            }
+            if (topPField.getText() != null && !topPField.getText().isBlank()) {
+                try { mc.setTopP(Double.parseDouble(topPField.getText())); } catch (Exception ignored) {}
+            }
+            if (ctxField.getText() != null && !ctxField.getText().isBlank()) {
+                try { mc.setContextWindow(Integer.parseInt(ctxField.getText())); } catch (Exception ignored) {}
+            }
+            if (pc.getModelConfigs() == null) pc.setModelConfigs(new java.util.ArrayList<>());
+            pc.getModelConfigs().add(mc);
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            rebuildModelList(box, pc, cfg, dialog);
+        });
+
+        btnRow.getChildren().addAll(cancelModelBtn, confirmBtn);
+
+        form.getChildren().addAll(newLabel("模型名称"), modelField,
+            newLabel("别名"), aliasField,
+            newLabel("类型"), typeCombo,
+            newLabel("参数"), numRow,
+            btnRow);
+        box.getChildren().add(form);
     }
 }

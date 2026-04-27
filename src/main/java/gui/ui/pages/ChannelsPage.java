@@ -1,5 +1,6 @@
 package gui.ui.pages;
 
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -268,7 +269,7 @@ public class ChannelsPage extends VBox {
         saveBtn.setOnAction(e -> {
             onSave.run();
             dialog.close();
-            refresh();
+            Platform.runLater(() -> refresh());
         });
         btnRow.getChildren().addAll(cancelBtn, saveBtn);
         root.getChildren().add(btnRow);

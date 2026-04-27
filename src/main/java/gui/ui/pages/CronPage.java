@@ -2,6 +2,7 @@ package gui.ui.pages;
 
 import corn.CronJob;
 import corn.CronSchedule;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -284,7 +285,7 @@ public class CronPage extends VBox {
                         channel.isBlank() ? "cli" : channel, null, false);
                 }
                 dialog.close();
-                refresh();
+                Platform.runLater(() -> refresh());
             } catch (Exception ignored) {}
         });
 

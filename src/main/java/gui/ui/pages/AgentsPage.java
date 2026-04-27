@@ -1,6 +1,7 @@
 package gui.ui.pages;
 
 import config.agent.AgentDefaults;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -191,7 +192,7 @@ public class AgentsPage extends VBox {
             defaults.setAutoCompactEnabled(autoCompactCheck.isSelected());
             try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
             dialog.close();
-            refresh();
+            Platform.runLater(() -> refresh());
         });
         btnRow.getChildren().addAll(cancelBtn, saveBtn);
 
