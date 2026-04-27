@@ -67,27 +67,36 @@ public class ChatInput extends VBox {
         fileTagRow.setVisible(false);
         fileTagRow.setManaged(false);
 
-        Button attachBtn = new Button("\uD83D\uDCCE");
-        attachBtn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08); -fx-pref-width: 40px; -fx-pref-height: 40px;"
-            + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
-            + " -fx-text-fill: rgba(0, 0, 0, 0.4);");
-        attachBtn.setOnMouseEntered(e ->
-            attachBtn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.15); -fx-pref-width: 40px; -fx-pref-height: 40px;"
-                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
-                + " -fx-text-fill: rgba(0, 0, 0, 0.7);"));
-        attachBtn.setOnMouseExited(e ->
-            attachBtn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.08); -fx-pref-width: 40px; -fx-pref-height: 40px;"
-                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
-                + " -fx-text-fill: rgba(0, 0, 0, 0.4);"));
-        attachBtn.setOnMousePressed(e ->
-            attachBtn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.22); -fx-pref-width: 40px; -fx-pref-height: 40px;"
-                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
-                + " -fx-text-fill: rgba(0, 0, 0, 0.8);"));
-        attachBtn.setOnMouseReleased(e ->
-            attachBtn.setStyle("-fx-background-color: rgba(0, 0, 0, 0.15); -fx-pref-width: 40px; -fx-pref-height: 40px;"
-                + " -fx-background-radius: 10px; -fx-font-size: 18px; -fx-cursor: hand;"
-                + " -fx-text-fill: rgba(0, 0, 0, 0.7);"));
-        attachBtn.setOnAction(e -> selectFiles());
+        // 附件按钮——SVG 纸夹图标（非 emoji，跨平台渲染一致）
+        javafx.scene.shape.SVGPath attachIcon = new javafx.scene.shape.SVGPath();
+        attachIcon.setContent("M3.4 20.4c-1.9-1.9-1.9-5.1 0-7L15.6 1.2c1.2-1.2 3.1-1.2 4.2 0 1.2 1.2 1.2 3.1 0 4.2L9.2 16c-.5.5-1.4.5-2 0-.5-.5-.5-1.4 0-1.9l8.8-8.8");
+        attachIcon.setStyle("-fx-stroke: rgba(0,0,0,0.4); -fx-stroke-width: 2px;"
+            + " -fx-fill: transparent; -fx-stroke-line-cap: round; -fx-stroke-line-join: round;");
+
+        javafx.scene.layout.StackPane attachBtn = new javafx.scene.layout.StackPane(attachIcon);
+        attachBtn.setPrefSize(40, 40);
+        attachBtn.setMaxSize(40, 40);
+        String attachDefault = "-fx-background-color: rgba(0,0,0,0.08); -fx-background-radius: 10px; -fx-cursor: hand;";
+        String attachHover  = "-fx-background-color: rgba(0,0,0,0.15); -fx-background-radius: 10px; -fx-cursor: hand;";
+        String attachPress  = "-fx-background-color: rgba(0,0,0,0.22); -fx-background-radius: 10px; -fx-cursor: hand;";
+        attachBtn.setStyle(attachDefault);
+        attachBtn.setOnMouseEntered(e -> {
+            attachBtn.setStyle(attachHover);
+            attachIcon.setStyle(attachIcon.getStyle().replace("rgba(0,0,0,0.4)", "rgba(0,0,0,0.7)"));
+        });
+        attachBtn.setOnMouseExited(e -> {
+            attachBtn.setStyle(attachDefault);
+            attachIcon.setStyle(attachIcon.getStyle().replace("rgba(0,0,0,0.7)", "rgba(0,0,0,0.4)"));
+        });
+        attachBtn.setOnMousePressed(e -> {
+            attachBtn.setStyle(attachPress);
+            attachIcon.setStyle(attachIcon.getStyle().replace("rgba(0,0,0,0.4)", "rgba(0,0,0,0.8)"));
+        });
+        attachBtn.setOnMouseReleased(e -> {
+            attachBtn.setStyle(attachHover);
+            attachIcon.setStyle(attachIcon.getStyle().replace("rgba(0,0,0,0.8)", "rgba(0,0,0,0.7)"));
+        });
+        attachBtn.setOnMouseClicked(e -> selectFiles());
 
         Button mentionBtn = new Button("@");
         mentionBtn.setStyle("-fx-background-color: transparent; -fx-pref-width: 32px; -fx-pref-height: 32px; -fx-background-radius: 8px;");
