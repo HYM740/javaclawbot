@@ -11,10 +11,6 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.Line;
 
-import java.util.ArrayList;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Set;
 import java.util.function.Consumer;
 
 public class SettingsPage extends VBox {
@@ -235,32 +231,64 @@ public class SettingsPage extends VBox {
         settingsContainer.getChildren().add(buildChannelsSection());
     }
 
+    /** ComboBox 条目类型：模型名 或 提供商分隔标题 */
+    private static class ModelItem {
+        final String text;
+        final String modelName;     // null 代表是标题
+        final String providerName;  // 提供商名（标题用）或该模型所属的 provider
+        ModelItem(String text, String model, String provider) {
+            this.text = text; this.modelName = model; this.providerName = provider;
+        }
+        boolean isHeader() { return modelName == null; }
+        @Override public String toString() { return text; }
+    }
+
     private VBox buildModelSection() {
         config.Config cfg = backendBridge.getConfig();
-        String model = cfg.getAgents().getDefaults().getModel();
-        String providerName = cfg.getProviderName(model);
+        String currentModel = cfg.getAgents().getDefaults().getModel();
+        String currentProvider = cfg.getProviderName(currentModel);
 
         VBox section = new VBox(16);
         Label sectionTitle = new Label("模型");
         sectionTitle.getStyleClass().add("section-title");
 
-        // 收集所有已配置 provider 的模型列表
-        Set<String> modelNames = new LinkedHashSet<>();
-        modelNames.add(model); // 当前模型排最前
-        config.provider.ProvidersConfig provCfg = cfg.getProviders();
-        for (String pn : new String[]{"anthropic","openai","deepseek","openrouter","groq",
+        // 按提供商分组收集模型
+        String[] providerOrder = {"openai","anthropic","deepseek","openrouter","groq",
             "zhipu","dashscope","gemini","moonshot","minimax","aihubmix",
-            "siliconflow","volcengine","vllm","githubCopilot","custom"}) {
+            "siliconflow","volcengine","vllm","githubCopilot","custom"};
+        String[] providerLabels = {"OpenAI","Anthropic","DeepSeek","OpenRouter","Groq",
+            "智谱 GLM","阿里云 DashScope","Google Gemini","Moonshot","MiniMax","AIHubMix",
+            "SiliconFlow","火山引擎","vLLM","GitHub Copilot","Custom"};
+
+        config.provider.ProvidersConfig provCfg = cfg.getProviders();
+        java.util.List<ModelItem> items = new java.util.ArrayList<>();
+
+        // 当前模型排最前（即使属于某个 provider）
+        items.add(new ModelItem("  " + currentModel + "  (当前)", currentModel, currentProvider != null ? currentProvider : ""));
+
+        for (int i = 0; i < providerOrder.length; i++) {
+            String pn = providerOrder[i];
+            String pl = providerLabels[i];
             config.provider.ProviderConfig pc = provCfg.getByName(pn);
-            if (pc == null || pc.getModelConfigs() == null) continue;
+            if (pc == null || pc.getModelConfigs() == null || pc.getModelConfigs().isEmpty()) continue;
+
+            // 检查此 provider 是否有 API key（标记状态）
+            boolean hasKey = pc.getApiKey() != null && !pc.getApiKey().isBlank();
+            String headerText = "▸ " + pl + (hasKey ? "" : " (未配置 Key)");
+            if (pn.equals(currentProvider)) headerText = "▸ " + pl + " ★";
+
+            // 添加提供商标题
+            items.add(new ModelItem(headerText, null, pn));
+
             for (config.provider.model.ModelConfig mc : pc.getModelConfigs()) {
-                if (mc.getModel() != null && !mc.getModel().isBlank()) {
-                    modelNames.add(mc.getModel());
+                if (mc.getModel() != null && !mc.getModel().isBlank()
+                    && !mc.getModel().equals(currentModel)) {
+                    items.add(new ModelItem("     " + mc.getModel(), mc.getModel(), pn));
                 }
             }
         }
 
-        // 模型选择行（使用 ComboBox）
+        // 模型选择行
         HBox modelRow = new HBox(16);
         modelRow.setAlignment(Pos.CENTER_LEFT);
 
@@ -271,24 +299,54 @@ public class SettingsPage extends VBox {
         descLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
         infoBox.getChildren().addAll(titleLabel, descLabel);
 
-        ComboBox<String> modelCombo = new ComboBox<>();
-        modelCombo.getItems().addAll(new ArrayList<>(modelNames));
-        modelCombo.setValue(model);
-        modelCombo.setEditable(true);
+        ComboBox<ModelItem> modelCombo = new ComboBox<>();
+        modelCombo.getItems().addAll(items);
+        // 选中第一个（当前模型）
+        if (!items.isEmpty()) modelCombo.setValue(items.get(0));
+        modelCombo.setEditable(false);
         modelCombo.setStyle("-fx-background-color: rgba(0, 0, 0, 0.03); -fx-background-radius: 12px;"
-            + " -fx-border-color: transparent; -fx-font-family: monospace; -fx-font-size: 13px;");
+            + " -fx-border-color: transparent; -fx-font-size: 13px;");
         modelCombo.setPrefHeight(40);
-        modelCombo.setOnAction(e -> {
-            String selected = modelCombo.getValue();
-            if (selected != null && !selected.isBlank() && !selected.equals(model)) {
-                cfg.getAgents().getDefaults().setModel(selected);
-                try {
-                    config.ConfigIO.saveConfig(cfg, null);
-                } catch (Exception ignored) {}
-                if (onModelChanged != null) onModelChanged.accept(selected);
-                // 刷新当前 section 显示
-                refresh();
+        modelCombo.setMaxWidth(350);
+
+        // 自定义单元格渲染：标题项不可选、灰色
+        modelCombo.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(ModelItem item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setText(null); setDisable(false); return; }
+                setText(item.text);
+                if (item.isHeader()) {
+                    setDisable(true);
+                    setStyle("-fx-text-fill: rgba(0,0,0,0.4); -fx-font-weight: 700;"
+                        + " -fx-font-size: 11px; -fx-font-family: sans-serif;");
+                } else {
+                    setDisable(false);
+                    setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
+                }
             }
+        });
+
+        modelCombo.setButtonCell(new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(ModelItem item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setText(null); return; }
+                setText(item.modelName != null ? item.modelName : item.text);
+                setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
+            }
+        });
+
+        modelCombo.setOnAction(e -> {
+            ModelItem selected = modelCombo.getValue();
+            if (selected == null || selected.isHeader() || selected.modelName.equals(currentModel)) return;
+            String pn = selected.providerName;
+            // 同时更新 model 和 provider
+            cfg.getAgents().getDefaults().setModel(selected.modelName);
+            if (pn != null && !pn.isBlank()) {
+                cfg.getAgents().getDefaults().setProvider(pn);
+            }
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            if (onModelChanged != null) onModelChanged.accept(selected.modelName);
+            refresh();
         });
 
         modelRow.getChildren().addAll(infoBox, modelCombo);
@@ -296,8 +354,8 @@ public class SettingsPage extends VBox {
 
         // API Key 显示
         String apiKey = "";
-        if (providerName != null) {
-            config.provider.ProviderConfig pc = cfg.getProviders().getByName(providerName);
+        if (currentProvider != null) {
+            config.provider.ProviderConfig pc = cfg.getProviders().getByName(currentProvider);
             if (pc != null && pc.getApiKey() != null && !pc.getApiKey().isBlank()) {
                 apiKey = pc.getApiKey();
             }
