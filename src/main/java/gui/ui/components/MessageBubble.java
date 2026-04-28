@@ -11,6 +11,8 @@ import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.web.WebView;
 
 import java.util.List;
@@ -32,7 +34,7 @@ public class MessageBubble extends HBox {
         HTML_TEMPLATE = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
             + "<style>"
             + "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
-            + "font-size:14px;line-height:1.6;color:rgba(0,0,0,0.85);background:transparent;margin:0;padding:0;}"
+            + "font-size:14px;line-height:1.6;color:#1c1c1e;background:transparent;margin:0;padding:12px 16px;}"
             + "pre{background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:8px;"
             + "padding:12px 16px;overflow-x:auto;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;line-height:1.5;}"
             + "code{font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;"
@@ -87,13 +89,9 @@ public class MessageBubble extends HBox {
             String html = HTML_TEMPLATE.replace("%s", htmlBody);
 
             WebView webView = new WebView();
-            webView.setStyle("-fx-background-color: transparent;");
             webView.setContextMenuEnabled(false);
-
-            // 设置初始宽度（加入场景后由 scene 监听器更新为精确值）
-            webView.setPrefWidth(600);
+            webView.setPrefWidth(600); // 初始宽度，scene 监听器稍后调整为精确值
             webView.setMaxWidth(MAX_WIDTH);
-
             webView.getEngine().loadContent(html);
 
             // 页面加载完成后 JS 自适应内容高度
@@ -103,18 +101,32 @@ public class MessageBubble extends HBox {
                 }
             });
 
-            // 右侧 spacer：吸收多余空间，防止 HBox 膨胀溢出
+            // 气泡容器：背景 + 圆角（与 .assistant-bubble 一致）
+            StackPane bubble = new StackPane(webView);
+            bubble.setStyle("-fx-background-color: rgba(0,0,0,0.05);"
+                + " -fx-background-radius: 16px;"
+                + " -fx-padding: 0;");
+
+            // clip 使圆角对 WebView（native 节点）也生效
+            Rectangle clip = new Rectangle();
+            clip.widthProperty().bind(bubble.widthProperty());
+            clip.heightProperty().bind(bubble.heightProperty());
+            clip.setArcWidth(32);
+            clip.setArcHeight(32);
+            bubble.setClip(clip);
+
+            // 右侧 spacer：吸收多余空间
             Region rightSpacer = new Region();
             HBox.setHgrow(rightSpacer, Priority.ALWAYS);
 
-            getChildren().addAll(avatar, webView, rightSpacer);
+            getChildren().addAll(avatar, bubble, rightSpacer);
 
-            // 宽度根据可用空间自适应（max 700, min 300）
+            // 宽度根据可用空间自适应
             sceneProperty().addListener((obs, o, s) -> {
                 if (s != null) {
-                    updateWebViewWidth(webView, s.getWidth());
+                    updateBubbleWidth(webView, bubble, s.getWidth());
                     s.widthProperty().addListener((wObs, wOld, wNew) -> {
-                        updateWebViewWidth(webView, wNew.doubleValue());
+                        updateBubbleWidth(webView, bubble, wNew.doubleValue());
                         Platform.runLater(() -> adjustWebViewHeight(webView));
                     });
                 }
@@ -122,11 +134,14 @@ public class MessageBubble extends HBox {
         }
     }
 
-    private static void updateWebViewWidth(WebView wv, double sceneWidth) {
+    private static void updateBubbleWidth(WebView wv, StackPane bubble, double sceneWidth) {
         double cw = Math.min(MAX_WIDTH, Math.max(300,
             sceneWidth - 256 - 32 - 44));
-        wv.setPrefWidth(cw);
-        wv.setMaxWidth(cw);
+        // WebView 内容宽度 = 气泡宽度 - 左右 padding（12px + 16px）
+        double contentWidth = cw - 32; // assistant-bubble padding: 12 + 16 + some buffer
+        wv.setPrefWidth(Math.max(200, contentWidth));
+        wv.setMaxWidth(Math.max(200, contentWidth));
+        bubble.setMaxWidth(cw);
     }
 
     private static void adjustWebViewHeight(WebView wv) {
