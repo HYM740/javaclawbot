@@ -90,10 +90,12 @@ public class MessageBubble extends HBox {
 
             WebView webView = new WebView();
             webView.setContextMenuEnabled(false);
-            // 初始宽度基于内容估算（scene 监听器稍后精确调整）
+            // 初始尺寸：宽度按内容估算，高度按行数估算（JS 回调后会调整为精确值）
             double initW = estimateContentWidth(content);
             webView.setPrefWidth(initW);
             webView.setMaxWidth(initW);
+            int lineCount = (int) content.lines().count();
+            webView.setPrefHeight(Math.max(40, lineCount * 22 + 24));
             webView.getEngine().loadContent(html);
 
             // 页面加载完成后 JS 自适应内容高度
@@ -162,8 +164,7 @@ public class MessageBubble extends HBox {
                 "Math.max(document.body.scrollHeight, "
                 + "document.documentElement.scrollHeight)");
             if (h instanceof Number) {
-                wv.setPrefHeight(Math.min(
-                    ((Number) h).doubleValue() + 16, 600));
+                wv.setPrefHeight(((Number) h).doubleValue() + 16);
             }
         } catch (Exception ignored) {}
     }
