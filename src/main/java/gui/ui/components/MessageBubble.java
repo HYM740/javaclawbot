@@ -31,8 +31,7 @@ public class MessageBubble extends HBox {
         PARSER = Parser.builder(options).build();
         RENDERER = HtmlRenderer.builder(options).build();
 
-        HTML_TEMPLATE = "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-            + "<style>"
+        HTML_TEMPLATE = "<!DOCTYPE html><html><head><meta charset='UTF-8'><style>"
             + "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
             + "font-size:14px;line-height:1.6;color:#1c1c1e;background:transparent;margin:0;padding:12px 16px;}"
             + "pre{background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:8px;"
@@ -45,16 +44,36 @@ public class MessageBubble extends HBox {
             + "h1{font-size:20px;font-weight:700;margin:12px 0 4px;}"
             + "h2{font-size:17px;font-weight:700;margin:10px 0 4px;}"
             + "h3{font-size:15px;font-weight:600;margin:8px 0 4px;}"
-            + "ul,ol{padding-left:20px;margin:4px 0;}"
-            + "li{margin:2px 0;}"
+            + "ul,ol{padding-left:20px;margin:4px 0;}li{margin:2px 0;}"
             + "a{color:#3b82f6;}"
             + "table{border-collapse:collapse;margin:8px 0;font-size:13px;}"
             + "th,td{border:1px solid rgba(0,0,0,0.1);padding:6px 12px;text-align:left;}"
             + "th{background:rgba(0,0,0,0.04);}"
             + "hr{border:none;border-top:1px solid rgba(0,0,0,0.08);margin:12px 0;}"
-            + "p{margin:4px 0;}"
-            + "img{max-width:100%;border-radius:8px;}"
-            + "</style></head><body>%s</body></html>";
+            + "p{margin:4px 0;}img{max-width:100%;border-radius:8px;}"
+            + ".copy-btn{position:absolute;top:6px;right:8px;display:flex;align-items:center;gap:4px;"
+            + "background:rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.08);border-radius:6px;"
+            + "padding:4px 10px;cursor:pointer;font-size:12px;color:rgba(0,0,0,0.4);"
+            + "opacity:0;transition:opacity 0.2s;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
+            + "pre:hover .copy-btn,.copy-btn.copied{opacity:1;}"
+            + ".copy-btn:hover{background:rgba(0,0,0,0.1);color:rgba(0,0,0,0.7);}"
+            + ".copy-btn.copied{color:#16a34a;}"
+            + "</style></head><body>%s<script>"
+            + "(function(){var svg='<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"13\" height=\"13\" rx=\"2\" ry=\"2\"/><path d=\"M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1\"/></svg>';"
+            + "var pres=document.querySelectorAll('pre');"
+            + "for(var i=0;i<pres.length;i++){(function(pre){pre.style.position='relative';"
+            + "var btn=document.createElement('button');btn.className='copy-btn';btn.innerHTML=svg;"
+            + "btn.onclick=function(e){e.stopPropagation();"
+            + "var code=pre.querySelector('code')||pre;var text=code.textContent;"
+            + "var done=function(){btn.classList.add('copied');btn.textContent='已复制';"
+            + "setTimeout(function(){btn.classList.remove('copied');btn.innerHTML=svg;},2000);};"
+            + "try{navigator.clipboard.writeText(text).then(done).catch(function(){fallback();});}"
+            + "catch(_){fallback();}"
+            + "function fallback(){var ta=document.createElement('textarea');ta.value=text;"
+            + "ta.style.cssText='position:fixed;opacity:0;';document.body.appendChild(ta);ta.select();"
+            + "document.execCommand('copy');document.body.removeChild(ta);done();}};"
+            + "pre.appendChild(btn);})(pres[i]);}})();"
+            + "</script></body></html>";
     }
 
     public enum Role { USER, ASSISTANT }
