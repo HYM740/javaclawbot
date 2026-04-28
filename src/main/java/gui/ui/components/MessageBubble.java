@@ -90,8 +90,10 @@ public class MessageBubble extends HBox {
 
             WebView webView = new WebView();
             webView.setContextMenuEnabled(false);
-            webView.setPrefWidth(600); // 初始宽度，scene 监听器稍后调整为精确值
-            webView.setMaxWidth(MAX_WIDTH);
+            // 初始宽度基于内容估算（scene 监听器稍后精确调整）
+            double initW = estimateContentWidth(content);
+            webView.setPrefWidth(initW);
+            webView.setMaxWidth(initW);
             webView.getEngine().loadContent(html);
 
             // 页面加载完成后 JS 自适应内容高度
@@ -124,9 +126,9 @@ public class MessageBubble extends HBox {
             // 宽度根据可用空间自适应
             sceneProperty().addListener((obs, o, s) -> {
                 if (s != null) {
-                    updateBubbleWidth(webView, bubble, s.getWidth());
+                    updateBubbleWidth(webView, bubble, s.getWidth(), content);
                     s.widthProperty().addListener((wObs, wOld, wNew) -> {
-                        updateBubbleWidth(webView, bubble, wNew.doubleValue());
+                        updateBubbleWidth(webView, bubble, wNew.doubleValue(), content);
                         Platform.runLater(() -> adjustWebViewHeight(webView));
                     });
                 }
@@ -134,14 +136,24 @@ public class MessageBubble extends HBox {
         }
     }
 
-    private static void updateBubbleWidth(WebView wv, StackPane bubble, double sceneWidth) {
-        double cw = Math.min(MAX_WIDTH, Math.max(300,
+    /** 根据内容估算最佳宽度（模拟 Label wrapText 的"短则窄、长则宽"效果） */
+    private static double estimateContentWidth(String content) {
+        double maxLine = 0;
+        for (String line : content.split("\n")) {
+            double w = line.length() * 8.5; // 14px 中文字符近似宽度
+            if (w > maxLine) maxLine = w;
+        }
+        return Math.min(MAX_WIDTH, Math.max(200, maxLine + 32)); // 32 = body padding
+    }
+
+    private static void updateBubbleWidth(WebView wv, StackPane bubble, double sceneWidth, String content) {
+        double available = Math.min(MAX_WIDTH, Math.max(300,
             sceneWidth - 256 - 32 - 44));
-        // WebView 内容宽度 = 气泡宽度 - 左右 padding（12px + 16px）
-        double contentWidth = cw - 32; // assistant-bubble padding: 12 + 16 + some buffer
-        wv.setPrefWidth(Math.max(200, contentWidth));
-        wv.setMaxWidth(Math.max(200, contentWidth));
-        bubble.setMaxWidth(cw);
+        // WebView 宽度按内容估算（窄消息不撑满），上限取可用宽度
+        double contentW = Math.min(available, estimateContentWidth(content));
+        wv.setPrefWidth(contentW);
+        wv.setMaxWidth(contentW);
+        bubble.setMaxWidth(available);
     }
 
     private static void adjustWebViewHeight(WebView wv) {
