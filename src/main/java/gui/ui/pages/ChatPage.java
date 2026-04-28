@@ -25,6 +25,8 @@ public class ChatPage extends VBox {
     private final Label scrollToBottomBtn;
 
     private boolean autoScroll = true;
+    private double lastVvalue = 1.0;
+    private double lastContentHeight = 0;
 
     public ChatPage() {
         setSpacing(0);
@@ -44,19 +46,25 @@ public class ChatPage extends VBox {
 
         // 跟踪滚动位置，判断是否在底部
         scrollPane.vvalueProperty().addListener((obs, old, val) -> {
-            double scrollBottom = val.doubleValue();
-            // 内容未溢出时 vvalue 恒为 0，不显示按钮
+            double v = val.doubleValue();
             double viewHeight = scrollPane.getViewportBounds().getHeight();
             double contentHeight = messageContainer.getHeight();
             boolean canScroll = contentHeight > viewHeight + 1;
-            boolean atBottom = scrollBottom >= 0.95;
+            boolean atBottom = v >= 0.95;
             if (!canScroll || atBottom) {
                 autoScroll = true;
                 scrollToBottomBtn.setVisible(false);
+            } else if (contentHeight > lastContentHeight + 1 && lastVvalue >= 0.95) {
+                // 内容高度增长（如 WebView 自适应调整）且之前在底部，保持自动滚动
+                autoScroll = true;
+                scrollToBottomBtn.setVisible(false);
+                Platform.runLater(() -> scrollPane.setVvalue(1.0));
             } else {
                 autoScroll = false;
                 scrollToBottomBtn.setVisible(true);
             }
+            lastVvalue = v;
+            lastContentHeight = contentHeight;
         });
 
         // StackPane 层叠消息区域和悬浮按钮
@@ -178,6 +186,7 @@ public class ChatPage extends VBox {
 
     public void addAssistantMessage(String content) {
         MessageBubble bubble = new MessageBubble(MessageBubble.Role.ASSISTANT, content);
+        bubble.setOnHeightAdjusted(this::scrollToBottom);
         messageContainer.getChildren().add(bubble);
         smartScrollToBottom();
     }

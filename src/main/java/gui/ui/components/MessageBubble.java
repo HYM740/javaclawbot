@@ -22,6 +22,9 @@ public class MessageBubble extends HBox {
 
     private static final double MAX_WIDTH = 700;
 
+    /** 当 WebView 内容高度被 JS 回调调整后触发，用于通知外层重新滚动到底部 */
+    private Runnable onHeightAdjusted;
+
     private static final Parser PARSER;
     private static final HtmlRenderer RENDERER;
     private static final String HTML_TEMPLATE;
@@ -122,7 +125,12 @@ public class MessageBubble extends HBox {
             // 页面加载完成后 JS 自适应内容高度
             webView.getEngine().documentProperty().addListener((obs, old, doc) -> {
                 if (doc != null) {
-                    Platform.runLater(() -> adjustWebViewHeight(webView));
+                    Platform.runLater(() -> {
+                        adjustWebViewHeight(webView);
+                        if (onHeightAdjusted != null) {
+                            onHeightAdjusted.run();
+                        }
+                    });
                 }
             });
 
@@ -184,6 +192,10 @@ public class MessageBubble extends HBox {
         wv.setPrefWidth(contentW);
         wv.setMaxWidth(contentW);
         bubble.setMaxWidth(available);
+    }
+
+    public void setOnHeightAdjusted(Runnable callback) {
+        this.onHeightAdjusted = callback;
     }
 
     private static void adjustWebViewHeight(WebView wv) {
