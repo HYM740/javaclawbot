@@ -8,6 +8,7 @@ import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
+import javafx.scene.input.ScrollEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -144,6 +145,13 @@ public class MessageBubble extends HBox {
             HBox.setHgrow(rightSpacer, Priority.ALWAYS);
 
             getChildren().addAll(avatar, bubble, rightSpacer);
+
+            // WebView 是 native 节点，会截获滚轮事件不给外层 ScrollPane。
+            // 拦截 SCROLL 事件，复制并转发到 bubble 容器使其冒泡到 ScrollPane。
+            webView.addEventFilter(ScrollEvent.SCROLL, e -> {
+                e.consume();
+                javafx.event.Event.fireEvent(bubble, e.copyFor(bubble, bubble));
+            });
 
             // 宽度根据可用空间自适应
             sceneProperty().addListener((obs, o, s) -> {
