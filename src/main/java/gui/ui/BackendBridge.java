@@ -47,9 +47,10 @@ public class BackendBridge {
 
     /** 进度事件：区分思考内容、工具调用、工具结果 */
     public record ProgressEvent(String content, boolean isToolHint,
-                                boolean isToolResult, String toolName, String toolCallId) {
+                                boolean isToolResult, String toolName, String toolCallId,
+                                boolean isReasoning) {
         public ProgressEvent(String content, boolean isToolHint) {
-            this(content, isToolHint, false, null, null);
+            this(content, isToolHint, false, null, null, false);
         }
     }
 
@@ -183,6 +184,7 @@ public class BackendBridge {
                     boolean isProgress = Boolean.TRUE.equals(meta.get("_progress"));
                     boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
                     boolean isToolResult = Boolean.TRUE.equals(meta.get("_tool_result"));
+                    boolean isReasoning = Boolean.TRUE.equals(meta.get("_reasoning"));
                     String toolName = meta.get("tool_name") instanceof String s ? s : null;
                     String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
 
@@ -191,7 +193,7 @@ public class BackendBridge {
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {
                             Platform.runLater(() -> cb.accept(
-                                new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId)));
+                                new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId, isReasoning)));
                         }
                     } else {
                         // 最终回复

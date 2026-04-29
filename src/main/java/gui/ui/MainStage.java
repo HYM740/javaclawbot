@@ -457,10 +457,15 @@ public class MainStage {
                                         ? progress.toolName()
                                         : extractToolName(progress.content());
                                     ToolCallCard card = chatPage.addToolCallCard(
-                                        toolName, "running", progress.content(), true);
+                                        toolName, "running", progress.content(), false);
                                     lastToolCard = card;
+                                } else if (progress.isReasoning()) {
+                                    // 推理/思考内容：工具调用前展示可折叠思考块
+                                    chatPage.addReasoningBlock(progress.content());
+                                } else {
+                                    // 普通回复文本（clean 内容，伴随工具调用）
+                                    chatPage.addAssistantMessage(progress.content());
                                 }
-                                // 思考内容静默跳过（会在最终回复中体现）
                             },
                             response -> {
                                 chatPage.removeThinkingPlaceholder();

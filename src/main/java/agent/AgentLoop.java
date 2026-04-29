@@ -1829,18 +1829,37 @@ public class AgentLoop {
 
     @NotNull
     private ProgressCallback getBusProgressCallback(InboundMessage msg, ProgressCallback onProgress) {
-        ProgressCallback busProgress = (content1, toolHint) -> {
-            Map<String, Object> meta = new LinkedHashMap<>();
-            if (msg.getMetadata() != null) meta.putAll(msg.getMetadata());
-            meta.put("_progress", true);
-            meta.put("_tool_hint", toolHint);
-            bus.publishOutbound(new OutboundMessage(
-                    msg.getChannel(),
-                    msg.getChatId(),
-                    content1,
-                    List.of(),
-                    meta
-            ));
+        ProgressCallback busProgress = new ProgressCallback() {
+            @Override
+            public void onProgress(String content1, boolean toolHint) {
+                Map<String, Object> meta = new LinkedHashMap<>();
+                if (msg.getMetadata() != null) meta.putAll(msg.getMetadata());
+                meta.put("_progress", true);
+                meta.put("_tool_hint", toolHint);
+                bus.publishOutbound(new OutboundMessage(
+                        msg.getChannel(),
+                        msg.getChatId(),
+                        content1,
+                        List.of(),
+                        meta
+                ));
+            }
+
+            @Override
+            public void onReasoning(String content) {
+                Map<String, Object> meta = new LinkedHashMap<>();
+                if (msg.getMetadata() != null) meta.putAll(msg.getMetadata());
+                meta.put("_progress", true);
+                meta.put("_tool_hint", false);
+                meta.put("_reasoning", true);
+                bus.publishOutbound(new OutboundMessage(
+                        msg.getChannel(),
+                        msg.getChatId(),
+                        content,
+                        List.of(),
+                        meta
+                ));
+            }
         };
         ProgressCallback progress = (onProgress != null) ? onProgress : busProgress;
         return progress;
@@ -2104,7 +2123,11 @@ public class AgentLoop {
 
                     if (resp.hasToolCalls()) {
                         if (onProgress != null) {
-                            // 移除思考标签
+                            // 先发送推理/思考内容，让 UI 在工具调用前展示
+                            if (StrUtil.isNotBlank(resp.getReasoningContent())) {
+                                onProgress.onReasoning(resp.getReasoningContent());
+                            }
+                            // 再发送伴随工具调用的文本（如有）
                             if (clean != null) {
                                 onProgress.onProgress(clean, false);
                             }

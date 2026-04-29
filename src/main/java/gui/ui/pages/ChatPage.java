@@ -242,6 +242,94 @@ public class ChatPage extends VBox {
         smartScrollToBottom();
     }
 
+    /** 添加独立的推理/思考块（可折叠），用于工具调用前展示思考过程 */
+    public void addReasoningBlock(String reasoning) {
+        if (reasoning == null || reasoning.isBlank()) return;
+
+        HBox row = new HBox(12);
+        row.setAlignment(Pos.TOP_LEFT);
+        row.setPadding(new Insets(8, 0, 8, 0));
+
+        Label avatar = new Label("✨");
+        avatar.setStyle("-fx-background-color: rgba(0, 0, 0, 0.05); -fx-background-radius: 999px;"
+            + " -fx-pref-width: 32px; -fx-pref-height: 32px; -fx-alignment: center;");
+        avatar.setMinSize(32, 32);
+
+        VBox reasoningBlock = new VBox();
+        reasoningBlock.setStyle("-fx-background-color: rgba(0,0,0,0.03);"
+            + " -fx-background-radius: 12px; -fx-padding: 0;");
+        reasoningBlock.setMaxWidth(700);
+
+        HBox reasoningHeader = new HBox(8);
+        reasoningHeader.setAlignment(Pos.CENTER_LEFT);
+        reasoningHeader.setPadding(new Insets(8, 16, 0, 16));
+        Label toggleArrow = new Label("▸");
+        toggleArrow.setStyle("-fx-font-size: 10px; -fx-text-fill: rgba(0,0,0,0.4);");
+        Label titleLabel = new Label("💭 已深度思考");
+        titleLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: rgba(0,0,0,0.45);");
+        Region headerSpacer = new Region();
+        HBox.setHgrow(headerSpacer, Priority.ALWAYS);
+        reasoningHeader.getChildren().addAll(toggleArrow, titleLabel, headerSpacer);
+        reasoningHeader.setCursor(javafx.scene.Cursor.HAND);
+        reasoningBlock.getChildren().add(reasoningHeader);
+
+        String reasoningHtmlBody = REASONING_RENDERER.render(REASONING_PARSER.parse(reasoning));
+        String reasoningHtml = REASONING_HTML_TEMPLATE.replace("%s", reasoningHtmlBody);
+        WebView reasoningWv = new WebView();
+        reasoningWv.setContextMenuEnabled(false);
+        reasoningWv.setStyle("-fx-background-color: rgba(0,0,0,0.03);");
+        reasoningWv.setPrefHeight(0);
+        reasoningWv.setMaxHeight(0);
+
+        final double[] measuredHeight = {0};
+        final boolean[] heightReady = {false};
+        reasoningWv.getEngine().documentProperty().addListener((obs, old, doc) -> {
+            if (doc != null) {
+                Platform.runLater(() -> {
+                    try {
+                        Object h = reasoningWv.getEngine().executeScript(
+                            "(function(){return Math.max(document.body.scrollHeight,"
+                            + "document.documentElement.scrollHeight);})()");
+                        if (h instanceof Number) {
+                            double height = ((Number) h).doubleValue();
+                            if (height > 0) {
+                                measuredHeight[0] = height;
+                                heightReady[0] = true;
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                });
+            }
+        });
+
+        reasoningWv.addEventFilter(javafx.scene.input.ScrollEvent.SCROLL, e -> {
+            e.consume();
+            javafx.event.Event.fireEvent(reasoningBlock, e.copyFor(reasoningBlock, reasoningBlock));
+        });
+
+        reasoningBlock.getChildren().add(reasoningWv);
+
+        reasoningHeader.setOnMouseClicked(e -> {
+            boolean expand = reasoningWv.getMaxHeight() == 0;
+            if (expand && heightReady[0]) {
+                reasoningWv.setPrefHeight(measuredHeight[0]);
+                reasoningWv.setMaxHeight(measuredHeight[0]);
+            } else if (!expand) {
+                reasoningWv.setPrefHeight(0);
+                reasoningWv.setMaxHeight(0);
+            }
+            toggleArrow.setText(expand ? "▾" : "▸");
+        });
+
+        Region rightSpacer = new Region();
+        HBox.setHgrow(rightSpacer, Priority.ALWAYS);
+        row.getChildren().addAll(avatar, reasoningBlock, rightSpacer);
+        messageContainer.getChildren().add(row);
+        smartScrollToBottom();
+
+        Platform.runLater(() -> reasoningWv.getEngine().loadContent(reasoningHtml));
+    }
+
     public ToolCallCard addToolCallCard(String toolName, String status, String params) {
         return addToolCallCard(toolName, status, params, false);
     }
