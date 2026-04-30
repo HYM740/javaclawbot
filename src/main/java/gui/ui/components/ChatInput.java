@@ -8,7 +8,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
 import javafx.scene.input.KeyCode;
-import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -456,7 +455,7 @@ public class ChatInput extends VBox {
         fileTagRow.setManaged(true);
     }
 
-    /** 大图查看弹窗：无边框，半透明背景，可滚轮缩放 */
+    /** 大图查看弹窗：无边框，半透明背景 */
     private void showImagePreview(java.nio.file.Path path) {
         Stage stage = new Stage();
         stage.initStyle(StageStyle.TRANSPARENT);
@@ -469,36 +468,13 @@ public class ChatInput extends VBox {
         double maxW = Math.min(ownerW * 0.85, 1000);
         double maxH = Math.min(ownerH * 0.85, 750);
 
-        // 加载原图（background loading 避免卡 UI）
+        // 加载原图
         javafx.scene.image.Image img = new javafx.scene.image.Image(
             path.toUri().toString(), maxW, maxH, true, true, true);
         javafx.scene.image.ImageView imgView = new javafx.scene.image.ImageView(img);
         imgView.setPreserveRatio(true);
         imgView.setFitWidth(maxW);
         imgView.setFitHeight(maxH);
-
-        // 缩放状态
-        final double[] scale = {1.0};
-        final double[] baseFitW = {maxW};
-        final double[] baseFitH = {maxH};
-
-        // 滚轮缩放
-        imgView.setOnScroll(e -> {
-            double delta = e.getDeltaY() > 0 ? 0.1 : -0.1;
-            scale[0] = Math.max(0.1, Math.min(5.0, scale[0] + delta));
-            imgView.setFitWidth(baseFitW[0] * scale[0]);
-            imgView.setFitHeight(baseFitH[0] * scale[0]);
-            e.consume();
-        });
-
-        // 双击重置
-        imgView.setOnMouseClicked(e -> {
-            if (e.getClickCount() >= 2) {
-                scale[0] = 1.0;
-                imgView.setFitWidth(baseFitW[0]);
-                imgView.setFitHeight(baseFitH[0]);
-            }
-        });
 
         // 右上角关闭按钮（SVG ×）
         SVGPath closeSvg = new SVGPath();
@@ -510,7 +486,7 @@ public class ChatInput extends VBox {
         closeBtn.setOnMouseClicked(e -> stage.close());
 
         // 底部提示
-        Label hint = new Label("滚轮缩放 · 双击重置");
+        Label hint = new Label("点击空白区域或 Esc 关闭");
         hint.setStyle("-fx-text-fill: rgba(255,255,255,0.5); -fx-font-size: 12px; -fx-padding: 4px 12px;"
             + " -fx-background-color: rgba(0,0,0,0.3); -fx-background-radius: 12px;");
         javafx.scene.layout.StackPane.setAlignment(hint, javafx.geometry.Pos.BOTTOM_CENTER);
