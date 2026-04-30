@@ -83,6 +83,7 @@ public final class AgentRuntimeSettings {
                 contextWindow,
                 defaults.getMemoryWindow(),
                 defaults.getReasoningEffort(),
+                modelConfig != null ? modelConfig.getType() : ModelConfig.ModelType.CHAT,
                 think,
                 extraBody,
                 cfg.getTools().isRestrictToWorkspace(),
@@ -105,6 +106,7 @@ public final class AgentRuntimeSettings {
             int contentWindow,
             int memoryWindow,
             String reasoningEffort,
+            ModelConfig.ModelType modelType,
             /** 思考模式配置（来自 ModelConfig.think），启用时合并到请求 body */
             Map<String, Object> think,
             /** 额外请求参数（来自 ModelConfig.extraBody），直接合并到请求 body */

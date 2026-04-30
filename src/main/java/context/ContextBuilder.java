@@ -7,6 +7,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import config.Config;
 import config.ConfigIO;
+import config.provider.model.ModelConfig;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import memory.MemoryStore;
@@ -52,6 +53,13 @@ public class ContextBuilder {
     private final Supplier<ProjectRegistry> projectRegistrySupplier;
     @Getter
     private final BootstrapConfig bootstrapConfig;
+
+    /** 当前模型类型，决定媒体附件以 base64 嵌入还是路径传递 */
+    private ModelConfig.ModelType currentModelType = ModelConfig.ModelType.CHAT;
+
+    public void setCurrentModelType(ModelConfig.ModelType type) {
+        this.currentModelType = type != null ? type : ModelConfig.ModelType.CHAT;
+    }
 
     public ContextBuilder(Path workspace) {
         this(workspace, null, null);
@@ -390,7 +398,7 @@ public class ContextBuilder {
      *
      * @param history        历史消息（OpenAI 兼容结构：role/content/等）
      * @param currentMessage 当前用户文本
-     * @param media          本地图片路径列表（仅处理 image/*）
+     * @param media          本地文件路径列表（根据模型类型决定嵌入或路径传递）
      * @param channel        渠道名
      * @param chatId         会话标识
      * @return 消息列表（每个元素是 Map，对齐 OpenAI 消息结构）
@@ -446,7 +454,7 @@ public class ContextBuilder {
      *
      * @param history        历史消息（OpenAI 兼容结构：role/content/等）
      * @param currentMessage 当前用户文本
-     * @param media          本地图片路径列表（仅处理 image/*）
+     * @param media          本地文件路径列表（根据模型类型决定嵌入或路径传递）
      * @param channel        渠道名
      * @param chatId         会话标识
      * @return 消息列表（每个元素是 Map，对齐 OpenAI 消息结构）
@@ -500,7 +508,7 @@ public class ContextBuilder {
      *
      * @param history        历史消息（OpenAI 兼容结构：role/content/等）
      * @param currentMessage 当前用户文本
-     * @param media          本地图片路径列表（仅处理 image/*）
+     * @param media          本地文件路径列表（根据模型类型决定嵌入或路径传递）
      * @param channel        渠道名
      * @param chatId         会话标识
      * @return 消息列表（每个元素是 Map，对齐 OpenAI 消息结构）
@@ -615,61 +623,102 @@ public class ContextBuilder {
                 """;
     }
 
+    /** 视频 base64 嵌入的大小上限：10MB（避免请求体过大） */
+    private static final long MAX_VIDEO_EMBED_BYTES = 10 * 1024 * 1024;
+
     /**
-     * 构建用户消息内容：若有图片则以 base64 data URL 方式注入，并把文本放最后
+     * 构建用户消息内容。根据当前模型类型决定媒体文件以 base64 嵌入还是路径传递：
+     * <ul>
+     *   <li>VISION / MULTIMODAL：图片和视频（≤10MB）base64 嵌入</li>
+     *   <li>CHAT / TEXT：仅传递文件路径，提示 AI 使用工具处理</li>
+     *   <li>其他文件类型始终仅传递路径</li>
+     * </ul>
+     * 所有文件的路径都会拼入文本块，方便 AI 知悉文件位置。
      *
      * 返回值：
-     * - 无图片：String
-     * - 有图片：List<Map>，每个元素为 {"type": "...", ...}
+     * - 无媒体或无需嵌入：String
+     * - 有嵌入块：List&lt;Map&gt;，每个元素为 {"type": "...", ...}
      */
     public Object buildUserContent(String text, List<String> media) {
         if (media == null || media.isEmpty()) {
             return text;
         }
 
-        List<Map<String, Object>> images = new ArrayList<>();
+        boolean canEmbed = currentModelType == ModelConfig.ModelType.VISION
+                || currentModelType == ModelConfig.ModelType.MULTIMODAL;
+
+        List<Map<String, Object>> embedBlocks = new ArrayList<>();
+        List<String> allPaths = new ArrayList<>();
 
         for (String pathStr : media) {
             if (pathStr == null || pathStr.isBlank()) continue;
-
             Path p = Path.of(pathStr);
+            if (!Files.isRegularFile(p)) continue;
 
-            // Python：mimetypes.guess_type(path)，这里用 probe + guessFromName 双兜底
             String mime = guessMimeType(p);
+            if (mime == null) continue;
 
-            if (!Files.isRegularFile(p) || mime == null || !mime.startsWith("image/")) {
-                continue;
-            }
+            allPaths.add(p.toString());
 
-            try {
-                byte[] bytes = Files.readAllBytes(p);
-                String b64 = Base64.getEncoder().encodeToString(bytes);
-                String url = "data:" + mime + ";base64," + b64;
+            if (!canEmbed) continue;
 
-                Map<String, Object> imageUrl = new LinkedHashMap<>();
-                imageUrl.put("url", url);
+            boolean isImage = mime.startsWith("image/");
+            boolean isVideo = mime.startsWith("video/");
 
-                Map<String, Object> imageItem = new LinkedHashMap<>();
-                imageItem.put("type", "image_url");
-                imageItem.put("image_url", imageUrl);
-
-                images.add(imageItem);
-            } catch (IOException ignored) {
-                // 读取失败跳过
+            if (isImage) {
+                embedBase64(p, mime, "image_url", embedBlocks);
+            } else if (isVideo) {
+                try {
+                    long size = Files.size(p);
+                    if (size <= MAX_VIDEO_EMBED_BYTES) {
+                        embedBase64(p, mime, "video_url", embedBlocks);
+                    }
+                } catch (IOException ignored) {
+                }
             }
         }
 
-        if (images.isEmpty()) {
-            return text;
+        // 构建带路径说明的文本
+        StringBuilder textWithPaths = new StringBuilder();
+        if (!allPaths.isEmpty()) {
+            textWithPaths.append("用户提供以下文件，你可以使用工具（如 Read、查看图片/视频工具等）查看和处理：\n");
+            for (String fp : allPaths) {
+                textWithPaths.append("- ").append(fp).append("\n");
+            }
+            textWithPaths.append("\n");
+        }
+        textWithPaths.append(text);
+
+        if (embedBlocks.isEmpty()) {
+            return textWithPaths.toString();
         }
 
         Map<String, Object> textItem = new LinkedHashMap<>();
         textItem.put("type", "text");
-        textItem.put("text", text);
+        textItem.put("text", textWithPaths.toString());
 
-        List<Map<String, Object>> mixed = new ArrayList<>(images);
+        List<Map<String, Object>> mixed = new ArrayList<>(embedBlocks);
         mixed.add(textItem);
         return mixed;
+    }
+
+    /** 读取文件 base64 编码为 content block，失败静默跳过 */
+    private void embedBase64(Path p, String mime, String blockType, List<Map<String, Object>> blocks) {
+        try {
+            byte[] bytes = Files.readAllBytes(p);
+            String b64 = Base64.getEncoder().encodeToString(bytes);
+            String url = "data:" + mime + ";base64," + b64;
+
+            Map<String, Object> urlObj = new LinkedHashMap<>();
+            urlObj.put("url", url);
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("type", blockType);
+            item.put(blockType, urlObj);
+
+            blocks.add(item);
+        } catch (IOException ignored) {
+        }
     }
 
     /** @deprecated 使用 Helpers.buildToolCallDicts */

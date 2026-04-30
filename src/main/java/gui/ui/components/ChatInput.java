@@ -16,6 +16,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import session.Session;
 
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
+import javafx.scene.image.Image;
+import javafx.scene.image.PixelReader;
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -222,6 +231,14 @@ public class ChatInput extends VBox {
         // 使用 addEventFilter（捕获阶段）确保在 TextArea 处理 ENTER 之前拦截
         inputArea.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
             if (e.isConsumed() || completionPopup.isShowing()) return;
+            // 粘贴事件：检查剪贴板中的文件 / 图片，有则走 handleFile 流程
+            if (isPasteShortcut(e)) {
+                if (handleClipboardPaste()) {
+                    e.consume();
+                    return;
+                }
+                // 剪贴板无文件/图片则放行，让 TextArea 正常处理文本粘贴
+            }
             // Esc 双击触发停止
             if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) {
                 if (sending) {
@@ -256,18 +273,6 @@ public class ChatInput extends VBox {
     private void sendMessage() {
         String text = inputArea.getText().trim();
         if (!text.isEmpty() || !imagePaths.isEmpty() || !otherFilePaths.isEmpty()) {
-            // 非图片文件：在消息开头拼接路径
-            if (!otherFilePaths.isEmpty()) {
-                StringBuilder sb = new StringBuilder();
-                sb.append("用户指定文件：");
-                for (int i = 0; i < otherFilePaths.size(); i++) {
-                    if (i > 0) sb.append(", ");
-                    sb.append(otherFilePaths.get(i).toString());
-                }
-                sb.append("\n\n");
-                sb.append(text);
-                text = sb.toString();
-            }
             String resolvedText = resolveFileMentions(text);
             for (Consumer<String> listener : sendListeners) {
                 listener.accept(resolvedText);
@@ -371,29 +376,7 @@ public class ChatInput extends VBox {
             addImagePreview(path);
             return;
         }
-        // 视频：暂不支持
-        if (name.endsWith(".mp4") || name.endsWith(".avi") || name.endsWith(".mov")
-                || name.endsWith(".mkv") || name.endsWith(".webm")) {
-            Label toast = new Label("\u26A0 视频暂不支持");
-            toast.setStyle("-fx-background-color: rgba(255, 0, 0, 0.08); -fx-text-fill: #dc2626;"
-                + " -fx-background-radius: 8px; -fx-padding: 6px 12px; -fx-font-size: 12px;");
-            fileTagRow.getChildren().add(toast);
-            fileTagRow.setVisible(true);
-            fileTagRow.setManaged(true);
-            // 2秒后自动消失
-            javafx.animation.PauseTransition pt = new javafx.animation.PauseTransition(
-                javafx.util.Duration.seconds(2));
-            pt.setOnFinished(ev -> {
-                fileTagRow.getChildren().remove(toast);
-                if (fileTagRow.getChildren().isEmpty()) {
-                    fileTagRow.setVisible(false);
-                    fileTagRow.setManaged(false);
-                }
-            });
-            pt.play();
-            return;
-        }
-        // 其他文件：记录路径，显示标签
+        // 其他文件（含视频）：记录路径，显示标签
         otherFilePaths.add(path);
         addFileTag(path);
     }
@@ -444,6 +427,66 @@ public class ChatInput extends VBox {
         fileTagRow.setManaged(true);
     }
 
+    /** 检测粘贴快捷键：macOS 用 Meta+V，Windows/Linux 用 Ctrl+V */
+    private static boolean isPasteShortcut(KeyEvent e) {
+        if (System.getProperty("os.name", "").toLowerCase().contains("mac")) {
+            return e.getCode() == KeyCode.V && e.isMetaDown();
+        }
+        return e.getCode() == KeyCode.V && e.isControlDown();
+    }
+
+    /**
+     * 处理剪贴板粘贴：文件列表（资源管理器复制）或原始图片数据（截图工具/浏览器复制）。
+     * 两种都通过 handleFile() 统一分派。
+     * @return true 表示剪贴板中有文件/图片并已处理
+     */
+    private boolean handleClipboardPaste() {
+        Clipboard clipboard = Clipboard.getSystemClipboard();
+        boolean handled = false;
+
+        // 资源管理器复制的文件（已有磁盘路径）
+        if (clipboard.hasFiles()) {
+            for (java.io.File f : clipboard.getFiles()) {
+                handleFile(f.toPath());
+            }
+            handled = true;
+        }
+
+        // 截图工具 / 浏览器复制的原始图片数据
+        if (clipboard.hasImage()) {
+            Image fxImage = clipboard.getImage();
+            if (fxImage != null) {
+                try {
+                    Path tmpDir = Path.of(System.getProperty("java.io.tmpdir"), "javaclawbot", "clipboard");
+                    Files.createDirectories(tmpDir);
+                    Path tmpFile = tmpDir.resolve("clipboard_" + System.currentTimeMillis() + ".png");
+                    BufferedImage buffered = javafxImageToBuffered(fxImage);
+                    ImageIO.write(buffered, "png", tmpFile.toFile());
+                    handleFile(tmpFile);
+                    handled = true;
+                } catch (Exception ex) {
+                    log.warn("剪贴板图片保存失败", ex);
+                }
+            }
+        }
+
+        return handled;
+    }
+
+    /** JavaFX Image → AWT BufferedImage */
+    private static BufferedImage javafxImageToBuffered(Image fxImage) {
+        int w = (int) fxImage.getWidth();
+        int h = (int) fxImage.getHeight();
+        BufferedImage buffered = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        PixelReader reader = fxImage.getPixelReader();
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                buffered.setRGB(x, y, reader.getArgb(x, y));
+            }
+        }
+        return buffered;
+    }
+
     private void clearFiles() {
         imagePaths.clear();
         otherFilePaths.clear();
@@ -453,6 +496,18 @@ public class ChatInput extends VBox {
         fileTagRow.getChildren().clear();
         fileTagRow.setVisible(false);
         fileTagRow.setManaged(false);
+    }
+
+    /** 获取所有附件路径（图片+视频+其他文件），用于传给后端 media 列表 */
+    public java.util.List<String> getAllAttachmentPaths() {
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        for (java.nio.file.Path p : imagePaths) {
+            paths.add(p.toString());
+        }
+        for (java.nio.file.Path p : otherFilePaths) {
+            paths.add(p.toString());
+        }
+        return paths;
     }
 
     /** 获取图片路径列表（用于 media 字段） */

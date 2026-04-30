@@ -43,6 +43,8 @@ public class ModelConfig {
         TEXT,
         /** 图像理解模型（多模态，支持图片输入） */
         VISION,
+        /** 多模态理解模型（支持图片+视频+音频输入） */
+        MULTIMODAL,
         /** 图像生成模型 */
         IMAGE_GENERATION,
         /** 向量嵌入模型 */

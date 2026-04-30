@@ -34,6 +34,7 @@ import cn.hutool.core.util.StrUtil;
 import config.Config;
 import config.agent.AgentRuntimeSettings;
 import config.agent.SessionMemoryConfig;
+import config.provider.model.ModelConfig;
 
 import config.channel.ChannelsConfig;
 import config.mcp.MCPServerConfig;
@@ -441,7 +442,7 @@ public class AgentLoop {
         }
         return new AgentRuntimeSettings.Snapshot(
                 workspace, model, maxIterations, temperature, maxTokens, contextWindow, memoryWindow,
-                reasoningEffort, null, null, restrictToWorkspace, mcpServers, channelsConfig, null
+                reasoningEffort, ModelConfig.ModelType.CHAT, null, null, restrictToWorkspace, mcpServers, channelsConfig, null
         );
     }
 
@@ -1560,6 +1561,7 @@ public class AgentLoop {
             m.startTurn();
         }
 
+        context.setCurrentModelType(runtimeSnapshot().modelType());
         List<Map<String, Object>> history = session.getHistory();
         List<Map<String, Object>> initialMessages = context.buildMessages(
                 history,

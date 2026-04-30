@@ -320,7 +320,7 @@ public class ModelsPage extends VBox {
         aliasField.setStyle(fieldStyle()); aliasField.setPrefHeight(36);
 
         ComboBox<String> typeCombo = new ComboBox<>();
-        typeCombo.getItems().addAll("CHAT","TEXT","VISION","IMAGE_GENERATION","EMBEDDING","AUDIO","RERANK","MODERATION");
+        typeCombo.getItems().addAll("CHAT","TEXT","VISION","MULTIMODAL","IMAGE_GENERATION","EMBEDDING","AUDIO","RERANK","MODERATION");
         typeCombo.setValue("CHAT");
         typeCombo.setStyle(fieldStyle()); typeCombo.setPrefHeight(36);
 

@@ -516,9 +516,10 @@ public class MainStage {
                         chatPage.getChatInput().setSending(true);
                         chatPage.addThinkingPlaceholder();
                         chatPage.setStatusText("\u25CF \u601D\u8003\u4E2D...");
+                        java.util.List<String> allMedia = chatPage.getChatInput().getAllAttachmentPaths();
                         backendBridge.sendMessage(
                             text,
-                            images.isEmpty() ? null : images,
+                            allMedia.isEmpty() ? null : allMedia,
                             progress -> {
                                 if (progress.isToolResult()) {
                                     handleToolResult(progress);
