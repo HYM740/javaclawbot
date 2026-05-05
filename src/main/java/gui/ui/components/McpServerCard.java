@@ -13,7 +13,17 @@ import java.util.List;
 
 public class McpServerCard extends VBox {
 
+    public interface Callback {
+        void onEdit(String name, String command);
+        void onReload(String name);
+        void onDelete(String name);
+    }
+
     public McpServerCard(String name, String command, boolean isConnected, List<String> tools, String errorMessage) {
+        this(name, command, isConnected ? "已连接" : "错误", isConnected, tools, errorMessage, null);
+    }
+
+    public McpServerCard(String name, String command, String statusText, boolean isGood, List<String> tools, String errorMessage, Callback callback) {
         setSpacing(0);
         getStyleClass().add("card");
         setPadding(new Insets(20));
@@ -36,13 +46,14 @@ public class McpServerCard extends VBox {
         infoBox.getChildren().addAll(nameLabel, commandLabel);
 
         // 状态指示器
-        Label statusBadge = new Label(isConnected ? "已连接" : "错误");
-        statusBadge.getStyleClass().addAll("status-badge", isConnected ? "running" : "error");
+        Label statusBadge = new Label(statusText);
+        String styleClass = isGood ? "running" : "error";
+        statusBadge.getStyleClass().addAll("status-badge", styleClass);
 
         HBox statusBox = new HBox(8);
         statusBox.setAlignment(Pos.CENTER_LEFT);
         Label dot = new Label("\u25CF");
-        dot.setStyle("-fx-text-fill: " + (isConnected ? "#22c55e" : "#ef4444") + "; -fx-font-size: 8px;");
+        dot.setStyle("-fx-text-fill: " + (isGood ? "#22c55e" : "#ef4444") + "; -fx-font-size: 8px;");
         statusBox.getChildren().addAll(dot, statusBadge);
 
         header.getChildren().addAll(icon, infoBox, statusBox);
@@ -87,6 +98,10 @@ public class McpServerCard extends VBox {
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         actionBox.setPadding(new Insets(12, 0, 0, 0));
 
+        Button editBtn = new Button("编辑");
+        editBtn.getStyleClass().add("pill-button");
+        editBtn.setPrefHeight(32);
+
         Button reloadBtn = new Button("重新加载");
         reloadBtn.getStyleClass().add("pill-button");
         reloadBtn.setPrefHeight(32);
@@ -95,7 +110,13 @@ public class McpServerCard extends VBox {
         deleteBtn.getStyleClass().add("pill-button");
         deleteBtn.setPrefHeight(32);
 
-        actionBox.getChildren().addAll(reloadBtn, deleteBtn);
+        if (callback != null) {
+            editBtn.setOnAction(e -> callback.onEdit(name, command));
+            reloadBtn.setOnAction(e -> callback.onReload(name));
+            deleteBtn.setOnAction(e -> callback.onDelete(name));
+        }
+
+        actionBox.getChildren().addAll(editBtn, reloadBtn, deleteBtn);
         getChildren().add(actionBox);
     }
 }

@@ -301,14 +301,21 @@ public class ChatPage extends VBox {
 
         reasoningHeader.setOnMouseClicked(e -> {
             boolean expand = reasoningWv.getMaxHeight() == 0;
-            if (expand && heightReady[0]) {
-                reasoningWv.setPrefHeight(measuredHeight[0]);
-                reasoningWv.setMaxHeight(measuredHeight[0]);
-            } else if (!expand) {
+            if (expand) {
+                // 如果高度还没测量好，强制测量一次
+                if (!heightReady[0]) {
+                    forceMeasureHeight(reasoningWv, measuredHeight, heightReady);
+                }
+                if (heightReady[0] && measuredHeight[0] > 0) {
+                    reasoningWv.setPrefHeight(measuredHeight[0]);
+                    reasoningWv.setMaxHeight(measuredHeight[0]);
+                    toggleArrow.setText("\u25BE");
+                }
+            } else {
                 reasoningWv.setPrefHeight(0);
                 reasoningWv.setMaxHeight(0);
+                toggleArrow.setText("\u25B8");
             }
-            toggleArrow.setText(expand ? "\u25BE" : "\u25B8");
         });
 
         Region rightSpacer = new Region();
@@ -475,14 +482,20 @@ public class ChatPage extends VBox {
         // 点击切换展开/收起（仅切换高度，不操作 visibility/managed）
         reasoningHeader.setOnMouseClicked(e -> {
             boolean expand = reasoningWv.getMaxHeight() == 0;
-            if (expand && heightReady[0]) {
-                reasoningWv.setPrefHeight(measuredHeight[0]);
-                reasoningWv.setMaxHeight(measuredHeight[0]);
-            } else if (!expand) {
+            if (expand) {
+                if (!heightReady[0]) {
+                    forceMeasureHeight(reasoningWv, measuredHeight, heightReady);
+                }
+                if (heightReady[0] && measuredHeight[0] > 0) {
+                    reasoningWv.setPrefHeight(measuredHeight[0]);
+                    reasoningWv.setMaxHeight(measuredHeight[0]);
+                    toggleArrow.setText("\u25BE");
+                }
+            } else {
                 reasoningWv.setPrefHeight(0);
                 reasoningWv.setMaxHeight(0);
+                toggleArrow.setText("\u25B8");
             }
-            toggleArrow.setText(expand ? "\u25BE" : "\u25B8"); // ▾ : ▸
         });
 
         // 推理块宽度与回复块同宽
@@ -530,11 +543,9 @@ public class ChatPage extends VBox {
                     }
                     result[0] = height;
                     if (attempt >= 5) {
-                        // 达到最大重试次数，使用当前测量值
                         ready[0] = true;
                         return;
                     }
-                    // 继续重试
                     javafx.animation.PauseTransition delay = new javafx.animation.PauseTransition(
                         javafx.util.Duration.millis(100));
                     final int next = attempt + 1;
@@ -543,13 +554,35 @@ public class ChatPage extends VBox {
                     return;
                 }
             }
-            // 高度为 0，继续重试
+            // 高度为 0 或无效：继续重试，但达到上限时也必须标记 ready
             if (attempt < 5) {
                 javafx.animation.PauseTransition delay = new javafx.animation.PauseTransition(
                     javafx.util.Duration.millis(100));
                 final int next = attempt + 1;
                 delay.setOnFinished(ev -> measureWebViewHeightWithRetry(wv, result, ready, next));
                 delay.play();
+            } else {
+                ready[0] = true;
+            }
+        } catch (Exception ignored) {
+            if (attempt >= 5) {
+                ready[0] = true;
+            }
+        }
+    }
+
+    /** 单次强制测量 WebView 内容高度（用于点击展开时的回退测量） */
+    private void forceMeasureHeight(WebView wv, double[] result, boolean[] ready) {
+        try {
+            Object h = wv.getEngine().executeScript(
+                "(function(){var d=document;var e=d.documentElement;"
+                + "var oldH=e.style.height;e.style.height='auto';"
+                + "var sh=Math.max(d.body.scrollHeight,e.scrollHeight);"
+                + "e.style.height=oldH;"
+                + "return sh;})()");
+            if (h instanceof Number && ((Number) h).doubleValue() > 0) {
+                result[0] = ((Number) h).doubleValue();
+                ready[0] = true;
             }
         } catch (Exception ignored) {}
     }

@@ -25,15 +25,26 @@ public class AddMcpServerDialog extends Stage {
     private final TextField commandField;
     private final TextArea rawJsonField;
     private final Label jsonErrorLabel;
+    private final Label title;
+    private final Button confirmBtn;
     private boolean confirmed = false;
     private boolean isRawMode = true;
+    private final String editOldName;
 
+    /** 新增模式 */
     public AddMcpServerDialog(Stage owner) {
+        this(owner, null, null, null);
+    }
+
+    /** 编辑模式：oldName 是原始名称，name/command/jsonStr 为现有值 */
+    public AddMcpServerDialog(Stage owner, String oldName, String name, String commandOrJson) {
+        this.editOldName = oldName;
         initOwner(owner);
         initModality(Modality.APPLICATION_MODAL);
         initStyle(StageStyle.TRANSPARENT);
 
-        setTitle("添加 MCP 服务器");
+        boolean isEdit = oldName != null;
+        setTitle(isEdit ? "编辑 MCP 服务器" : "添加 MCP 服务器");
 
         VBox root = new VBox(16);
         root.setPadding(new Insets(24));
@@ -41,7 +52,7 @@ public class AddMcpServerDialog extends Stage {
         root.setPrefWidth(520);
 
         // 标题
-        Label title = new Label("添加 MCP 服务器");
+        title = new Label(isEdit ? "编辑 MCP 服务器" : "添加 MCP 服务器");
         title.setStyle("-fx-font-size: 18px; -fx-font-weight: 500;");
 
         // 选项卡按钮
@@ -65,7 +76,7 @@ public class AddMcpServerDialog extends Stage {
         Label nameLabel = new Label("服务器名称");
         nameLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 500;");
 
-        nameField = new TextField();
+        nameField = new TextField(name != null ? name : "");
         nameField.getStyleClass().add("input-field");
         nameField.setPrefHeight(40);
         nameField.setPromptText("例如: filesystem");
@@ -76,7 +87,7 @@ public class AddMcpServerDialog extends Stage {
         Label commandLabel = new Label("启动命令");
         commandLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 500;");
 
-        commandField = new TextField();
+        commandField = new TextField(commandOrJson != null ? commandOrJson : "");
         commandField.getStyleClass().add("input-field");
         commandField.setPrefHeight(40);
         commandField.setPromptText("npx -y @modelcontextprotocol/server-filesystem");
@@ -94,7 +105,7 @@ public class AddMcpServerDialog extends Stage {
         Label rawNameLabel = new Label("服务器名称");
         rawNameLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 500;");
 
-        rawNameField = new TextField();
+        rawNameField = new TextField(name != null ? name : "");
         rawNameField.getStyleClass().add("input-field");
         rawNameField.setPrefHeight(40);
         rawNameField.setPromptText("例如: filesystem");
@@ -109,6 +120,11 @@ public class AddMcpServerDialog extends Stage {
         rawJsonField.getStyleClass().add("input-field");
         rawJsonField.setPrefHeight(200);
         rawJsonField.setPromptText("{\n  \"command\": \"npx\",\n  \"args\": [\"-y\", \"...\"],\n  \"env\": {}\n}");
+
+        // 编辑模式：尝试将现有配置序列化为 JSON 预填
+        if (isEdit && commandOrJson != null && commandOrJson.trim().startsWith("{")) {
+            rawJsonField.setText(commandOrJson);
+        }
 
         jsonErrorLabel = new Label();
         jsonErrorLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: #dc2626;");
@@ -147,6 +163,17 @@ public class AddMcpServerDialog extends Stage {
             jsonErrorLabel.setManaged(false);
         });
 
+        // 编辑模式下默认切换到表单模式
+        if (isEdit) {
+            formPanel.setVisible(true);
+            formPanel.setManaged(true);
+            rawPanel.setVisible(false);
+            rawPanel.setManaged(false);
+            tabFormBtn.setStyle(TAB_ACTIVE_STYLE);
+            tabRawBtn.setStyle(TAB_INACTIVE_STYLE);
+            isRawMode = false;
+        }
+
         // 按钮
         HBox buttonBox = new HBox(8);
         buttonBox.setAlignment(Pos.CENTER_RIGHT);
@@ -156,7 +183,7 @@ public class AddMcpServerDialog extends Stage {
         cancelBtn.setPrefHeight(40);
         cancelBtn.setOnAction(e -> close());
 
-        Button confirmBtn = new Button("添加");
+        confirmBtn = new Button(isEdit ? "保存" : "添加");
         confirmBtn.getStyleClass().add("pill-button");
         confirmBtn.setPrefHeight(40);
         confirmBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white; -fx-background-radius: 999px; -fx-border-radius: 999px; -fx-border-color: #3b82f6; -fx-border-width: 1px;");
@@ -182,6 +209,9 @@ public class AddMcpServerDialog extends Stage {
                 confirmed = true;
                 close();
             } else {
+                if (nameField.getText() == null || nameField.getText().isBlank()) {
+                    return;
+                }
                 confirmed = true;
                 close();
             }
@@ -195,8 +225,20 @@ public class AddMcpServerDialog extends Stage {
         scene.getStylesheets().add(getClass().getResource("/static/css/styles/main.css").toExternalForm());
         setScene(scene);
 
-        // 默认选中 RAW 模式
-        Platform.runLater(() -> tabRawBtn.fire());
+        // 默认选中 RAW 模式（新增时），编辑时已默认表单模式
+        if (!isEdit) {
+            Platform.runLater(() -> tabRawBtn.fire());
+        }
+    }
+
+    /** 是否为编辑模式 */
+    public boolean isEditMode() {
+        return editOldName != null;
+    }
+
+    /** 编辑模式下的原始名称 */
+    public String getEditOldName() {
+        return editOldName;
     }
 
     public String getServerName() {

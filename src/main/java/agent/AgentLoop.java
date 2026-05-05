@@ -1579,7 +1579,9 @@ public class AgentLoop {
                     : "处理完成但没有响应内容。";
 
             var msgTool = requestTools.get("message");
-            if (msgTool instanceof MessageTool m && m.isSentInTurn()) {
+            if (msgTool instanceof MessageTool m && m.isSentInTurn()
+                    && (finalContent == null || finalContent.isBlank()
+                        || !finalContent.startsWith("Error:"))) {
                 return null;
             }
 

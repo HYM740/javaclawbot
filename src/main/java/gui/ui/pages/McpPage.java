@@ -1,5 +1,6 @@
 package gui.ui.pages;
 
+import config.mcp.MCPServerConfig;
 import gui.ui.components.McpServerCard;
 import gui.ui.dialogs.AddMcpServerDialog;
 import javafx.geometry.Insets;
@@ -11,14 +12,14 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
-import java.util.Arrays;
-
 public class McpPage extends VBox {
 
     private final VBox serverList;
+    private final Stage stage;
     private gui.ui.BackendBridge backendBridge;
 
     public McpPage(Stage stage) {
+        this.stage = stage;
         setSpacing(0);
         setStyle("-fx-background-color: #f1ede1;");
 
@@ -45,16 +46,6 @@ public class McpPage extends VBox {
         serverList = new VBox(12);
         serverList.setMaxWidth(800);
 
-        // 示例数据
-        serverList.getChildren().addAll(
-            new McpServerCard("filesystem", "npx -y @modelcontextprotocol/server-filesystem", true,
-                Arrays.asList("read_file", "write_file", "list_directory", "delete_file"), null),
-            new McpServerCard("fetch", "npx -y @modelcontextprotocol/server-fetch", true,
-                Arrays.asList("web_fetch", "web_search"), null),
-            new McpServerCard("database", "npx -y @modelcontextprotocol/server-sqlite", false,
-                null, "无法启动 MCP 服务器 - 端口已被占用")
-        );
-
         // 添加按钮
         Button addBtn = new Button("+ 添加 MCP 服务器");
         addBtn.getStyleClass().add("pill-button");
@@ -70,7 +61,10 @@ public class McpPage extends VBox {
                     } else {
                         backendBridge.addMcpServer(name, dialog.getCommand());
                     }
-                    refresh();
+                    refresh(); // 先展示新卡片（状态：未连接）
+                    // 异步触发连接，完成后再次刷新状态
+                    backendBridge.refreshMcpTools()
+                        .thenRun(() -> javafx.application.Platform.runLater(() -> refresh()));
                 } catch (Exception ex) {
                     System.err.println("添加 MCP 服务器失败: " + ex.getMessage());
                 }
@@ -87,23 +81,86 @@ public class McpPage extends VBox {
 
     public void setBackendBridge(gui.ui.BackendBridge bridge) {
         this.backendBridge = bridge;
+        // 先展示当前配置（可能显示未连接）
         refresh();
+        // 触发连接（如果 connectMcp 尚未完成则等待，否则刷新），完成后更新状态
+        bridge.refreshMcpTools()
+            .thenRun(() -> javafx.application.Platform.runLater(() -> refresh()));
+    }
+
+    private McpServerCard.Callback createCardCallback() {
+        return new McpServerCard.Callback() {
+            @Override
+            public void onEdit(String name, String command) {
+                AddMcpServerDialog dialog = new AddMcpServerDialog(stage, name, name, command);
+                dialog.showAndWait();
+                if (dialog.isConfirmed()) {
+                    String newName = dialog.getServerName();
+                    try {
+                        if (dialog.isRawMode()) {
+                            backendBridge.updateMcpServerRaw(name, newName, dialog.getRawJson());
+                        } else {
+                            backendBridge.updateMcpServer(name, newName, dialog.getCommand());
+                        }
+                        refresh();
+                        // 编辑后自动重连
+                        backendBridge.refreshMcpTools()
+                            .thenRun(() -> javafx.application.Platform.runLater(() -> refresh()));
+                    } catch (Exception ex) {
+                        System.err.println("编辑 MCP 服务器失败: " + ex.getMessage());
+                    }
+                }
+            }
+
+            @Override
+            public void onReload(String name) {
+                backendBridge.refreshMcpTools()
+                    .thenRun(() -> javafx.application.Platform.runLater(() -> refresh()));
+            }
+
+            @Override
+            public void onDelete(String name) {
+                backendBridge.deleteMcpServer(name);
+                refresh();
+                // 删除后刷新连接状态
+                backendBridge.refreshMcpTools()
+                    .thenRun(() -> javafx.application.Platform.runLater(() -> refresh()));
+            }
+        };
     }
 
     private void refresh() {
         if (backendBridge == null) return;
         serverList.getChildren().clear();
 
-        java.util.Map<String, config.mcp.MCPServerConfig> servers =
+        java.util.Map<String, MCPServerConfig> servers =
             backendBridge.getConfig().getTools().getMcpServers();
-        for (java.util.Map.Entry<String, config.mcp.MCPServerConfig> entry : servers.entrySet()) {
+        for (java.util.Map.Entry<String, MCPServerConfig> entry : servers.entrySet()) {
             String name = entry.getKey();
-            config.mcp.MCPServerConfig sc = entry.getValue();
+            MCPServerConfig sc = entry.getValue();
             String cmd = sc.getCommand() != null && !sc.getCommand().isBlank()
                 ? sc.getCommand() + " " + String.join(" ", sc.getArgs())
                 : (sc.getUrl() != null ? sc.getUrl() : "");
+            gui.ui.BackendBridge.McpStatus status = backendBridge.getMcpStatus(name);
+            String statusText;
+            boolean isGood;
+            switch (status) {
+                case CONNECTED:
+                    statusText = "已连接";
+                    isGood = true;
+                    break;
+                case DISABLED:
+                    statusText = "已禁用";
+                    isGood = false;
+                    break;
+                default:
+                    statusText = "未连接";
+                    isGood = false;
+                    break;
+            }
+            java.util.List<String> tools = backendBridge.getMcpServerTools(name);
             serverList.getChildren().add(
-                new McpServerCard(name, cmd, sc.isEnable(), java.util.List.of(), null));
+                new McpServerCard(name, cmd, statusText, isGood, tools, null, createCardCallback()));
         }
     }
 }

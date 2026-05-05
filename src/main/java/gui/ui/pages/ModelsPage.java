@@ -281,6 +281,11 @@ public class ModelsPage extends VBox {
 
                 HBox spacer = new HBox(); HBox.setHgrow(spacer, Priority.ALWAYS);
 
+                Button editBtn = new Button("✎");
+                editBtn.setStyle("-fx-background-color: transparent; -fx-font-size: 14px;"
+                    + " -fx-text-fill: rgba(0,0,0,0.3); -fx-cursor: hand; -fx-padding: 0 4px;");
+                editBtn.setOnAction(e -> showEditModelFields(box, pc, cfg, dialog, mc));
+
                 Button delBtn = new Button("×");
                 delBtn.setStyle("-fx-background-color: transparent; -fx-font-size: 14px;"
                     + " -fx-text-fill: rgba(0,0,0,0.3); -fx-cursor: hand; -fx-padding: 0 4px;");
@@ -290,7 +295,7 @@ public class ModelsPage extends VBox {
                     rebuildModelList(box, pc, cfg, dialog);
                 });
 
-                row.getChildren().addAll(nameLabel, typeBadge, tokensLabel, spacer, delBtn);
+                row.getChildren().addAll(nameLabel, typeBadge, tokensLabel, spacer, editBtn, delBtn);
                 box.getChildren().add(row);
             }
         }
@@ -378,5 +383,84 @@ public class ModelsPage extends VBox {
             newLabel("参数"), numRow,
             btnRow);
         box.getChildren().add(form);
+    }
+
+    /** 编辑已有模型：在列表位置展开表单，预填当前值，确认后更新 */
+    private void showEditModelFields(VBox box, ProviderConfig pc, config.Config cfg, Stage dialog, ModelConfig mc) {
+        // 在模型列表中找到该模型的索引，在其下方插入编辑表单
+        int modelIdx = pc.getModelConfigs().indexOf(mc);
+        if (modelIdx < 0) return;
+        // 计算在 box 中的位置：每个模型一行 + 最后的添加按钮
+        int insertIdx = Math.min(modelIdx + 1, box.getChildren().size() - 1);
+
+        VBox form = new VBox(6);
+        form.setPadding(new Insets(8));
+        form.setStyle("-fx-background-color: rgba(59,130,246,0.04); -fx-background-radius: 8px;"
+            + " -fx-border-color: rgba(59,130,246,0.2); -fx-border-radius: 8px; -fx-border-width: 1px;");
+
+        TextField modelField = new TextField(mc.getModel() != null ? mc.getModel() : "");
+        modelField.setPromptText("模型名称 (如 gpt-4o)");
+        modelField.setStyle(fieldStyle()); modelField.setPrefHeight(36);
+
+        TextField aliasField = new TextField(mc.getAlias() != null ? mc.getAlias() : "");
+        aliasField.setPromptText("别名 (可选)");
+        aliasField.setStyle(fieldStyle()); aliasField.setPrefHeight(36);
+
+        ComboBox<String> typeCombo = new ComboBox<>();
+        typeCombo.getItems().addAll("CHAT","TEXT","VISION","MULTIMODAL","IMAGE_GENERATION","EMBEDDING","AUDIO","RERANK","MODERATION");
+        typeCombo.setValue(mc.getType() != null ? mc.getType().name() : "CHAT");
+        typeCombo.setStyle(fieldStyle()); typeCombo.setPrefHeight(36);
+
+        HBox numRow = new HBox(8);
+        TextField maxTokensField = new TextField(mc.getMaxTokens() != null ? String.valueOf(mc.getMaxTokens()) : "8192");
+        maxTokensField.setPromptText("Max Tokens"); maxTokensField.setStyle(fieldStyle()); maxTokensField.setPrefHeight(36); maxTokensField.setPrefWidth(120);
+        TextField tempField = new TextField(mc.getTemperature() != null ? String.valueOf(mc.getTemperature()) : "");
+        tempField.setPromptText("Temperature"); tempField.setStyle(fieldStyle()); tempField.setPrefHeight(36); tempField.setPrefWidth(120);
+        TextField topPField = new TextField(mc.getTopP() != null ? String.valueOf(mc.getTopP()) : "");
+        topPField.setPromptText("Top P"); topPField.setStyle(fieldStyle()); topPField.setPrefHeight(36); topPField.setPrefWidth(120);
+        TextField ctxField = new TextField(mc.getContextWindow() != null ? String.valueOf(mc.getContextWindow()) : "");
+        ctxField.setPromptText("Context Window"); ctxField.setStyle(fieldStyle()); ctxField.setPrefHeight(36); ctxField.setPrefWidth(140);
+        numRow.getChildren().addAll(maxTokensField, tempField, topPField, ctxField);
+
+        HBox btnRow = new HBox(8);
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+
+        Button cancelBtn = new Button("取消");
+        cancelBtn.getStyleClass().add("pill-button");
+        cancelBtn.setPrefHeight(30);
+        cancelBtn.setOnAction(ev -> rebuildModelList(box, pc, cfg, dialog));
+
+        Button confirmBtn = new Button("保存修改");
+        confirmBtn.getStyleClass().addAll("pill-button", "selected");
+        confirmBtn.setPrefHeight(30);
+        confirmBtn.setOnAction(ev -> {
+            String modelName = modelField.getText();
+            if (modelName == null || modelName.isBlank()) return;
+
+            mc.setModel(modelName.trim());
+            mc.setAlias(aliasField.getText() != null && !aliasField.getText().isBlank() ? aliasField.getText().trim() : null);
+            try { mc.setType(ModelConfig.ModelType.valueOf(typeCombo.getValue())); } catch (Exception ignored) {}
+            try { mc.setMaxTokens(Integer.parseInt(maxTokensField.getText())); } catch (Exception ignored) {}
+            if (tempField.getText() != null && !tempField.getText().isBlank()) {
+                try { mc.setTemperature(Double.parseDouble(tempField.getText())); } catch (Exception ignored) {}
+            } else { mc.setTemperature(null); }
+            if (topPField.getText() != null && !topPField.getText().isBlank()) {
+                try { mc.setTopP(Double.parseDouble(topPField.getText())); } catch (Exception ignored) {}
+            } else { mc.setTopP(null); }
+            if (ctxField.getText() != null && !ctxField.getText().isBlank()) {
+                try { mc.setContextWindow(Integer.parseInt(ctxField.getText())); } catch (Exception ignored) {}
+            } else { mc.setContextWindow(null); }
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            rebuildModelList(box, pc, cfg, dialog);
+        });
+
+        btnRow.getChildren().addAll(cancelBtn, confirmBtn);
+
+        form.getChildren().addAll(newLabel("编辑模型 — " + mc.getModel()), modelField,
+            newLabel("别名"), aliasField,
+            newLabel("类型"), typeCombo,
+            newLabel("参数"), numRow,
+            btnRow);
+        box.getChildren().add(insertIdx, form);
     }
 }

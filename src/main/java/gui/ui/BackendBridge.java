@@ -496,6 +496,29 @@ public class BackendBridge {
         }
     }
 
+    /** MCP 服务器实时状态 */
+    public enum McpStatus { CONNECTED, DISABLED, DISCONNECTED }
+
+    /** 获取单个 MCP 服务器的实时状态 */
+    public McpStatus getMcpStatus(String serverName) {
+        MCPServerConfig cfg = config.getTools().getMcpServers().get(serverName);
+        if (cfg == null) return McpStatus.DISCONNECTED;
+        if (!cfg.isEnable()) return McpStatus.DISABLED;
+        if (agentLoop != null && agentLoop.getMcpManager() != null
+                && agentLoop.getMcpManager().isServerConnected(serverName)) {
+            return McpStatus.CONNECTED;
+        }
+        return McpStatus.DISCONNECTED;
+    }
+
+    /** 获取某个 MCP 服务器已注册的工具名称列表 */
+    public List<String> getMcpServerTools(String serverName) {
+        if (agentLoop != null && agentLoop.getMcpManager() != null) {
+            return agentLoop.getMcpManager().getServerToolNames(serverName);
+        }
+        return List.of();
+    }
+
     /**
      * 通过表单模式添加 MCP 服务器
      */
@@ -522,25 +545,7 @@ public class BackendBridge {
         if (config.getTools().getMcpServers().containsKey(name)) {
             throw new IllegalArgumentException("服务器名称已存在: " + name);
         }
-        // 使用与 ConfigIO 一致的 ObjectMapper 配置（SNAKE_CASE）
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-
-        MCPServerConfig cfg;
-        try {
-            cfg = mapper.readValue(jsonStr, MCPServerConfig.class);
-        } catch (Exception e) {
-            throw new IllegalArgumentException("JSON 解析失败: " + e.getMessage(), e);
-        }
-
-        // 验证：command 或 url 至少一个非空
-        boolean hasCommand = cfg.getCommand() != null && !cfg.getCommand().isBlank();
-        boolean hasUrl = cfg.getUrl() != null && !cfg.getUrl().isBlank();
-        if (!hasCommand && !hasUrl) {
-            throw new IllegalArgumentException("command 或 url 至少需要配置一个");
-        }
-
+        MCPServerConfig cfg = parseMcpJson(jsonStr);
         config.getTools().getMcpServers().put(name, cfg);
         try {
             ConfigIO.saveConfig(config, null);
@@ -549,6 +554,83 @@ public class BackendBridge {
             config.getTools().getMcpServers().remove(name);
             throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
         }
+    }
+
+    /** 编辑已有 MCP 服务器（表单模式） */
+    public boolean updateMcpServer(String oldName, String newName, String command) {
+        Map<String, MCPServerConfig> servers = config.getTools().getMcpServers();
+        if (!servers.containsKey(oldName)) {
+            throw new IllegalArgumentException("服务器不存在: " + oldName);
+        }
+        MCPServerConfig cfg = servers.remove(oldName);
+        cfg.setCommand(command);
+        servers.put(newName, cfg);
+        try {
+            ConfigIO.saveConfig(config, null);
+            return true;
+        } catch (IOException e) {
+            servers.remove(newName);
+            servers.put(oldName, cfg);
+            throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
+        }
+    }
+
+    /** 编辑已有 MCP 服务器（RAW JSON 模式） */
+    public boolean updateMcpServerRaw(String oldName, String newName, String jsonStr) {
+        Map<String, MCPServerConfig> servers = config.getTools().getMcpServers();
+        if (!servers.containsKey(oldName)) {
+            throw new IllegalArgumentException("服务器不存在: " + oldName);
+        }
+        MCPServerConfig newCfg = parseMcpJson(jsonStr);
+        MCPServerConfig oldCfg = servers.remove(oldName);
+        servers.put(newName, newCfg);
+        try {
+            ConfigIO.saveConfig(config, null);
+            return true;
+        } catch (IOException e) {
+            servers.remove(newName);
+            servers.put(oldName, oldCfg);
+            throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
+        }
+    }
+
+    private MCPServerConfig parseMcpJson(String jsonStr) {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        MCPServerConfig cfg;
+        try {
+            cfg = mapper.readValue(jsonStr, MCPServerConfig.class);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("JSON 解析失败: " + e.getMessage(), e);
+        }
+        boolean hasCommand = cfg.getCommand() != null && !cfg.getCommand().isBlank();
+        boolean hasUrl = cfg.getUrl() != null && !cfg.getUrl().isBlank();
+        if (!hasCommand && !hasUrl) {
+            throw new IllegalArgumentException("command 或 url 至少需要配置一个");
+        }
+        return cfg;
+    }
+
+    /** 删除 MCP 服务器 */
+    public boolean deleteMcpServer(String name) {
+        if (config.getTools().getMcpServers().remove(name) != null) {
+            try {
+                ConfigIO.saveConfig(config, null);
+                return true;
+            } catch (IOException e) {
+                throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
+            }
+        }
+        return false;
+    }
+
+    /** 触发 MCP 工具刷新（重新连接并拉取 tools/list） */
+    public CompletableFuture<String> refreshMcpTools() {
+        if (agentLoop != null && agentLoop.getMcpManager() != null) {
+            return agentLoop.getMcpManager().refreshTools().toCompletableFuture();
+        }
+        return CompletableFuture.completedFuture(null);
     }
 
     /**

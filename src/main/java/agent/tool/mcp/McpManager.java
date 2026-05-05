@@ -279,6 +279,7 @@ public class McpManager {
                     }
 
                     // 3) 处理所有当前配置中的 server
+                    List<CompletableFuture<String>> reconnectFutures = new ArrayList<>();
                     for (Map.Entry<String, MCPServerConfig> entry : latestServers.entrySet()) {
                         String serverName = entry.getKey();
                         MCPServerConfig newCfg = entry.getValue();
@@ -295,8 +296,8 @@ public class McpManager {
                                 connectOneServer(serverName, newCfg);
                                 log.info("[MCP] 新增并连接 server: {}", serverName);
                             } else {
-                                reconnectServer(serverName);
-                                log.info("[MCP] server 已重连: {}", serverName);
+                                reconnectFutures.add(
+                                    reconnectServer(serverName).toCompletableFuture());
                             }
                         } catch (Exception e) {
                             // 单个 server 失败，保留旧状态或部分结果，不影响整体
@@ -306,6 +307,28 @@ public class McpManager {
                                     .append(safeErrorMessage(e))
                                     .append("\n");
                             log.error("[MCP] 服务刷新失败: {}", serverName, e);
+                        }
+                    }
+
+                    // 等待所有重连完成，确保 handles 已更新
+                    if (!reconnectFutures.isEmpty()) {
+                        try {
+                            CompletableFuture.allOf(
+                                reconnectFutures.toArray(new CompletableFuture[0]))
+                                .get(30, TimeUnit.SECONDS);
+                        } catch (Exception e) {
+                            sb.append("[MCP] 等待重连完成超时: ")
+                                    .append(safeErrorMessage(e))
+                                    .append("\n");
+                            log.error("[MCP] 等待重连完成超时", e);
+                        }
+                        for (CompletableFuture<String> f : reconnectFutures) {
+                            try {
+                                String err = f.get();
+                                if (err != null) {
+                                    sb.append(err).append("\n");
+                                }
+                            } catch (Exception ignored) {}
                         }
                     }
 
@@ -442,6 +465,19 @@ public class McpManager {
     }
 
     /**
+     * 获取某个服务器的已注册工具名称列表
+     */
+    public List<String> getServerToolNames(String serverName) {
+        ServerHandle handle = handles.get(serverName);
+        if (handle == null || handle.registeredTools() == null) {
+            return List.of();
+        }
+        return handle.registeredTools().stream()
+                .map(Tool::name)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * 重连单个服务器
      *
      * @param serverName 服务器名称
@@ -516,6 +552,8 @@ public class McpManager {
                             mcpTools.register(tool);
                         }
                     }
+                    // 重新放回 handles，确保 isServerConnected 状态正确
+                    handles.put(serverName, new ServerHandle(serverName, client, registered, copyCfg(cfg)));
                 }else {
                     connectOneServer(serverName, cfg);
                 }
