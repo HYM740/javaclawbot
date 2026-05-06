@@ -223,11 +223,12 @@ public class BackendBridge {
                         waitingForResponse = false;
 
                         // 标题生成：回复完成后触发，确保 session 已包含本轮完整对话
-                        if (userMessageCount >= 1 && titleGenerationPending.compareAndSet(false, true)) {
-                            triggerTitleGeneration(false);
-                        }
+                        // force=true 优先：深度对话后的标题再生成，此时不再触发普通生成
                         if (userMessageCount >= 3 && titleRegenerationPending.compareAndSet(false, true)) {
+                            titleGenerationPending.set(true);  // 阻止后续 force=false 触发
                             triggerTitleGeneration(true);
+                        } else if (userMessageCount >= 1 && titleGenerationPending.compareAndSet(false, true)) {
+                            triggerTitleGeneration(false);
                         }
 
                         Platform.runLater(() -> {
@@ -395,12 +396,34 @@ public class BackendBridge {
      */
     public void resumeSession(String sessionId) {
         if (sessionManager == null) return;
-        userMessageCount = 0;
-        titleGenerationPending.set(false);
-        titleRegenerationPending.set(false);
         sessionManager.resumeSession(sessionKey, sessionId);
         // 清除缓存，强制下次 getOrCreate 从磁盘加载
         sessionManager.evictFromCache(sessionKey);
+
+        // 根据会话已有消息数初始化标题生成计数器，避免恢复历史后重复触发
+        Session session = sessionManager.getOrCreate(sessionKey);
+        int count = countUserMessages(session);
+        userMessageCount = count;
+        if (count >= 3) {
+            // 已有足够对话轮次，不再触发标题生成/更新
+            titleGenerationPending.set(true);
+            titleRegenerationPending.set(true);
+        } else {
+            titleGenerationPending.set(false);
+            titleRegenerationPending.set(false);
+        }
+    }
+
+    /** 统计会话中 user 角色的消息数 */
+    private static int countUserMessages(Session session) {
+        if (session == null) return 0;
+        int count = 0;
+        for (Map<String, Object> msg : session.getMessages()) {
+            if ("user".equals(msg.get("role"))) {
+                count++;
+            }
+        }
+        return count;
     }
 
     /**
@@ -424,17 +447,33 @@ public class BackendBridge {
             try {
                 Session session = getCurrentSession();
                 if (session == null) {
-                    resetTitleFlags(force);
                     return;
                 }
                 String sessionId = session.getSessionId();
+
+                // force=false 时若已有标题则直接跳过（TitleGenerator 内部也会检查，但提前跳过可避免误导日志）
+                if (!force) {
+                    Map<String, Object> meta = session.getMetadata();
+                    if (meta != null && meta.containsKey("title")
+                            && meta.get("title") instanceof String s && !s.isBlank()) {
+                        log.info("标题已存在，跳过初始生成: sessionId=" + sessionId);
+                        return;
+                    }
+                }
+
                 log.info("开始生成标题: sessionId=" + sessionId + ", force=" + force);
                 String title = TitleGenerator.generateTitle(provider, session, force);
                 if (title != null && !title.isBlank()) {
                     sessionManager.save(session);
                     log.info("标题生成成功(AI): sessionId=" + sessionId + ", title=" + title);
-                } else if (!force) {
-                    // LLM 生成失败，用首条用户消息截取作为标题
+                } else if (force) {
+                    // force=true 也失败，最后回退到截断首条用户消息
+                    Map<String, Object> existingMeta = session.getMetadata();
+                    if (existingMeta != null && existingMeta.containsKey("title")
+                            && existingMeta.get("title") instanceof String s && !s.isBlank()) {
+                        log.info("标题更新跳过（AI 失败，保留已有标题）: sessionId=" + sessionId);
+                        return;
+                    }
                     String fallback = extractFirstUserMessage(session);
                     if (fallback == null || fallback.isBlank()) {
                         fallback = "新对话-" + java.time.LocalDate.now()
@@ -444,28 +483,17 @@ public class BackendBridge {
                     sessionManager.save(session);
                     log.info("标题回退(截断首条消息): sessionId=" + sessionId + ", title=" + fallback);
                 } else {
-                    log.info("标题更新跳过（AI 生成失败或已有标题）: sessionId=" + sessionId);
+                    // force=false AI 生成失败，不设回退标题，留给 force=true 重试
+                    log.info("标题首次生成失败（AI 不可用），等待 force=true 重试: sessionId=" + sessionId);
                 }
             } catch (Exception e) {
                 log.warning("标题生成异常: " + e.getMessage());
-            } finally {
-                // 重置标志位，允许后续再次触发
-                resetTitleFlags(force);
             }
             // 通知 UI 刷新侧栏标题
             if (onTitleChanged != null) {
                 Platform.runLater(onTitleChanged);
             }
         }, executor);
-    }
-
-    /** 重置标题生成标志位 */
-    private void resetTitleFlags(boolean force) {
-        if (force) {
-            titleRegenerationPending.set(false);
-        } else {
-            titleGenerationPending.set(false);
-        }
     }
 
     /** 从会话历史中提取首条用户消息（截取 20 字）作为标题回退 */

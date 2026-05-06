@@ -372,6 +372,7 @@ public class BackgroundAgentExecutor {
                 .messages(null)
                 .sessionId(parentContext.getSessionId())
                 .mcpClients(parentContext.getMcpClients() != null ? new java.util.ArrayList<>(parentContext.getMcpClients()) : null)
+                .toolView(toolView)
                 .tools(parentContext.getTools())  // Copy tools from parent context
                 .nestedMemoryAttachmentTriggers(new java.util.HashSet<>())
                 .loadedNestedMemoryPaths(new java.util.HashSet<>())

@@ -209,43 +209,46 @@ public class RunAgent {
         AtomicInteger iterations = new AtomicInteger(0);
         AtomicBoolean stopSignal = new AtomicBoolean(false);
 
-        // 获取可用工具数量用于日志
+        // 获取可用工具数量 / 子代理短 ID 用于日志
         int availableToolsCount = toolUseContext != null && toolUseContext.getTools() != null
                 ? toolUseContext.getTools().size() : 0;
-        log.info("[子代理 {}] 开始loop循环， 发现可用工具数： {}", agentType, availableToolsCount);
+        String shortId = toolUseContext != null && toolUseContext.getAgentId() != null
+                ? toolUseContext.getAgentId().substring(Math.max(0, toolUseContext.getAgentId().length() - 8))
+                : "????";
+        log.info("[子代理 {}] [{}] 开始loop循环， 发现可用工具数： {}", agentType, shortId, availableToolsCount);
 
         for (int i = 0; i < MAX_ITERATIONS; i++) {
             if (stopSignal.get()) {
-                log.info("[子代理 {}] loop循环结束: 循环总次数={}", agentType, iterations.get());
+                log.info("[子代理 {}] [{}] loop循环结束: 循环总次数={}", agentType, shortId, iterations.get());
                 break;
             }
 
             iterations.incrementAndGet();
-            log.info("[子代理 {}] 循环次数 {} 开始", agentType, iterations.get());
+            log.info("[子代理 {}] [{}] 循环次数 {} 开始", agentType, shortId, iterations.get());
 
             try {
                 // 如果没有 provider，从配置中获取
                 if (provider == null) {
                     provider = getProviderFromConfig(model);
                     if (provider == null) {
-                        log.warn("[子代理 {}] 未配置模型, 返回占位符", agentType);
+                        log.warn("[子代理 {}] [{}] 未配置模型, 返回占位符", agentType, shortId);
                         return buildPlaceholderResult(agentType, iterations.get());
                     }
                 }
 
                 // 从 ToolUseContext 获取可用工具
                 List<Map<String, Object>> tools = getToolsFromContext(toolUseContext);
-                log.debug("[子代理 {}] 循环次数 {}: , 可用工具数: {}", agentType, iterations.get(),
+                log.debug("[子代理 {}] [{}] 循环次数 {}: , 可用工具数: {}", agentType, shortId, iterations.get(),
                         tools != null ? tools.size() : 0);
 
                 // 调用 LLM
                 LLMResponse response = callLLM(provider, messages, model, stopSignal, tools);
 
                 if (response == null) {
-                    log.error("[子代理 {}] 循环次数 {}: LLM call returned null response", agentType, iterations.get());
+                    log.error("[子代理 {}] [{}] 循环次数 {}: LLM call returned null response", agentType, shortId, iterations.get());
                     return buildErrorResult("LLM call returned null response");
                 }
-                
+
                 // =================== 以下代表执行成功 ===================
                 // 如果推理为空，从 content 中提取 think 标签并设置到 ReasoningContent
                 if(StrUtil.isBlank(response.getReasoningContent())) {
@@ -257,17 +260,17 @@ public class RunAgent {
 
                 // 记录 LLM 思考内容
                 if (response.getReasoningContent() != null && !response.getReasoningContent().isBlank()) {
-                    log.info("[子代理 {}] 循环次数 {} LLM 思考:\n{}", agentType, iterations.get(), response.getReasoningContent());
+                    log.info("[子代理 {}] [{}] 循环次数 {} LLM 思考:\n{}", agentType, shortId, iterations.get(), response.getReasoningContent());
                 }
 
                 // 移除思考标签，获取干净的内容
                 String cleanContent = stripThink(response.getContent());
                 if (cleanContent != null && !cleanContent.isBlank()) {
-                    log.info("[子代理 {}] 循环次数 {} LLM 回复:\n{}", agentType, iterations.get(), cleanContent);
+                    log.info("[子代理 {}] [{}] 循环次数 {} LLM 回复:\n{}", agentType, shortId, iterations.get(), cleanContent);
                 }
 
                 if (response.hasToolCalls()) {
-                    log.info("[子代理 {}] 循环次数 {}: {} tool call(s)", agentType, iterations.get(), response.getToolCalls().size());
+                    log.info("[子代理 {}] [{}] 循环次数 {}: {} tool call(s)", agentType, shortId, iterations.get(), response.getToolCalls().size());
 
 
 
@@ -285,7 +288,7 @@ public class RunAgent {
                         Map<String, Object> toolArgs = toolCall.getArguments();
                         String toolCallId = toolCall.getId();
 
-                        log.info("[子代理 {}] 循环次数 {} 执行工具: name={}, id={}", agentType, iterations.get(), toolName, toolCallId);
+                        log.info("[子代理 {}] [{}] 循环次数 {} 执行工具: name={}, id={}", agentType, shortId, iterations.get(), toolName, toolCallId);
 
                         String toolResult = executeTool(toolName, toolArgs, toolUseContext);
 
@@ -293,7 +296,7 @@ public class RunAgent {
                         if (toolResult.length() > 500) {
                             toolResultForLog = toolResult.substring(0, 500) + "... [truncated, total " + toolResult.length() + " chars]";
                         }
-                        log.info("[子代理 {}] 循环次数 {} tool result: {}\n{}", agentType, iterations.get(), toolName, toolResultForLog);
+                        log.info("[子代理 {}] [{}] 循环次数 {} tool result: {}\n{}", agentType, shortId, iterations.get(), toolName, toolResultForLog);
 
                         // 添加工具结果消息（复用主代理的 ContextBuilder）
                         messages = Helpers.addToolResult(messages, toolCallId, toolName, toolResult);
@@ -303,19 +306,19 @@ public class RunAgent {
                     if (cleanContent != null && !cleanContent.isEmpty()) {
                         finalResult.append(cleanContent);
                     }
-                    log.info("[子代理 {}] 循环次数 {}: no tool calls, finishing. Response length={}",
-                            agentType, iterations.get(), finalResult.length());
+                    log.info("[子代理 {}] [{}] 循环次数 {}: no tool calls, finishing. Response length={}",
+                            agentType, shortId, iterations.get(), finalResult.length());
                     break;
                 }
 
             } catch (Exception e) {
-                log.error("[子代理 {}] 循环次数 {} error: {}", agentType, iterations.get(), e.getMessage(), e);
+                log.error("[子代理 {}] [{}] 循环次数 {} error: {}", agentType, shortId, iterations.get(), e.getMessage(), e);
                 return buildErrorResult(e.getMessage());
             }
         }
 
-        log.info("[子代理 {}] loop循环完成: 循环总次数={}, final result length={}",
-                agentType, iterations.get(), finalResult.length());
+        log.info("[子代理 {}] [{}] loop循环完成: 循环总次数={}, final result length={}",
+                agentType, shortId, iterations.get(), finalResult.length());
         return buildResult(finalResult.toString(), agentType, iterations.get());
     }
 
@@ -501,6 +504,7 @@ public class RunAgent {
                 .messages(null)
                 .sessionId(parentContext.getSessionId())
                 .mcpClients(parentContext.getMcpClients() != null ? new java.util.ArrayList<>(parentContext.getMcpClients()) : null)
+                .toolView(toolView)
                 // 关键：使用解析后的工具（经过 disallowedTools 过滤）
                 .tools(toolDefs)
                 .nestedMemoryAttachmentTriggers(new java.util.HashSet<>())
@@ -1000,6 +1004,8 @@ public class RunAgent {
 
                 // MCP 客户端 - 克隆自父级
                 .mcpClients(parentContext.getMcpClients())
+
+                .toolView(parentContext.getToolView())
 
                 // 工具列表 - 从父上下文复制（关键修复）
                 // 这是 subagent 能够使用工具的核心：LLM 需要工具定义来知道可以调用哪些工具

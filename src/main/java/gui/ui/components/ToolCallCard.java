@@ -12,6 +12,7 @@ public class ToolCallCard extends VBox {
     private boolean expanded;
     private final VBox contentBox;
     private final Label expandIcon;
+    private final Label statusIcon;
 
     public ToolCallCard(String toolName, String status, String params) {
         this(toolName, status, params, false);
@@ -28,16 +29,16 @@ public class ToolCallCard extends VBox {
         header.setPadding(new Insets(6, 12, 6, 12));
         header.setCursor(javafx.scene.Cursor.HAND);
 
-        Label statusIcon = new Label("\u2713");
-        statusIcon.setStyle("-fx-text-fill: #22c55e;");
+        statusIcon = new Label("✓");
+        applyStatusStyle(status);
 
-        Label toolIcon = new Label("\uD83D\uDD27");
+        Label toolIcon = new Label("🔧");
         toolIcon.setStyle("-fx-opacity: 0.6;");
 
         Label nameLabel = new Label(toolName);
         nameLabel.setStyle("-fx-font-family: monospace; -fx-font-size: 12px;");
 
-        expandIcon = new Label(startExpanded ? "\u25BC" : "\u25B6");
+        expandIcon = new Label(startExpanded ? "▼" : "▶");
         HBox.setHgrow(expandIcon, Priority.ALWAYS);
         expandIcon.setAlignment(Pos.CENTER_RIGHT);
 
@@ -61,6 +62,16 @@ public class ToolCallCard extends VBox {
         getChildren().addAll(header, contentBox);
     }
 
+    private void applyStatusStyle(String status) {
+        if ("running".equalsIgnoreCase(status) || "pending".equalsIgnoreCase(status)) {
+            statusIcon.setText("○");
+            statusIcon.setStyle("-fx-text-fill: #f59e0b;");
+        } else {
+            statusIcon.setText("✓");
+            statusIcon.setStyle("-fx-text-fill: #22c55e;");
+        }
+    }
+
     public void addResult(String result) {
         Label resultLabel = new Label(result);
         resultLabel.setStyle("-fx-font-family: monospace; -fx-font-size: 11px; -fx-background-color: rgba(0, 0, 0, 0.02); -fx-background-radius: 6px; -fx-padding: 8px;");
@@ -70,6 +81,11 @@ public class ToolCallCard extends VBox {
 
     public void addStructuredContent(javafx.scene.Node node) {
         contentBox.getChildren().add(node);
+    }
+
+    /** 更新工具卡片的状态显示 */
+    public void setStatus(String status) {
+        applyStatusStyle(status);
     }
 
     public void setParams(String params) {
@@ -85,6 +101,6 @@ public class ToolCallCard extends VBox {
         expanded = !expanded;
         contentBox.setVisible(expanded);
         contentBox.setManaged(expanded);
-        expandIcon.setText(expanded ? "\u25BC" : "\u25B6");
+        expandIcon.setText(expanded ? "▼" : "▶");
     }
 }

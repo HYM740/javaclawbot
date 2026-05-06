@@ -2,6 +2,23 @@
 
 All notable changes to JavaClawBot will be documented in this file.
 
+## [2.2.2] - 2026-05-06
+
+### Added
+- **悬浮 Todo 进度浮标**：参照 javaclawbot-idea-plugin 设计，新增 `TodoFloatBadge` 组件。圆形按钮显示 completed/total 计数，in_progress 脉冲动画，点击展开下拉任务列表，支持拖拽。全部完成后保留显示（含「关闭」按钮），新 TodoWrite 到达时自动重新显示
+
+### Fixed
+- **子代理日志缺编号**：所有 `[子代理 {}]` 日志补充短 ID（agentId 后 8 位），并行子代理可区分
+
+## [2.2.1] - 2026-05-06
+
+### Fixed
+- **子代理 "Tool not found: Bash"**：三个上下文构建路径均未设置 `.toolView()`，导致 `getTool()` 永远返回 null。修复：三个构建路径均补充 `.toolView()` 设置
+- **标题首次 AI 生成失败后立即回退截断，导致永远无法使用 AI 生成**：`force=false` 失败时直接设置 fallback 标题，导致后续无法重试 AI。修复：`force=false` 失败时不再设 fallback，`force=true` 失败时才回退；新增 `force=false` 已存在标题的预检查
+- **恢复历史会话后标题被重新触发生成**：`resumeSession` 将 `userMessageCount`/flags 全部重置为 0，sidebar 点击历史时甚至未调用 `resumeSession`。修复：`resumeSession` 根据会话实际用户消息数初始化计数器（>=3 则禁止标题生成）；sidebar 恢复监听器补充调用 `resumeSession`
+- **AskUserQuestion 工具卡片不显示"done"**：`ToolCallCard` 缺少 `setStatus()` 方法，工具执行完成后状态始终为 "running"。修复：添加 `statusIcon` 字段和 `setStatus()` 方法，`handleToolResult` 中标记为 completed
+- **历史记录加载顺序错乱**：`loadMessages` 中 `hasToolCalls` 分支将文本放在推理之前显示，与实时聊天顺序（推理→文本→工具卡片）不一致。修复：调整顺序，并让工具卡片初始 status="running"、工具结果到达后更新为 completed
+
 ## [2.2.0] - 2026-05-06
 
 ### Fixed

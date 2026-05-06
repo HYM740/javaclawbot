@@ -375,6 +375,7 @@ public class MainStage {
         sidebar.addResumeListener(sessionId -> {
             if (backendBridge != null) {
                 CompletableFuture.runAsync(() -> {
+                    backendBridge.resumeSession(sessionId);
                     List<Map<String, Object>> history = backendBridge.getSessionHistory(sessionId);
                     Platform.runLater(() -> {
                         chatPage.loadMessages(history);
@@ -435,15 +436,19 @@ public class MainStage {
                 showAskUserQuestionDialog(content, progress.toolCallId());
             } else if (content.contains("\"questions\"")) {
                 if (lastToolCard != null) {
+                    lastToolCard.setStatus("completed");
                     lastToolCard.addStructuredContent(AskQuestionResultView.build(content));
                 }
             }
         } else if ("TodoWrite".equals(tn)) {
+            chatPage.getTodoFloatBadge().updateFromJson(content);
             if (lastToolCard != null) {
+                lastToolCard.setStatus("completed");
                 lastToolCard.addStructuredContent(TodoResultView.build(content));
             }
         } else {
             if (lastToolCard != null) {
+                lastToolCard.setStatus("completed");
                 lastToolCard.addResult(content);
             }
         }

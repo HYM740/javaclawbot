@@ -6,6 +6,7 @@ import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.data.MutableDataSet;
 import gui.ui.components.ChatInput;
 import gui.ui.components.MessageBubble;
+import gui.ui.components.TodoFloatBadge;
 import gui.ui.components.ToolCallCard;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
@@ -40,6 +41,8 @@ public class ChatPage extends VBox {
     private double lastVvalue = 1.0;
     private double lastContentHeight = 0;
 
+    /** 悬浮 Todo 进度浮标 */
+    private final TodoFloatBadge todoFloatBadge;
     /** 思考中占位气泡 */
     private HBox thinkingPlaceholder;
     /** 思考中动画 */
@@ -74,6 +77,9 @@ public class ChatPage extends VBox {
     public ChatPage() {
         setSpacing(0);
         setStyle("-fx-background-color: #f1ede1;");
+
+        // 悬浮 Todo 浮标
+        todoFloatBadge = new TodoFloatBadge();
 
         // 消息区域
         messageContainer = new VBox(16);
@@ -118,11 +124,13 @@ public class ChatPage extends VBox {
             lastContentHeight = contentHeight;
         });
 
-        // StackPane 层叠消息区域和悬浮按钮
+        // 消息滚动区域 + 悬浮按钮（Todo 浮标、回到底部）
         scrollStack = new StackPane();
-        scrollStack.getChildren().addAll(scrollPane, scrollToBottomBtn);
+        scrollStack.getChildren().addAll(scrollPane, todoFloatBadge, scrollToBottomBtn);
         StackPane.setAlignment(scrollToBottomBtn, Pos.BOTTOM_RIGHT);
         StackPane.setMargin(scrollToBottomBtn, new Insets(0, 24, 12, 0));
+        StackPane.setAlignment(todoFloatBadge, Pos.BOTTOM_RIGHT);
+        StackPane.setMargin(todoFloatBadge, new Insets(0, 20, 62, 0));
 
         // 输入区域
         chatInput = new ChatInput();
@@ -622,6 +630,10 @@ public class ChatPage extends VBox {
         });
     }
 
+    public TodoFloatBadge getTodoFloatBadge() {
+        return todoFloatBadge;
+    }
+
     public ChatInput getChatInput() {
         return chatInput;
     }
@@ -632,6 +644,7 @@ public class ChatPage extends VBox {
 
     public void clearMessages() {
         messageContainer.getChildren().clear();
+        todoFloatBadge.setVisible(false);
         thinkingPlaceholder = null;
         if (thinkingAnimation != null) {
             thinkingAnimation.stop();
@@ -675,19 +688,19 @@ public class ChatPage extends VBox {
                         addReasoningBlock(reasoning);
                     }
                 } else if (hasToolCalls) {
-                    // clean 文本（伴随工具调用）
-                    if (content != null && !content.isBlank()) {
-                        addAssistantMessage(content);
-                    }
-                    // 推理
+                    // 推理（先于文本，与 live chat 顺序一致）
                     if (reasoning != null) {
                         addReasoningBlock(reasoning);
+                    }
+                    // 伴随工具调用的文本
+                    if (content != null && !content.isBlank()) {
+                        addAssistantMessage(content);
                     }
                     // 工具卡片
                     for (var tc : toolCalls) {
                         String tn = extractToolName(tc);
                         String params = formatToolParams(tn, tc);
-                        ToolCallCard card = addToolCallCard(tn, "completed", params, false);
+                        ToolCallCard card = addToolCallCard(tn, "running", params, false);
                         cardById.put((String) tc.get("id"), card);
                     }
                 } else if (content != null && !content.isBlank()) {
@@ -700,7 +713,9 @@ public class ChatPage extends VBox {
                 if (tcId != null && result != null) {
                     ToolCallCard card = cardById.get(tcId);
                     if (card != null) {
+                        card.setStatus("completed");
                         if ("TodoWrite".equals(toolName)) {
+                            todoFloatBadge.updateFromJson(result);
                             card.addStructuredContent(
                                 gui.ui.components.TodoResultView.build(result));
                         } else if ("AskUserQuestion".equals(toolName) && result.contains("\"questions\"")) {
