@@ -8,5 +8,12 @@
       </list>
     </option>
   </component>
-  <component name="ProjectRootManager" version="2" languageLevel="JDK_17" default="true" project-jdk-name="17" project-jdk-type="JavaSDK" />
+  <component name="ProjectRootManager" version="2" languageLevel="JDK_17" default="true" project-jdk-name="17" project-jdk-type="JavaSDK">
+    <!--
+      如果 macOS 上不显示运行图标，请检查 IDEA → Project Structure → SDK
+      确保 JDK 17 已配置，且名称与 project-jdk-name 一致。
+      macOS 常见 JDK 名称：corretto-17 / temurin-17 / zulu-17 / jdk-17
+      如果不一致，将 project-jdk-name 改为你实际 JDK 的名称即可。
+    -->
+  </component>
 </project>

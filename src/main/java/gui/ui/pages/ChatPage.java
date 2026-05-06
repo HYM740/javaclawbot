@@ -280,7 +280,6 @@ public class ChatPage extends VBox {
         reasoningWv.setStyle("-fx-background-color: rgba(0,0,0,0.03);");
         reasoningWv.setPrefHeight(0);
         reasoningWv.setMaxHeight(0);
-        // 宽度绑定：先确定宽度再加载内容，避免窄宽度下测量到错误高度
         reasoningWv.setPrefWidth(600);
         reasoningWv.setMaxWidth(600);
 
@@ -306,11 +305,11 @@ public class ChatPage extends VBox {
                 if (!heightReady[0]) {
                     forceMeasureHeight(reasoningWv, measuredHeight, heightReady);
                 }
-                if (heightReady[0] && measuredHeight[0] > 0) {
-                    reasoningWv.setPrefHeight(measuredHeight[0]);
-                    reasoningWv.setMaxHeight(measuredHeight[0]);
-                    toggleArrow.setText("\u25BE");
-                }
+                // 始终展开：优先使用测量高度，测量未就绪时使用兜底高度 200px 避免空白
+                double h = (heightReady[0] && measuredHeight[0] > 0) ? measuredHeight[0] : 200;
+                reasoningWv.setPrefHeight(h);
+                reasoningWv.setMaxHeight(h);
+                toggleArrow.setText("\u25BE");
             } else {
                 reasoningWv.setPrefHeight(0);
                 reasoningWv.setMaxHeight(0);
@@ -324,20 +323,19 @@ public class ChatPage extends VBox {
         messageContainer.getChildren().add(row);
         smartScrollToBottom();
 
-        // 宽度确定后再加载内容
-        reasoningBlock.sceneProperty().addListener(new javafx.beans.value.ChangeListener<>() {
-            @Override
-            public void changed(javafx.beans.value.ObservableValue<? extends javafx.scene.Scene> obs,
-                                javafx.scene.Scene oldScene, javafx.scene.Scene newScene) {
-                if (newScene != null) {
-                    reasoningBlock.sceneProperty().removeListener(this);
-                    // 按实际可用宽度设置 WebView 宽度
-                    double w = Math.min(600, newScene.getWidth() - 256 - 32 - 44);
+        // 延迟加载内容：等场景布局完成后，WebView 已有正确宽度
+        // 使用 Platform.runLater 而非 sceneProperty 监听器，避免宽度计算为负数的时序问题
+        Platform.runLater(() -> {
+            // 按实际可用场景宽度调整 WebView 宽度（仅在有效时修正）
+            javafx.scene.Scene scene = reasoningBlock.getScene();
+            if (scene != null) {
+                double w = Math.min(600, scene.getWidth() - 256 - 32 - 44);
+                if (w > 0) {
                     reasoningWv.setPrefWidth(w);
                     reasoningWv.setMaxWidth(w);
-                    Platform.runLater(() -> reasoningWv.getEngine().loadContent(reasoningHtml));
                 }
             }
+            reasoningWv.getEngine().loadContent(reasoningHtml);
         });
     }
 
@@ -486,11 +484,11 @@ public class ChatPage extends VBox {
                 if (!heightReady[0]) {
                     forceMeasureHeight(reasoningWv, measuredHeight, heightReady);
                 }
-                if (heightReady[0] && measuredHeight[0] > 0) {
-                    reasoningWv.setPrefHeight(measuredHeight[0]);
-                    reasoningWv.setMaxHeight(measuredHeight[0]);
-                    toggleArrow.setText("\u25BE");
-                }
+                // 始终展开：优先使用测量高度，测量未就绪时使用兜底高度 200px 避免空白
+                double h = (heightReady[0] && measuredHeight[0] > 0) ? measuredHeight[0] : 200;
+                reasoningWv.setPrefHeight(h);
+                reasoningWv.setMaxHeight(h);
+                toggleArrow.setText("\u25BE");
             } else {
                 reasoningWv.setPrefHeight(0);
                 reasoningWv.setMaxHeight(0);
@@ -537,6 +535,10 @@ public class ChatPage extends VBox {
                         // 两次测量一致，确认高度
                         if (height != result[0]) {
                             wv.setPrefHeight(height);
+                            // 如果已展开（用户点击过），同步更新 maxHeight 避免裁剪
+                            if (wv.getMaxHeight() > 0) {
+                                wv.setMaxHeight(height);
+                            }
                         }
                         ready[0] = true;
                         return;

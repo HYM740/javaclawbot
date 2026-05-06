@@ -2,6 +2,17 @@
 
 All notable changes to JavaClawBot will be documented in this file.
 
+## [2.2.0] - 2026-05-06
+
+### Fixed
+- **macOS IDEA 运行图标不显示**：`.idea/misc.xml` 中 `project-jdk-name="17"` 在 macOS 上 JDK 命名不匹配导致模块加载失败
+- **macOS JavaFX 原生库缺失**：`pom.xml` 仅声明 `win`/`linux` classifier，缺少 `mac`/`mac-aarch64`，导致 macOS 上依赖解析异常和运行失败
+- **工具调用场景下「已深度思考」点击展开显示空白**：`addReasoningBlock` 通过 `sceneProperty` 监听器计算 WebView 宽度（`newScene.getWidth() - 332`），在批量添加消息时可能得到负数宽度，导致内容无法渲染。修复：改为 `Platform.runLater` 直接加载内容，宽度计算增加 `w > 0` 守卫
+- **展开逻辑静默失败**：高度测量未就绪时 `forceMeasureHeight` 失败返回 0 → 展开条件不满足 → WebView 保持 `maxHeight=0`。修复：测量失败时使用 200px 兜底高度展开，后台测量完成后同步更新 `maxHeight`
+
+### Changed
+- `addReasoningBlock` 内容加载时机从 `sceneProperty` 监听器改为 `Platform.runLater`，与 `addAssistantMessageWithReasoning` 对齐
+
 ## [2.1.0] - 2026-04-30
 
 ### Added
@@ -34,4 +45,3 @@ All notable changes to JavaClawBot will be documented in this file.
 - Models 页面支持编辑模型：模型列表每行新增编辑按钮，点击后展开预填表单，可修改模型名称、别名、类型、参数并保存
 
 ### Added
-
