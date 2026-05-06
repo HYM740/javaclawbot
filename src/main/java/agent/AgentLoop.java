@@ -19,6 +19,8 @@ import agent.tool.file.*;
 import agent.tool.mcp.McpManager;
 import agent.tool.message.MessageTool;
 import agent.tool.message.PruneMessagesTool;
+import agent.tool.persistence.DataSourceManager;
+import agent.tool.persistence.DbTool;
 import agent.tool.shell.ExecTool;
 import agent.tool.shell.Shell;
 import agent.tool.skill.SkillTool;
@@ -160,6 +162,10 @@ public class AgentLoop {
      */
     private final McpManager mcpManager;
     /**
+     * 数据库连接管理器
+     */
+    private DataSourceManager dataSourceManager;
+    /**
      * CLI Agent 命令处理器
      */
     private CliAgentCommandHandler cliAgentHandler;
@@ -264,6 +270,7 @@ public class AgentLoop {
 
         this.mcpServers = (mcpServers != null) ? mcpServers : Map.of();
         this.mcpManager = new McpManager(workspace, mcpServers, executor);
+        this.dataSourceManager = new DataSourceManager(currentConfig().getTools().getDb());
 
         // 初始化 CLI Agent 命令处理器（内部管理 defaultRegistry + per-session 注册表）
         this.cliAgentHandler = new CliAgentCommandHandler(workspace);
@@ -673,6 +680,10 @@ public class AgentLoop {
         // MCP 重载工具：按名称刷新指定 MCP server
         sharedTools.register(new agent.tool.mcp.McpReloadTool(mcpManager));
 
+        // 数据库查询工具
+        dataSourceManager.start();
+        sharedTools.register(new DbTool(dataSourceManager));
+
         // Plan Mode 工具
         sharedTools.register(new agent.tool.plan.EnterPlanModeTool());
         sharedTools.register(new agent.tool.plan.ExitPlanModeTool());
@@ -905,6 +916,9 @@ public class AgentLoop {
         running.compareAndSet(true, false);
         if (queue != null) {
             queue.shutdown();
+        }
+        if (dataSourceManager != null) {
+            dataSourceManager.shutdown();
         }
         // 取消所有等待用户输入的问题
         pendingUserQuestions.values().forEach(f ->
