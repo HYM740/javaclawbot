@@ -74,6 +74,8 @@ import skills.SkillsLoader;
 import utils.GsonFactory;
 import utils.Helpers;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -1529,7 +1531,22 @@ public class AgentLoop {
 
         // init初始化命令
         if ("/init".equalsIgnoreCase(cmd)) {
-            String initPrompt = ResourceUtil.readUtf8Str("templates/init/INIT.md");
+            String initPrompt;
+            try (var in = AgentLoop.class.getResourceAsStream("/templates/init/INIT.md")) {
+                if (in == null) {
+                    throw new RuntimeException("Resource not found: templates/init/INIT.md");
+                }
+                initPrompt = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            } catch (IOException e) {
+                bus.publishInbound(new InboundMessage("system", msg.getSenderId(), msg.getChatId(), "系统异常，无法读取模板：/templates/init/INIT.md"));
+                return CompletableFuture.completedFuture(new OutboundMessage(
+                        msg.getChannel(),
+                        msg.getChatId(),
+                        "init命令执行异常",
+                        List.of(),
+                        Map.of()
+                ));
+            }
             commandManager.addLocalCommand(new LocalCommand(cmd, ""));
             bus.publishInbound(new InboundMessage("system", msg.getSenderId(), msg.getChatId(), initPrompt));
             return CompletableFuture.completedFuture(new OutboundMessage(

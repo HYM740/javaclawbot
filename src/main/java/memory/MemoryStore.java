@@ -11,6 +11,7 @@ import providers.LLMResponse;
 import utils.Helpers;
 
 import java.io.BufferedWriter;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -496,9 +497,12 @@ public class MemoryStore {
     }
 
     private static String buildUpdateMemorySystemPrompt() {
-        try {
-            return ResourceUtil.readUtf8Str("templates/memory/memory_system.md");
-        } catch (Exception e) {
+        try (var in = MemoryStore.class.getResourceAsStream("/templates/memory/memory_system.md")) {
+            if (in == null) {
+                throw new RuntimeException("Resource not found: templates/memory/memory_system.md");
+            }
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException e) {
             log.error("读取模板文件失败", e);
             throw new RuntimeException(e);
         }

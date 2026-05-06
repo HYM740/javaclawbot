@@ -9,6 +9,10 @@ All notable changes to JavaClawBot will be documented in this file.
 - **macOS JavaFX 原生库缺失**：`pom.xml` 仅声明 `win`/`linux` classifier，缺少 `mac`/`mac-aarch64`，导致 macOS 上依赖解析异常和运行失败
 - **工具调用场景下「已深度思考」点击展开显示空白**：`addReasoningBlock` 通过 `sceneProperty` 监听器计算 WebView 宽度（`newScene.getWidth() - 332`），在批量添加消息时可能得到负数宽度，导致内容无法渲染。修复：改为 `Platform.runLater` 直接加载内容，宽度计算增加 `w > 0` 守卫
 - **展开逻辑静默失败**：高度测量未就绪时 `forceMeasureHeight` 失败返回 0 → 展开条件不满足 → WebView 保持 `maxHeight=0`。修复：测量失败时使用 200px 兜底高度展开，后台测量完成后同步更新 `maxHeight`
+- **标题生成始终回退到截断用户消息，AI 未被使用**：
+  - `triggerTitleGeneration` 中 `titleGenerationPending`/`titleRegenerationPending` AtomicBoolean 从未在生成完成后重置，导致首次之后的标题生成/更新都被跳过。修复：在 `finally` 块中调用 `resetTitleFlags(force)` 重置标志位
+  - `TitleGenerator.generateTitle` 不检查 LLM 响应的 `finishReason`，"error" 响应会被当作有效标题处理。修复：检测到 `finish_reason="error"` 时直接返回 null，触发 fallback
+  - 增强诊断日志：区分 AI 成功生成、回退截断、跳过更新三种情况，记录 LLM 原始响应 finish_reason 和内容
 
 ### Changed
 - `addReasoningBlock` 内容加载时机从 `sceneProperty` 监听器改为 `Platform.runLater`，与 `addAssistantMessageWithReasoning` 对齐

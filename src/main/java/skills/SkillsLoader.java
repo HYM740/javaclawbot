@@ -749,14 +749,17 @@ public class SkillsLoader {
      */
     private static Path defaultBuiltinSkillsDir() {
         try {
-            URI uri = SkillsLoader.class.getProtectionDomain().getCodeSource().getLocation().toURI();
-            Path base = Paths.get(uri);
+            var codeSource = SkillsLoader.class.getProtectionDomain().getCodeSource();
+            if (codeSource != null && codeSource.getLocation() != null) {
+                URI uri = codeSource.getLocation().toURI();
+                Path base = Paths.get(uri);
 
-            Path dir = Files.isDirectory(base) ? base : base.getParent();
-            if (dir != null) {
-                Path p = dir.getParent();
-                if (p != null) p = p.getParent();
-                if (p != null) return p.resolve("skills").normalize();
+                Path dir = Files.isDirectory(base) ? base : base.getParent();
+                if (dir != null) {
+                    Path p = dir.getParent();
+                    if (p != null) p = p.getParent();
+                    if (p != null) return p.resolve("skills").normalize();
+                }
             }
         } catch (URISyntaxException ignored) {
         }

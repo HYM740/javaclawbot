@@ -384,7 +384,12 @@ public class BootstrapLoader {
     private String doGetDevContent(String name) {
         String content = doGetContent(name);
         if (StrUtil.isBlank(content)) {
-            content = ResourceUtil.readUtf8Str("templates/" + name);
+            try (var in = BootstrapLoader.class.getResourceAsStream("/templates/" + name)) {
+                if (in != null) {
+                    content = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            } catch (IOException ignored) {
+            }
         }
         return content;
     }

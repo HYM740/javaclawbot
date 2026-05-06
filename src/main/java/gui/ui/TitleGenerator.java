@@ -132,7 +132,21 @@ public final class TitleGenerator {
             String title = response != null ? response.getContent() : null;
             if (response == null) {
                 LOG.warning("标题生成: LLM 响应为 null");
+                return null;
             }
+
+            // 检查 LLM 是否返回了错误
+            String finishReason = response.getFinishReason();
+            if ("error".equals(finishReason)) {
+                LOG.warning("标题生成: LLM 返回错误 finish_reason=error, content="
+                    + (title != null ? title.substring(0, Math.min(200, title.length())) : "null")
+                    + ", model=" + model);
+                return null;
+            }
+
+            LOG.fine("标题生成: LLM 原始响应 finish_reason=" + finishReason
+                + ", raw_content=" + (title != null ? title.substring(0, Math.min(100, title.length())) : "null"));
+
             title = Helpers.stripThink(title);
             if (title != null) {
                 title = title.trim()
@@ -141,6 +155,7 @@ public final class TitleGenerator {
                         .replaceAll("^[\u300A\u300E\u300F]", "")
                         .replaceAll("[\u300B\u300E\u300F]$", "");
                 if (title.length() > 20) {
+                    LOG.fine("标题过长(" + title.length() + "字)，截断至20字: " + title.substring(0, 20));
                     title = title.substring(0, 20);
                 }
             }
@@ -151,10 +166,11 @@ public final class TitleGenerator {
                 }
                 meta.put("title", title);
                 session.setMetadata(meta);
-                LOG.info("标题已生成: " + title);
+                LOG.info("标题已生成(AI): " + title);
                 return title;
             }
 
+            LOG.fine("标题生成: AI 返回内容不可用 (null/blank/过长)");
             return null;
         } catch (Exception e) {
             String cause = e.getCause() != null ? e.getCause().toString() : "无cause";

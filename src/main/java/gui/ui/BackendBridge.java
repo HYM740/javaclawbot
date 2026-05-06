@@ -423,13 +423,16 @@ public class BackendBridge {
         CompletableFuture.runAsync(() -> {
             try {
                 Session session = getCurrentSession();
-                if (session == null) return;
+                if (session == null) {
+                    resetTitleFlags(force);
+                    return;
+                }
                 String sessionId = session.getSessionId();
                 log.info("开始生成标题: sessionId=" + sessionId + ", force=" + force);
                 String title = TitleGenerator.generateTitle(provider, session, force);
                 if (title != null && !title.isBlank()) {
                     sessionManager.save(session);
-                    log.info("标题生成成功: sessionId=" + sessionId + ", title=" + title);
+                    log.info("标题生成成功(AI): sessionId=" + sessionId + ", title=" + title);
                 } else if (!force) {
                     // LLM 生成失败，用首条用户消息截取作为标题
                     String fallback = extractFirstUserMessage(session);
@@ -439,18 +442,30 @@ public class BackendBridge {
                     }
                     session.getMetadata().put("title", fallback);
                     sessionManager.save(session);
-                    log.info("标题自动生成: sessionId=" + sessionId + ", title=" + fallback);
+                    log.info("标题回退(截断首条消息): sessionId=" + sessionId + ", title=" + fallback);
                 } else {
-                    log.info("标题更新跳过（已有标题或生成失败）: sessionId=" + sessionId);
+                    log.info("标题更新跳过（AI 生成失败或已有标题）: sessionId=" + sessionId);
                 }
             } catch (Exception e) {
                 log.warning("标题生成异常: " + e.getMessage());
+            } finally {
+                // 重置标志位，允许后续再次触发
+                resetTitleFlags(force);
             }
             // 通知 UI 刷新侧栏标题
             if (onTitleChanged != null) {
                 Platform.runLater(onTitleChanged);
             }
         }, executor);
+    }
+
+    /** 重置标题生成标志位 */
+    private void resetTitleFlags(boolean force) {
+        if (force) {
+            titleRegenerationPending.set(false);
+        } else {
+            titleGenerationPending.set(false);
+        }
     }
 
     /** 从会话历史中提取首条用户消息（截取 20 字）作为标题回退 */
