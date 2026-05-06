@@ -208,6 +208,12 @@
             <version>3.45.3.0</version>
         </dependency>
 
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>5.1.0</version>
+        </dependency>
+
         <!-- JavaFX：桌面端 UI（含全平台 native 库，支持跨平台 fat jar） -->
         <dependency>
             <groupId>org.openjfx</groupId>
