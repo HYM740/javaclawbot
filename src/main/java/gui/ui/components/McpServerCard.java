@@ -1,5 +1,6 @@
 package gui.ui.components;
 
+import config.mcp.MCPServerConfig;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -14,7 +15,7 @@ import java.util.List;
 public class McpServerCard extends VBox {
 
     public interface Callback {
-        void onEdit(String name, String command);
+        void onEdit(String name, String command, MCPServerConfig config);
         void onReload(String name);
         void onDelete(String name);
     }
@@ -24,6 +25,10 @@ public class McpServerCard extends VBox {
     }
 
     public McpServerCard(String name, String command, String statusText, boolean isGood, List<String> tools, String errorMessage, Callback callback) {
+        this(name, command, statusText, isGood, tools, errorMessage, callback, null);
+    }
+
+    public McpServerCard(String name, String command, String statusText, boolean isGood, List<String> tools, String errorMessage, Callback callback, MCPServerConfig config) {
         setSpacing(0);
         getStyleClass().add("card");
         setPadding(new Insets(20));
@@ -111,7 +116,7 @@ public class McpServerCard extends VBox {
         deleteBtn.setPrefHeight(32);
 
         if (callback != null) {
-            editBtn.setOnAction(e -> callback.onEdit(name, command));
+            editBtn.setOnAction(e -> callback.onEdit(name, command, config));
             reloadBtn.setOnAction(e -> callback.onReload(name));
             deleteBtn.setOnAction(e -> callback.onDelete(name));
         }

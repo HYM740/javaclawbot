@@ -33,11 +33,11 @@ public class AddMcpServerDialog extends Stage {
 
     /** 新增模式 */
     public AddMcpServerDialog(Stage owner) {
-        this(owner, null, null, null);
+        this(owner, null, null, null, null);
     }
 
-    /** 编辑模式：oldName 是原始名称，name/command/jsonStr 为现有值 */
-    public AddMcpServerDialog(Stage owner, String oldName, String name, String commandOrJson) {
+    /** 编辑模式：oldName 是原始名称，name/command 为现有值，rawJson 为 RAW 模式回显用 JSON */
+    public AddMcpServerDialog(Stage owner, String oldName, String name, String command, String rawJson) {
         this.editOldName = oldName;
         initOwner(owner);
         initModality(Modality.APPLICATION_MODAL);
@@ -87,7 +87,7 @@ public class AddMcpServerDialog extends Stage {
         Label commandLabel = new Label("启动命令");
         commandLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 500;");
 
-        commandField = new TextField(commandOrJson != null ? commandOrJson : "");
+        commandField = new TextField(command != null ? command : "");
         commandField.getStyleClass().add("input-field");
         commandField.setPrefHeight(40);
         commandField.setPromptText("npx -y @modelcontextprotocol/server-filesystem");
@@ -121,9 +121,9 @@ public class AddMcpServerDialog extends Stage {
         rawJsonField.setPrefHeight(200);
         rawJsonField.setPromptText("{\n  \"command\": \"npx\",\n  \"args\": [\"-y\", \"...\"],\n  \"env\": {}\n}");
 
-        // 编辑模式：尝试将现有配置序列化为 JSON 预填
-        if (isEdit && commandOrJson != null && commandOrJson.trim().startsWith("{")) {
-            rawJsonField.setText(commandOrJson);
+        // 编辑模式：将现有配置序列化为 JSON 预填（用于 RAW 模式回显）
+        if (isEdit && rawJson != null && !rawJson.isBlank()) {
+            rawJsonField.setText(rawJson);
         }
 
         jsonErrorLabel = new Label();
