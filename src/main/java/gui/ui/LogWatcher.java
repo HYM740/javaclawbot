@@ -1,8 +1,12 @@
 package gui.ui;
 
+import java.io.BufferedReader;
+import java.io.FileInputStream;
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.time.format.DateTimeFormatter;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
@@ -17,11 +21,14 @@ public class LogWatcher {
     private static final Pattern LOG_PATTERN =
         Pattern.compile("^(\\d{2}:\\d{2}:\\d{2}\\.\\d{3})\\s+(TRACE|DEBUG|INFO|WARN|ERROR)\\s+(\\S+)\\s+-\\s+(.*)$");
 
+    private static final DateTimeFormatter TIME_FMT =
+        DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
+
     private final Path logFile;
     private final ConcurrentLinkedQueue<LogEntry> buffer;
     private final AtomicBoolean stopped = new AtomicBoolean(false);
 
-    private RandomAccessFile raf;
+    private BufferedReader reader;
     private WatchService watchService;
     private Thread thread;
 
@@ -36,6 +43,9 @@ public class LogWatcher {
      * 启动后台监听线程。
      */
     public void start() {
+        if (thread != null && thread.isAlive()) {
+            return;
+        }
         stopped.set(false);
         thread = new Thread(this::run, "log-watcher");
         thread.setDaemon(true);
@@ -66,7 +76,7 @@ public class LogWatcher {
             mainLoop();
         } catch (Exception e) {
             buffer.offer(new LogEntry(
-                java.time.LocalTime.now().toString().substring(0, 12),
+                java.time.LocalTime.now().format(TIME_FMT),
                 "ERROR", "LogWatcher",
                 "LogWatcher 异常: " + e.getMessage(),
                 "ERROR LogWatcher - LogWatcher 异常: " + e.getMessage()
@@ -88,7 +98,8 @@ public class LogWatcher {
     }
 
     private void openFile() throws IOException {
-        raf = new RandomAccessFile(logFile.toFile(), "r");
+        reader = new BufferedReader(new InputStreamReader(
+            new FileInputStream(logFile.toFile()), StandardCharsets.UTF_8));
     }
 
     private void registerWatcher() throws IOException {
@@ -115,15 +126,15 @@ public class LogWatcher {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
-                // 读取异常不中断主循环
+                System.err.println("[LogWatcher] 读取异常: " + e.getMessage());
             }
         }
     }
 
     private void readNewLines() throws IOException {
-        if (raf == null) return;
+        if (reader == null) return;
         String line;
-        while ((line = raf.readLine()) != null) {
+        while ((line = reader.readLine()) != null) {
             LogEntry entry = parseLine(line);
             if (entry != null) {
                 buffer.offer(entry);
@@ -139,15 +150,15 @@ public class LogWatcher {
         }
         // 无法匹配标准格式的行，作为 INFO 处理
         return new LogEntry(
-            java.time.LocalTime.now().toString().substring(0, 12),
+            java.time.LocalTime.now().format(TIME_FMT),
             "INFO", "unknown", line, line);
     }
 
-    private void closeFile() {
+    private synchronized void closeFile() {
         try {
-            if (raf != null) {
-                raf.close();
-                raf = null;
+            if (reader != null) {
+                reader.close();
+                reader = null;
             }
         } catch (IOException ignored) {}
     }
