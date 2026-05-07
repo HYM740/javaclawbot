@@ -2,6 +2,12 @@
 
 All notable changes to JavaClawBot will be documented in this file.
 
+## [2.2.3] - 2026-05-07
+
+### Fixed
+- **新建会话复用昨日标题**：`SessionManager.createNew()` 新建空会话后未写入磁盘文件（`save()` 检测到 0 条消息直接返回），导致 `listSessions()` 只看到旧会话文件，sidebar 显示旧标题。修复：`createNew()` 立即写入仅含 metadata 的会话文件
+- **TodoFloatBadge 下拉面板定位错误**：VBox + TOP_RIGHT 组合导致下拉面板偏移出可视区。修复：改用 StackPane 绝对定位 + translateX/translateY 绑定，下拉面板右对齐按钮并出现在按钮上方
+
 ## [2.2.2] - 2026-05-06
 
 ### Added

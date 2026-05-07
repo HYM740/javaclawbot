@@ -112,16 +112,50 @@ public final class SessionManager {
         if (oldSession != null) {
             save(oldSession);
         }
-        
+
         // 创建新会话
         Session newSession = new Session(key);
-        
+
         // 更新映射和缓存
         keyToIdMap.put(key, newSession.getSessionId());
         saveKeyToIdMap();
         cache.put(key, newSession);
-        
+
+        // 立即写入会话文件（仅有 metadata 行），确保 listSessions 能找到新会话
+        // 否则 save() 在无消息时会跳过，导致旧会话文件残留为唯一的列表项
+        writeMetadataLine(newSession);
+
         return newSession;
+    }
+
+    /** 为新会话写入仅含 metadata 行的文件，使其出现在会话列表中 */
+    private void writeMetadataLine(Session session) {
+        try {
+            Path target = getSessionPath(session.getSessionId());
+            Helpers.ensureDir(target.getParent());
+            Path tmp = target.resolveSibling(target.getFileName().toString() + ".tmp");
+
+            Map<String, Object> safeMetadata = castMap(deepSanitize(session.getMetadata()));
+
+            try (BufferedWriter w = Files.newBufferedWriter(
+                    tmp, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                Map<String, Object> metaLine = new LinkedHashMap<>();
+                metaLine.put("_type", "metadata");
+                metaLine.put("key", sanitizeString(session.getKey()));
+                metaLine.put("session_id", sanitizeString(session.getSessionId()));
+                metaLine.put("created_at", session.getCreatedAt().toString());
+                metaLine.put("updated_at", session.getUpdatedAt().toString());
+                metaLine.put("metadata", safeMetadata);
+                metaLine.put("last_consolidated", session.getLastConsolidated());
+                w.write(objectMapper.writeValueAsString(metaLine));
+                w.write("\n");
+                w.flush();
+            }
+            atomicReplace(tmp, target);
+        } catch (Exception e) {
+            LOG.log(Level.WARNING, "写入新会话元数据失败: " + session.getSessionId(), e);
+        }
     }
 
     /**

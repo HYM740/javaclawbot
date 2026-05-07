@@ -132,10 +132,19 @@ public class TodoFloatBadge extends StackPane {
             }
         });
 
-        VBox container = new VBox(8);
-        container.setAlignment(Pos.TOP_RIGHT);
-        container.getChildren().addAll(badgeBtn, dropdown);
-        getChildren().add(container);
+        // 按钮 + 下拉面板：均右对齐，dropdown 偏移到按钮上方
+        getChildren().addAll(badgeBtn, dropdown);
+        StackPane.setAlignment(badgeBtn, Pos.BOTTOM_RIGHT);
+        StackPane.setAlignment(dropdown, Pos.BOTTOM_RIGHT);
+        // dropdown 右对齐，translateX 让右侧对齐按钮右侧（280-44=236）
+        dropdown.translateXProperty().bind(
+            badgeBtn.widthProperty().subtract(dropdown.widthProperty()));
+        // dropdown 底部在按钮顶部上方 6px
+        dropdown.translateYProperty().bind(
+            badgeBtn.translateYProperty()
+                .subtract(badgeBtn.heightProperty())
+                .subtract(dropdown.heightProperty())
+                .subtract(6));
     }
 
     /** 解析 TodoWrite JSON 并更新浮标（调用方已在 JavaFX 线程） */
