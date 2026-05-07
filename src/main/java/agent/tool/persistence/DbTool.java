@@ -25,6 +25,7 @@ public class DbTool extends Tool {
 
     public DbTool(DataSourceManager dsManager) {
         this.dsManager = dsManager;
+        log.info("初始化 DbTool");
     }
 
     @Override

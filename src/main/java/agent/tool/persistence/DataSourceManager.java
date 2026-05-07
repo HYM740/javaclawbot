@@ -127,7 +127,8 @@ public class DataSourceManager {
         Objects.requireNonNull(cfg.getDriverClass(), "driverClass must not be null for datasource '" + name + "'");
 
         // Load external driver if specified
-        if (cfg.getDriverJar() != null && !cfg.getDriverJar().isBlank()) {
+        boolean externalDriver = cfg.getDriverJar() != null && !cfg.getDriverJar().isBlank();
+        if (externalDriver) {
             loadExternalDriver(cfg.getDriverClass(), cfg.getDriverJar());
         }
 
@@ -135,7 +136,12 @@ public class DataSourceManager {
         hikariConfig.setJdbcUrl(cfg.getJdbcUrl());
         hikariConfig.setUsername(cfg.getUsername());
         hikariConfig.setPassword(cfg.getPassword());
-        hikariConfig.setDriverClassName(cfg.getDriverClass());
+        // For external drivers, skip setDriverClassName() — HikariCP discovers
+        // the driver via DriverManager (which already has the DriverWrapper registered).
+        // For built-in drivers, setDriverClassName() validates the class is loadable.
+        if (!externalDriver) {
+            hikariConfig.setDriverClassName(cfg.getDriverClass());
+        }
         hikariConfig.setMaximumPoolSize(cfg.getMaxPoolSize());
         hikariConfig.setConnectionTimeout(cfg.getConnectionTimeout());
         // Essential settings
