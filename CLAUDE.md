@@ -129,7 +129,7 @@ src/main/java/skills - 技能
 src/main/java/utils - 通用工具
 
 ## 变动
-版本变动，修复bug 请放入 [CHANGELOG.md](CHANGELOG.md) 中 
+版本变动，修复bug 请放入 [CHANGELOG.md](CHANGELOG.md) 中 ,如果该文档中版本新增了，pom.xml中也同步更新
 ## 更新日志
 详情需要放入 [CHANGELOG.md](CHANGELOG.md) 中 
 这里需要动态总结，并每次更新，规则：

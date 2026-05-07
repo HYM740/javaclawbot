@@ -1,7 +1,11 @@
 package gui.ui;
 
+import config.Config;
+import config.ConfigIO;
+import lombok.extern.slf4j.Slf4j;
 import providers.LLMProvider;
 import session.Session;
+import session.SessionManager;
 import utils.Helpers;
 
 import java.util.ArrayList;
@@ -17,9 +21,8 @@ import java.util.logging.Logger;
  * 当会话中用户消息数 >= 2 时触发，使用 LLM 生成 10 字以内的中文标题，
  * 存入 session.metadata["title"]。
  */
+@Slf4j
 public final class TitleGenerator {
-
-    private static final Logger LOG = Logger.getLogger(TitleGenerator.class.getName());
 
     private TitleGenerator() {}
 
@@ -30,10 +33,24 @@ public final class TitleGenerator {
      * @param provider LLM provider
      * @param session  当前会话
      * @param fastModel 标题生成专用快速模型（null 则使用 provider 默认模型）
-     * @param noThinking 是否禁用思考/推理模式
      */
-    public static String generateTitle(LLMProvider provider, Session session, String fastModel, boolean noThinking) {
-        return generateTitle(provider, session, fastModel, noThinking, false);
+    public static String generateTitle(LLMProvider provider, Session session, String fastModel) {
+        return generateTitle(provider, session, fastModel, false);
+    }
+
+    public static void main(String[] args) {
+        Config config = ConfigIO.loadConfig(null);
+        String fastModel = config.getAgents().getDefaults().getFastModel();
+        SessionManager sessionManager = new SessionManager(config.getWorkspacePath());
+        List<Map<String, Object>> maps = sessionManager.listSessions();
+        Map<String, Object> stringObjectMap = maps.get(0);
+        String sessionId = (String) stringObjectMap.get("session_id");
+        Session orCreate = sessionManager.getOrCreate("cli:direct");
+        LLMProvider llmProvider = Helpers.makeHotProvider();
+
+
+        String s = generateTitle(llmProvider, orCreate, fastModel, true);
+        System.out.println("Generated title: " + s);
     }
 
     /**
@@ -42,16 +59,15 @@ public final class TitleGenerator {
      * @param provider  LLM provider
      * @param session   当前会话
      * @param fastModel 标题生成专用快速模型（null 则使用 provider 默认模型）
-     * @param noThinking 是否禁用思考/推理模式
      * @param force     即使已有标题也重新生成（用于对话深入后更新标题）
      * @return 生成的标题，失败时返回 null
      */
-    public static String generateTitle(LLMProvider provider, Session session, String fastModel, boolean noThinking, boolean force) {
+    public static String generateTitle(LLMProvider provider, Session session, String fastModel, boolean force) {
         if (provider == null || session == null) return null;
         try {
             String model = (fastModel != null && !fastModel.isBlank()) ? fastModel : provider.getDefaultModel();
             if (model == null || model.isBlank()) {
-                LOG.fine("无法生成标题: provider 没有默认模型");
+                log.info("无法生成标题: provider 没有默认模型");
                 return null;
             }
             // 非强制模式下，已有标题则跳过
@@ -60,7 +76,7 @@ public final class TitleGenerator {
                 if (meta != null && meta.containsKey("title")) {
                     String existing = (String) meta.get("title");
                     if (existing != null && !existing.isBlank()) {
-                        return null; // 已有标题，不重复生成
+                        return existing; // 已有标题，不重复生成
                     }
                 }
             }
@@ -116,42 +132,42 @@ public final class TitleGenerator {
                         0.3     // temperature
                 );
             } catch (Exception ex) {
-                LOG.warning("标题生成: chatWithRetry 调用失败: " + ex.getClass().getName() + " " + ex.getMessage());
+                log.warn("标题生成: chatWithRetry 调用失败: " + ex.getClass().getName() + " " + ex.getMessage(), ex);
                 return null;
             }
             if (future == null) {
-                LOG.warning("标题生成: chatWithRetry 返回 null future");
+                log.warn("标题生成: chatWithRetry 返回 null future");
                 return null;
             }
             providers.LLMResponse response;
             try {
-                response = future.get(30, java.util.concurrent.TimeUnit.SECONDS);
+                response = future.get(180, java.util.concurrent.TimeUnit.SECONDS);
             } catch (java.util.concurrent.TimeoutException ex) {
-                LOG.warning("标题生成: 请求超时(30s) model=" + model);
+                log.warn("标题生成: 请求超时(30s) model=" + model, ex);
                 return null;
             } catch (Exception ex) {
-                LOG.warning("标题生成: future.get 失败: type=" + ex.getClass().getSimpleName()
-                    + " msg=" + (ex.getMessage() != null ? ex.getMessage() : "(null)")
-                    + " model=" + model);
+                log.warn("标题生成: future.get 失败: type=" + ex.getClass().getSimpleName()
+                        + " msg=" + (ex.getMessage() != null ? ex.getMessage() : "(null)")
+                        + " model=" + model, ex);
                 return null;
             }
 
             String title = response != null ? response.getContent() : null;
             if (response == null) {
-                LOG.warning("标题生成: LLM 响应为 null");
+                log.warn("标题生成: LLM 响应为 null");
                 return null;
             }
 
             // 检查 LLM 是否返回了错误
             String finishReason = response.getFinishReason();
             if ("error".equals(finishReason)) {
-                LOG.warning("标题生成: LLM 返回错误 finish_reason=error, content="
+                log.warn("标题生成: LLM 返回错误 finish_reason=error, content="
                     + (title != null ? title.substring(0, Math.min(200, title.length())) : "null")
                     + ", model=" + model);
                 return null;
             }
 
-            LOG.fine("标题生成: LLM 原始响应 finish_reason=" + finishReason
+            log.info("标题生成: LLM 原始响应 finish_reason=" + finishReason
                 + ", raw_content=" + (title != null ? title.substring(0, Math.min(100, title.length())) : "null"));
 
             title = Helpers.stripThink(title);
@@ -162,7 +178,7 @@ public final class TitleGenerator {
                         .replaceAll("^[\u300A\u300E\u300F]", "")
                         .replaceAll("[\u300B\u300E\u300F]$", "");
                 if (title.length() > 20) {
-                    LOG.fine("标题过长(" + title.length() + "字)，截断至20字: " + title.substring(0, 20));
+                    log.info("标题过长(" + title.length() + "字)，截断至20字: " + title.substring(0, 20));
                     title = title.substring(0, 20);
                 }
             }
@@ -173,20 +189,19 @@ public final class TitleGenerator {
                 }
                 meta.put("title", title);
                 session.setMetadata(meta);
-                LOG.info("标题已生成(AI): " + title);
+                log.info("标题已生成(AI): " + title);
                 return title;
             }
 
-            LOG.fine("标题生成: AI 返回内容不可用 (null/blank/过长)");
+            log.info("标题生成: AI 返回内容不可用 (null/blank/过长)");
             return null;
         } catch (Exception e) {
             String cause = e.getCause() != null ? e.getCause().toString() : "无cause";
-            LOG.warning("标题生成失败: type=" + e.getClass().getName()
+            log.warn("标题生成失败: type=" + e.getClass().getName()
                 + " msg=" + (e.getMessage() != null ? e.getMessage() : "(null)")
                 + " cause=" + cause
                 + " model=" + (provider != null ? provider.getDefaultModel() : "provider为null")
-                + " sessionMsgs=" + (session != null ? session.getMessages().size() : "session为null"));
-            LOG.log(java.util.logging.Level.FINE, "标题生成异常堆栈:", e);
+                + " sessionMsgs=" + (session != null ? session.getMessages().size() : "session为null"), e);
             return null;
         }
     }

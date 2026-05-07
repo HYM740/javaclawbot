@@ -8,6 +8,8 @@ All notable changes to JavaClawBot will be documented in this file.
 - **TodoFloatBadge 下拉面板过小导致任务文本截断为省略号**：原因：(1) 面板宽度仅 280px；(2) contentLabel 虽设置 wrapText 但未约束 maxWidth，HBox 中 spacer 挤占空间导致不换行。修复：面板宽度增至 380px，移除 spacer，改用 `HBox.setHgrow(contentLabel, ALWAYS)` + `contentLabel.setMaxWidth(Double.MAX_VALUE)` 确保内容区占满剩余宽度并正确换行
 - **TodoFloatBadge 下拉面板展开位置始终在右上角**：根因是 translateY 绑定中 `dropdown.heightProperty()` 在 hidden（managed=false）时为 0，展开瞬间绑定计算位置错误。修复：移除 translateY 静态绑定，在 `showDropdown()` 中先设置 visible+managed 让 JavaFX 计算实际高度，再根据按钮在屏幕上的位置动态决定向上/向下展开（按钮中心在上半屏→向下展开，在下半屏→向上展开）
 - **窗口默认宽度 640px 过窄**：`DEFAULT_WIDTH` 被意外改为 640，导致内容区仅 384px（侧栏占 256px），消息气泡有效宽度仅 308px。恢复为 1100px，内容区 844px，消息可达 700px 最大宽度
+- **标题生成 AI 不可用时永远无法生成标题**：两个协同 bug：(1) v2.2.0 CHANGELOG 声称的 `resetTitleFlags` 修复从未实现，`titleGenerationPending`/`titleRegenerationPending` 标志位在 `triggerTitleGeneration` 完成后不重置，导致首次失败后所有后续消息的标题生成被跳过；(2) `force=false` 失败时只打日志等待 `force=true` 重试，但 `force=true` 需 3 条消息才触发，短对话永远无标题。修复：(A) 新增 `resetTitleFlags(force)` 方法，在 `finally` 块中重置标志位；(B) `force=false` 失败时立即回退到截断首条用户消息，不再等待 `force=true`
+- **TitleGenerator 静默返回 null 无诊断日志**：5 个 return-null 路径使用 `LOG.fine` 或完全无日志，导致调试困难。修复：全部升级为 `LOG.info` 级别并增加 `[标题诊断]` 前缀，输出关键状态（provider/model/contextMessages/LLM响应等）
 
 ## [2.2.3] - 2026-05-07
 
