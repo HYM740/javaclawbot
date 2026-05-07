@@ -4,6 +4,7 @@ import agent.tool.Tool;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import utils.GsonFactory;
 
 import java.sql.*;
 import java.util.*;
@@ -111,7 +112,7 @@ public class DbTool extends Tool {
                 return doExecute(args);
             } catch (Exception e) {
                 log.error("DbTool execution error", e);
-                return "{\"error\": \"" + escapeJson(e.getMessage()) + "\"}";
+                return GsonFactory.toJson(Map.of("error", e.getMessage()));
             }
         });
     }
@@ -119,7 +120,7 @@ public class DbTool extends Tool {
     private String doExecute(Map<String, Object> args) throws Exception {
         String sql = (String) args.get("sql");
         if (sql == null || sql.trim().isEmpty()) {
-            return "{\"error\": \"sql parameter is required\"}";
+            return GsonFactory.toJson(Map.of("error", "sql parameter is required"));
         }
         sql = sql.trim();
 
@@ -149,7 +150,7 @@ public class DbTool extends Tool {
             HikariDataSource ds = dsManager.getDataSource(dsName);
             if (ds == null) {
                 String available = String.join(", ", dsManager.listDataSources().keySet());
-                return "{\"error\": \"Datasource '" + escapeJson(dsName) + "' not found. Available: " + escapeJson(available) + "\"}";
+                return GsonFactory.toJson(Map.of("error", "Datasource '" + dsName + "' not found. Available: " + available));
             }
             conn = ds.getConnection();
         }
@@ -168,7 +169,11 @@ public class DbTool extends Tool {
                 String confirmKey = ":confirm";
                 String paramStr = String.valueOf(params.getOrDefault(confirmKey, "false"));
                 if (!"true".equalsIgnoreCase(paramStr)) {
-                    return "{\"confirmation_required\": true, \"message\": \"This SQL statement modifies or destroys data. To execute, add \\\":confirm\\\": true to the params.\", \"sql\": \"" + escapeJson(statements[0]) + "\"}";
+                    Map<String, Object> confirmResp = new LinkedHashMap<>();
+                    confirmResp.put("confirmation_required", true);
+                    confirmResp.put("message", "This SQL statement modifies or destroys data. To execute, add \":confirm\": true to the params.");
+                    confirmResp.put("sql", statements[0]);
+                    return GsonFactory.toJson(confirmResp);
                 }
             }
 
@@ -269,7 +274,7 @@ public class DbTool extends Tool {
                 result.put("_totalRows", totalRows);
                 result.put("_hasMore", hasMore);
 
-                return toJson(result);
+                return GsonFactory.toJson(result);
             }
         }
     }
@@ -281,7 +286,7 @@ public class DbTool extends Tool {
             if (!isTx) {
                 conn.commit();
             }
-            return "{\"affected_rows\": " + affected + "}";
+            return GsonFactory.toJson(Map.of("affected_rows", affected));
         }
     }
 
@@ -301,44 +306,47 @@ public class DbTool extends Tool {
             case "begin": {
                 HikariDataSource ds = dsManager.getDataSource(dsName);
                 if (ds == null) {
-                    return "{\"error\": \"Datasource '" + escapeJson(dsName) + "' not found\"}";
+                    return GsonFactory.toJson(Map.of("error", "Datasource '" + dsName + "' not found"));
                 }
                 synchronized (transactions) {
                     if (transactions.containsKey(dsName)) {
-                        return "{\"error\": \"Transaction already active for datasource '" + escapeJson(dsName) + "'\"}";
+                        return GsonFactory.toJson(Map.of("error", "Transaction already active for datasource '" + dsName + "'"));
                     }
                     Connection conn = ds.getConnection();
                     conn.setAutoCommit(false);
                     transactions.put(dsName, conn);
                 }
-                return "{\"transaction\": \"begin\", \"datasource\": \"" + escapeJson(dsName) + "\"}";
+                Map<String, Object> beginMap = new LinkedHashMap<>();
+                beginMap.put("transaction", "begin");
+                beginMap.put("datasource", dsName);
+                return GsonFactory.toJson(beginMap);
             }
             case "commit": {
                 synchronized (transactions) {
                     Connection conn = transactions.remove(dsName);
                     if (conn == null) {
-                        return "{\"error\": \"No active transaction for datasource '" + escapeJson(dsName) + "'\"}";
+                        return GsonFactory.toJson(Map.of("error", "No active transaction for datasource '" + dsName + "'"));
                     }
                     conn.commit();
                     conn.setAutoCommit(true);
                     conn.close();
                 }
-                return "{\"transaction\": \"commit\", \"datasource\": \"" + escapeJson(dsName) + "\"}";
+                return GsonFactory.toJson(Map.of("transaction", "commit", "datasource", dsName));
             }
             case "rollback": {
                 synchronized (transactions) {
                     Connection conn = transactions.remove(dsName);
                     if (conn == null) {
-                        return "{\"error\": \"No active transaction for datasource '" + escapeJson(dsName) + "'\"}";
+                        return GsonFactory.toJson(Map.of("error", "No active transaction for datasource '" + dsName + "'"));
                     }
                     conn.rollback();
                     conn.setAutoCommit(true);
                     conn.close();
                 }
-                return "{\"transaction\": \"rollback\", \"datasource\": \"" + escapeJson(dsName) + "\"}";
+                return GsonFactory.toJson(Map.of("transaction", "rollback", "datasource", dsName));
             }
             default:
-                return "{\"error\": \"Invalid transaction operation: " + escapeJson(txOp) + "\"}";
+                return GsonFactory.toJson(Map.of("error", "Invalid transaction operation: " + txOp));
         }
     }
 
@@ -355,49 +363,5 @@ public class DbTool extends Tool {
 
     private String[] splitStatements(String sql) {
         return sql.split(";");
-    }
-
-    private String toJson(Map<String, Object> map) {
-        StringBuilder sb = new StringBuilder("{");
-        boolean first = true;
-        for (Map.Entry<String, Object> e : map.entrySet()) {
-            if (!first) sb.append(",");
-            first = false;
-            sb.append("\"").append(escapeJson(e.getKey())).append("\":");
-            sb.append(valueToJson(e.getValue()));
-        }
-        sb.append("}");
-        return sb.toString();
-    }
-
-    private String valueToJson(Object val) {
-        if (val == null) return "null";
-        if (val instanceof Number || val instanceof Boolean) return String.valueOf(val);
-        if (val instanceof String) return "\"" + escapeJson((String) val) + "\"";
-        if (val instanceof List) {
-            List<?> list = (List<?>) val;
-            StringBuilder sb = new StringBuilder("[");
-            for (int i = 0; i < list.size(); i++) {
-                if (i > 0) sb.append(",");
-                sb.append(valueToJson(list.get(i)));
-            }
-            sb.append("]");
-            return sb.toString();
-        }
-        if (val instanceof Map) {
-            @SuppressWarnings("unchecked")
-            Map<String, Object> map = (Map<String, Object>) val;
-            return toJson(map);
-        }
-        return "\"" + escapeJson(val.toString()) + "\"";
-    }
-
-    private String escapeJson(String s) {
-        if (s == null) return "";
-        return s.replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t");
     }
 }
