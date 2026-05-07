@@ -82,6 +82,16 @@ public final class Helpers {
         if (toolCalls == null || toolCalls.isEmpty()) return "";
         List<String> parts = new ArrayList<>();
         for (var tc : toolCalls) {
+            // Prefer file_path argument for display — shows filename in tool card
+            if (tc.getArguments() != null && tc.getArguments().containsKey("file_path")) {
+                Object fp = tc.getArguments().get("file_path");
+                if (fp instanceof String sfp && !sfp.isBlank()) {
+                    String name = sfp.replace('\\', '/');
+                    int lastSlash = name.lastIndexOf('/');
+                    parts.add(tc.getName() + " " + (lastSlash >= 0 ? name.substring(lastSlash + 1) : name));
+                    continue;
+                }
+            }
             Object val = (tc.getArguments() != null && !tc.getArguments().isEmpty())
                     ? tc.getArguments().values().iterator().next()
                     : null;

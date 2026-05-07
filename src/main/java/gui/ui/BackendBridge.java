@@ -400,6 +400,13 @@ public class BackendBridge {
         // 清除缓存，强制下次 getOrCreate 从磁盘加载
         sessionManager.evictFromCache(sessionKey);
 
+        // 为恢复的会话加载对应的 ProjectRegistry，避免上一轮绑定遗留
+        ProjectRegistry sessionRegistry = createProjectRegistry(sessionId);
+        this.projectRegistry = sessionRegistry;
+        if (agentLoop != null) {
+            agentLoop.updateProjectRegistry(sessionRegistry);
+        }
+
         // 根据会话已有消息数初始化标题生成计数器，避免恢复历史后重复触发
         Session session = sessionManager.getOrCreate(sessionKey);
         int count = countUserMessages(session);
@@ -462,7 +469,12 @@ public class BackendBridge {
                 }
 
                 log.info("开始生成标题: sessionId=" + sessionId + ", force=" + force);
-                String title = TitleGenerator.generateTitle(provider, session, force);
+                String title = TitleGenerator.generateTitle(
+                    provider, session,
+                    config.getAgents().getDefaults().getFastModel(),
+                    true,   // noThinking=true，标题生成不需要思考
+                    force
+                );
                 if (title != null && !title.isBlank()) {
                     sessionManager.save(session);
                     log.info("标题生成成功(AI): sessionId=" + sessionId + ", title=" + title);

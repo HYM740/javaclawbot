@@ -26,23 +26,30 @@ public final class TitleGenerator {
     /**
      * 使用 LLM 生成会话标题。同步执行，应在后台线程调用。
      * 如果已有标题则跳过。
+     *
+     * @param provider LLM provider
+     * @param session  当前会话
+     * @param fastModel 标题生成专用快速模型（null 则使用 provider 默认模型）
+     * @param noThinking 是否禁用思考/推理模式
      */
-    public static String generateTitle(LLMProvider provider, Session session) {
-        return generateTitle(provider, session, false);
+    public static String generateTitle(LLMProvider provider, Session session, String fastModel, boolean noThinking) {
+        return generateTitle(provider, session, fastModel, noThinking, false);
     }
 
     /**
      * 使用 LLM 生成会话标题。
      *
-     * @param provider LLM provider
-     * @param session  当前会话
-     * @param force    即使已有标题也重新生成（用于对话深入后更新标题）
+     * @param provider  LLM provider
+     * @param session   当前会话
+     * @param fastModel 标题生成专用快速模型（null 则使用 provider 默认模型）
+     * @param noThinking 是否禁用思考/推理模式
+     * @param force     即使已有标题也重新生成（用于对话深入后更新标题）
      * @return 生成的标题，失败时返回 null
      */
-    public static String generateTitle(LLMProvider provider, Session session, boolean force) {
+    public static String generateTitle(LLMProvider provider, Session session, String fastModel, boolean noThinking, boolean force) {
         if (provider == null || session == null) return null;
         try {
-            String model = provider.getDefaultModel();
+            String model = (fastModel != null && !fastModel.isBlank()) ? fastModel : provider.getDefaultModel();
             if (model == null || model.isBlank()) {
                 LOG.fine("无法生成标题: provider 没有默认模型");
                 return null;

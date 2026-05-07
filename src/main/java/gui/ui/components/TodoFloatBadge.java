@@ -104,8 +104,9 @@ public class TodoFloatBadge extends StackPane {
                 + " -fx-border-color: rgba(0,0,0,0.08); -fx-border-radius: 12px;"
                 + " -fx-padding: 12px;"
                 + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.15), 12, 0, 0, 4);");
-        dropdown.setPrefWidth(280);
-        dropdown.setMaxHeight(320);
+        dropdown.setMinWidth(600);
+        dropdown.setMaxWidth(800);
+        dropdown.setMaxHeight(360);
         dropdown.setVisible(false);
         dropdown.setManaged(false);
 
@@ -132,19 +133,11 @@ public class TodoFloatBadge extends StackPane {
             }
         });
 
-        // 按钮 + 下拉面板：均右对齐，dropdown 偏移到按钮上方
+        // 按钮 + 下拉面板：均 BOTTOM_RIGHT 对齐，右侧自动对齐
         getChildren().addAll(badgeBtn, dropdown);
         StackPane.setAlignment(badgeBtn, Pos.BOTTOM_RIGHT);
         StackPane.setAlignment(dropdown, Pos.BOTTOM_RIGHT);
-        // dropdown 右对齐，translateX 让右侧对齐按钮右侧（280-44=236）
-        dropdown.translateXProperty().bind(
-            badgeBtn.widthProperty().subtract(dropdown.widthProperty()));
-        // dropdown 底部在按钮顶部上方 6px
-        dropdown.translateYProperty().bind(
-            badgeBtn.translateYProperty()
-                .subtract(badgeBtn.heightProperty())
-                .subtract(dropdown.heightProperty())
-                .subtract(6));
+        // translateX / translateY 由 showDropdown() 根据屏幕位置动态计算
     }
 
     /** 解析 TodoWrite JSON 并更新浮标（调用方已在 JavaFX 线程） */
@@ -219,14 +212,14 @@ public class TodoFloatBadge extends StackPane {
             Label contentLabel = new Label(content);
             contentLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: rgba(0,0,0,0.8);");
             contentLabel.setWrapText(true);
-
-            Region spacer = new Region();
-            HBox.setHgrow(spacer, Priority.ALWAYS);
+            contentLabel.setMaxWidth(Double.MAX_VALUE);
+            HBox.setHgrow(contentLabel, Priority.ALWAYS);
 
             Label statusLabel = new Label(status.equals("in_progress") ? activeForm : "");
-            statusLabel.setStyle("-fx-font-size: 10px; -fx-text-fill: rgba(0,0,0,0.4);");
+            statusLabel.setStyle("-fx-font-size: 10px; -fx-text-fill: rgba(0,0,0,0.4); -fx-min-width: 50px;");
+            statusLabel.setMinWidth(Region.USE_PREF_SIZE);
 
-            row.getChildren().addAll(iconLabel, contentLabel, spacer, statusLabel);
+            row.getChildren().addAll(iconLabel, contentLabel, statusLabel);
             dropdown.getChildren().add(row);
         }
 
@@ -270,8 +263,34 @@ public class TodoFloatBadge extends StackPane {
     }
 
     private void showDropdown() {
+        // 先设为可见+参与布局，让 JavaFX 计算实际尺寸
         dropdown.setVisible(true);
         dropdown.setManaged(true);
+        dropdown.applyCss();
+        dropdown.layout();
+
+        // 估算 dropdown 实际高度（使用运行时宽度，兼容自适应）
+        double calcWidth = dropdown.getWidth() > 0 ? dropdown.getWidth() : dropdown.getMaxWidth();
+        double ddHeight = Math.min(dropdown.prefHeight(calcWidth), dropdown.getMaxHeight());
+
+        // 获取按钮在屏幕上的位置
+        javafx.geometry.Bounds btnScreen = badgeBtn.localToScreen(badgeBtn.getBoundsInLocal());
+        double screenH = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight();
+        double btnCenterY = (btnScreen.getMinY() + btnScreen.getMaxY()) / 2;
+
+        // 解除 translateY 绑定，手动设置
+        dropdown.translateYProperty().unbind();
+
+        // 如果按钮中心在上半屏 → 下方空间充足，向下展开
+        // 如果按钮中心在下半屏 → 上方空间充足，向上展开
+        if (btnCenterY < screenH * 0.5) {
+            // 向下展开：dropdown 顶部 = 按钮底部 + 6
+            dropdown.setTranslateY(badgeBtn.getHeight() + 6);
+        } else {
+            // 向上展开：dropdown 底部 = 按钮顶部 - 6
+            dropdown.setTranslateY(-(badgeBtn.getHeight() + ddHeight + 6));
+        }
+
         dropdownVisible = true;
     }
 

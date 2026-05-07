@@ -2025,7 +2025,7 @@ public class AgentLoop {
                 if (isContextPress && usageAcc.hasData() && (contextRatio > consolidateThreshold || contextRatio > softTrimThreshold )) {
                     var session = sessions.getOrCreate(msg.getSessionKey());
                     List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
-                            messages, consolidateThreshold,  currentSoftTrimThreshold(), pruningSettings, contextWindow,
+                            messages, pruningSettings, contextWindow,
                             // 不修剪 skill 工具的结果，因为其中包含技能内容，裁剪后 LLM 不知道该技能
                             toolName -> !"skill".equalsIgnoreCase(toolName)
                     );

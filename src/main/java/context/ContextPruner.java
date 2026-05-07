@@ -33,8 +33,6 @@ public class ContextPruner {
      */
     public static List<Map<String, Object>> pruneContextMessages(
             List<Map<String, Object>> messages,
-            double consolidateThreshold,
-            double softTrimRatio,
             ContextPruningSettings settings,
             int contextWindowTokens,
             Predicate<String> isToolPrunable
@@ -44,12 +42,6 @@ public class ContextPruner {
         }
 
         if (contextWindowTokens <= 0) {
-            return new ArrayList<>(messages);
-        }
-
-        // 计算字符窗口
-        int charWindow = (int) Math.floor(contextWindowTokens * ContextPruningSettings.CHARS_PER_TOKEN_ESTIMATE);
-        if (charWindow <= 0) {
             return new ArrayList<>(messages);
         }
 
@@ -72,7 +64,6 @@ public class ContextPruner {
         // 计算当前字符大小
         int totalCharsBefore = estimateContextChars(messages);
         int totalChars = totalCharsBefore;
-        double ratio = (double) totalChars / charWindow;
 
         // 收集可修剪的工具结果索引
         List<Integer> prunableToolIndexes = new ArrayList<>();
@@ -100,15 +91,11 @@ public class ContextPruner {
             }
         }
 
-        // 检查是否仍然超过阈值
-        ratio = (double) estimateContextChars(result) / charWindow;
-
         // 如果仍然超过阈值，需要裁剪当前轮次（最后一个用户消息之后）的工具调用
         // 但保留最后 N 次工具调用
-
-        if (ratio >= consolidateThreshold) {
-            /*int prunedCurrentTurn = pruneCurrentTurnTools(result, cutoffIndex, settings, isToolPrunable, charWindow, consolidateThreshold);
-            log.debug("裁剪当前轮次工具：{} 个", prunedCurrentTurn);*/
+        /*if (ratio >= consolidateThreshold) {
+            *//*int prunedCurrentTurn = pruneCurrentTurnTools(result, cutoffIndex, settings, isToolPrunable, charWindow, consolidateThreshold);
+            log.debug("裁剪当前轮次工具：{} 个", prunedCurrentTurn);*//*
             for (int i = pruneStartIndex; i < cutoffIndex; i++) {
                 Map<String, Object> msg = messages.get(i);
                 if (msg == null) continue;
@@ -132,7 +119,7 @@ public class ContextPruner {
             }
             //int prunedCurrentTurn = pruneCurrentTurnTools(result, cutoffIndex, settings, isToolPrunable, charWindow, consolidateThreshold);
             //log.debug("裁剪当前轮次工具：{} 个", prunedCurrentTurn);
-        }
+        }*/
 
         log.debug("上下文修剪完成：{} 条消息，修剪了 {} 个工具结果, 修剪前后字符数量：{} -> {} ",
                 result.size(), prunableToolIndexes.size(), totalCharsBefore, totalChars);

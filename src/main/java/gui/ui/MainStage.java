@@ -32,9 +32,9 @@ import java.util.concurrent.CompletableFuture;
 
 public class MainStage {
 
-    private static final double DEFAULT_WIDTH = 1280;
+    private static final double DEFAULT_WIDTH = 1100;
     private static final double DEFAULT_HEIGHT = 800;
-    private static final double MIN_WIDTH = 960;
+    private static final double MIN_WIDTH = 480;
     private static final double MIN_HEIGHT = 600;
 
     private final Stage stage;

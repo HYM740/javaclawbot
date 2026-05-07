@@ -2,11 +2,19 @@
 
 All notable changes to JavaClawBot will be documented in this file.
 
+## [2.2.4] - 2026-05-07
+
+### Fixed
+- **TodoFloatBadge 下拉面板过小导致任务文本截断为省略号**：原因：(1) 面板宽度仅 280px；(2) contentLabel 虽设置 wrapText 但未约束 maxWidth，HBox 中 spacer 挤占空间导致不换行。修复：面板宽度增至 380px，移除 spacer，改用 `HBox.setHgrow(contentLabel, ALWAYS)` + `contentLabel.setMaxWidth(Double.MAX_VALUE)` 确保内容区占满剩余宽度并正确换行
+- **TodoFloatBadge 下拉面板展开位置始终在右上角**：根因是 translateY 绑定中 `dropdown.heightProperty()` 在 hidden（managed=false）时为 0，展开瞬间绑定计算位置错误。修复：移除 translateY 静态绑定，在 `showDropdown()` 中先设置 visible+managed 让 JavaFX 计算实际高度，再根据按钮在屏幕上的位置动态决定向上/向下展开（按钮中心在上半屏→向下展开，在下半屏→向上展开）
+- **窗口默认宽度 640px 过窄**：`DEFAULT_WIDTH` 被意外改为 640，导致内容区仅 384px（侧栏占 256px），消息气泡有效宽度仅 308px。恢复为 1100px，内容区 844px，消息可达 700px 最大宽度
+
 ## [2.2.3] - 2026-05-07
 
 ### Fixed
 - **新建会话复用昨日标题**：`SessionManager.createNew()` 新建空会话后未写入磁盘文件（`save()` 检测到 0 条消息直接返回），导致 `listSessions()` 只看到旧会话文件，sidebar 显示旧标题。修复：`createNew()` 立即写入仅含 metadata 的会话文件
 - **TodoFloatBadge 下拉面板定位错误**：VBox + TOP_RIGHT 组合导致下拉面板偏移出可视区。修复：改用 StackPane 绝对定位 + translateX/translateY 绑定，下拉面板右对齐按钮并出现在按钮上方
+- **切换历史对话后 `/projects` 显示错误的项目绑定**：两个协同 bug：(1) `BackendBridge.resumeSession()` 未恢复会话对应的 ProjectRegistry，仍保留旧会话的绑定数据；(2) `CliAgentCommandHandler.handleCommand()` 未设置 `currentSessionKey`（ThreadLocal），导致 `getProjectRegistry()` 始终回退到全局默认 registry。修复：`resumeSession()` 加载并注册会话专属 ProjectRegistry；`handleCommand()` 在处理命令前设置 `currentSessionKey`、finally 中清除
 
 ## [2.2.2] - 2026-05-06
 

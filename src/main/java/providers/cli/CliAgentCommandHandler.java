@@ -192,63 +192,69 @@ public class CliAgentCommandHandler {
         String[] parts = content.split("\\s+", 3);
         String cmd = parts[0].toLowerCase();
 
+        // 设置当前会话的 sessionKey，确保 per-session ProjectRegistry 正确使用
+        setCurrentSessionKey(msg.getSessionKey());
         try {
-            switch (cmd) {
-                case "/bind" -> {
-                    handleBind(msg, parts);
-                    return true;
-                }
-                case "/unbind" -> {
-                    handleUnbind(msg, parts);
-                    return true;
-                }
-                case "/projects" -> {
-                    handleProjects(msg);
-                    return true;
-                }
-                case "/cc", "/claude", "/claudecode" -> {
-                    handleCliAgent(msg, parts, "claude");
-                    return true;
-                }
-                case "/oc", "/opencode" -> {
-                    handleCliAgent(msg, parts, "opencode");
-                    return true;
-                }
-                case "/cli-status" -> {
-                    handleStatus(msg, parts);
-                    return true;
-                }
-                case "/stop" -> {
-                    handleStop(msg, parts);
-                    return true;
-                }
-                case "/cli-stopall" -> {
-                    handleStopAll(msg);
-                    return true;
-                }
-                case "/cli-history" -> {
-                    handleHistory(msg, parts);
-                    return true;
-                }
-                default -> {
-                    // 检查是否是权限响应
-                    if (outputHandler.hasPendingPermission(cmd)) {
-                        String[] respParts = content.split("\\s+");
-                        if (respParts.length >= 2) {
-                            boolean allow = respParts[1].equalsIgnoreCase("y") ||
-                                    respParts[1].equalsIgnoreCase("yes") ||
-                                    respParts[1].equalsIgnoreCase("允许");
-                            outputHandler.handleUserPermissionResponse(cmd, allow);
-                            return true;
-                        }
+            try {
+                switch (cmd) {
+                    case "/bind" -> {
+                        handleBind(msg, parts);
+                        return true;
                     }
-                    return false;
+                    case "/unbind" -> {
+                        handleUnbind(msg, parts);
+                        return true;
+                    }
+                    case "/projects" -> {
+                        handleProjects(msg);
+                        return true;
+                    }
+                    case "/cc", "/claude", "/claudecode" -> {
+                        handleCliAgent(msg, parts, "claude");
+                        return true;
+                    }
+                    case "/oc", "/opencode" -> {
+                        handleCliAgent(msg, parts, "opencode");
+                        return true;
+                    }
+                    case "/cli-status" -> {
+                        handleStatus(msg, parts);
+                        return true;
+                    }
+                    case "/stop" -> {
+                        handleStop(msg, parts);
+                        return true;
+                    }
+                    case "/cli-stopall" -> {
+                        handleStopAll(msg);
+                        return true;
+                    }
+                    case "/cli-history" -> {
+                        handleHistory(msg, parts);
+                        return true;
+                    }
+                    default -> {
+                        // 检查是否是权限响应
+                        if (outputHandler.hasPendingPermission(cmd)) {
+                            String[] respParts = content.split("\\s+");
+                            if (respParts.length >= 2) {
+                                boolean allow = respParts[1].equalsIgnoreCase("y") ||
+                                        respParts[1].equalsIgnoreCase("yes") ||
+                                        respParts[1].equalsIgnoreCase("允许");
+                                outputHandler.handleUserPermissionResponse(cmd, allow);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
                 }
+            } catch (Exception e) {
+                log.error("Error handling CLI agent command: {}", content, e);
+                reply(msg, "❌ 命令执行失败: " + e.getMessage());
+                return true;
             }
-        } catch (Exception e) {
-            log.error("Error handling CLI agent command: {}", content, e);
-            reply(msg, "❌ 命令执行失败: " + e.getMessage());
-            return true;
+        } finally {
+            clearCurrentSessionKey();
         }
     }
 
