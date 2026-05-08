@@ -369,6 +369,7 @@ public class MainStage {
                 CompletableFuture.runAsync(() -> backendBridge.newSession())
                     .thenRun(() -> Platform.runLater(() -> {
                         chatPage.clearMessages();
+                        chatPage.refreshProjectBadge();
                         sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
                     }));
             }
@@ -380,6 +381,7 @@ public class MainStage {
                     List<Map<String, Object>> history = backendBridge.getSessionHistory(sessionId);
                     Platform.runLater(() -> {
                         chatPage.loadMessages(history);
+                        chatPage.refreshProjectBadge();
                         showPage("chat");
                     });
                 });
@@ -585,6 +587,11 @@ public class MainStage {
                     chatPage.getChatInput().setWorkspacePath(
                         backendBridge.getConfig().getWorkspacePath());
                     chatPage.getChatInput().setProjectPath(backendBridge.getProjectDir());
+
+                    // 设置项目注册信息（状态栏右下角徽标 + Popover）
+                    chatPage.setProjectInfo(
+                        backendBridge.getProjectRegistry(),
+                        backendBridge.getConfig().getWorkspacePath());
 
                     // Initial status
                     chatPage.setStatusText("\u25CF 模型就绪 \u00B7 "
