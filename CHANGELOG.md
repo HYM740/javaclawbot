@@ -2,6 +2,11 @@
 
 All notable changes to JavaClawBot will be documented in this file.
 
+## [2.2.6] - 2026-05-08
+
+### Fixed
+- **`/context-press` 压缩后 LLM API 报错 `missing field 'content'`**：压缩后的 session 消息包含两类无 `content` 字段的消息：(1) `compact_boundary` 边界标记 (2) `attachment` 附件消息（`skill_listing`、`plan_file_reference`、`task_status` 等）。这些消息通过 `ContextBuilder.buildMessages()` 直接加入 API 消息列表，导致 API 返回 HTTP 400。修复：在 `LLMProvider.sanitizeEmptyContent()` 中增加对 `content` 为 `null`（key 不存在）的处理 — attachment 消息将元数据序列化为可读文本；其他消息设置 `"(empty)"` 占位符。
+
 ## [2.2.5] - 2026-05-08
 
 ### Changed

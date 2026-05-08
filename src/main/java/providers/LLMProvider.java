@@ -94,6 +94,26 @@ public abstract class LLMProvider {
                 }
             }
 
+            // Handle messages missing the "content" field entirely (e.g., post-compact attachment messages)
+            if (content == null) {
+                Map<String, Object> clean = new HashMap<>(msg);
+                String role = msg.get("role") instanceof String s ? s : "";
+                if ("attachment".equals(role)) {
+                    // Convert attachment metadata into a text content so the model can see it
+                    Object attachment = msg.get("attachment");
+                    String type = msg.get("type") instanceof String t ? t : "unknown";
+                    if (attachment != null) {
+                        clean.put("content", "[System Attachment: " + type + "] " + attachment.toString());
+                    } else {
+                        clean.put("content", "[System Attachment: " + type + "]");
+                    }
+                } else {
+                    clean.put("content", "(empty)");
+                }
+                result.add(clean);
+                continue;
+            }
+
             result.add(msg);
         }
 
