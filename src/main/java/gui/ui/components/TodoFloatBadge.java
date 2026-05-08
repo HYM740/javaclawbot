@@ -337,9 +337,9 @@ public class TodoFloatBadge extends StackPane {
         dropdown.setLayoutX(btnW - ddW);
         dropdown.setLayoutY(-ddH - 8);
 
-        System.out.println("[TodoFloatBadge] showDropdown:"
+        /*System.out.println("[TodoFloatBadge] showDropdown:"
             + " ddH=" + ddH + " ddW=" + ddW + " btnW=" + btnW
-            + " layoutX=" + (btnW - ddW) + " layoutY=" + (-ddH - 8));
+            + " layoutX=" + (btnW - ddW) + " layoutY=" + (-ddH - 8));*/
 
         dropdownVisible = true;
     }

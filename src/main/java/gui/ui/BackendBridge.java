@@ -200,10 +200,19 @@ public class BackendBridge {
                     boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
                     boolean isToolResult = Boolean.TRUE.equals(meta.get("_tool_result"));
                     boolean isReasoning = Boolean.TRUE.equals(meta.get("_reasoning"));
+                    boolean isSystemCommand = Boolean.TRUE.equals(meta.get("_system_command"));
                     String toolName = meta.get("tool_name") instanceof String s ? s : null;
                     String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
 
-                    if (isProgress) {
+                    if (isSystemCommand) {
+                        // 系统命令回复（/stop、/help 等）— 仅转发到进度回调，不清除响应回调和标题生成
+                        String content = out.getContent() != null ? out.getContent() : "";
+                        Consumer<ProgressEvent> cb = currentProgressCallback.get();
+                        if (cb != null) {
+                            Platform.runLater(() -> cb.accept(
+                                new ProgressEvent(content, false)));
+                        }
+                    } else if (isProgress) {
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {

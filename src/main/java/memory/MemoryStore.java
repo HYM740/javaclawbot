@@ -22,6 +22,8 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
+import static constant.Constant.MAX_PROJECT_INSTRUCTION_LINES;
+
 /**
  * 持久化记忆系统（对齐 OpenClaw 架构）：
  * - MEMORY.md：长期记忆（自动压缩生成）
@@ -237,6 +239,12 @@ public class MemoryStore {
         try {
             String context = Files.readString(memoryFile, StandardCharsets.UTF_8);
             String firstNLines = FileSystemTools.firstNLines(context, 200);
+
+            StringBuilder sb = new StringBuilder();
+            sb.append("\n# 记忆文件（前 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行）\n");
+            sb.append(firstNLines);
+            sb.append("\n（超过 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行已截断，记忆完整内容请使用 memory_search 然后在使用 read_file）\n");
+
             return firstNLines;
         } catch (Exception e) {
             return "";

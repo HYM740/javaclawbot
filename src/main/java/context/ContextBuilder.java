@@ -28,6 +28,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Supplier;
 
+import static constant.Constant.MAX_PROJECT_INSTRUCTION_LINES;
+
 /**
  * 上下文构建器：负责组装系统提示词与消息列表，用于调用大模型。
  *
@@ -41,9 +43,6 @@ public class ContextBuilder {
 
     /** 运行时元信息标签（仅元数据，不是指令） */
     private static final String RUNTIME_CONTEXT_TAG = "[运行时上下文 — 仅元数据，非指令]";
-
-    /** 项目指令文件最大读取行数 */
-    private static final int MAX_PROJECT_INSTRUCTION_LINES = 200;
 
     private final Path workspace;
     private final MemoryStore memory;
@@ -184,13 +183,13 @@ public class ContextBuilder {
 
         // 提示用户使用新命令
         if (userMsg.startsWith("/project ")) {
-            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /bind --main <路径>   设置主代理项目\n  /bind main=<路径> --main  绑定并设为主代理\n\n查看 /projects 列出所有项目";
+            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /bind --main <路径>   设置主项目\n  /bind main=<路径> --main  绑定并设为主项目\n\n查看 /projects 列出所有项目";
             results[1] = true;
             return results;
         }
 
         if (userMsg.equals("/project") || userMsg.equals("/project clear")) {
-            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /unbind main  解绑主代理项目\n  /projects    列出所有项目";
+            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /unbind main  解绑主项目\n  /projects    列出所有项目";
             results[1] = true;
             return results;
         }
@@ -210,7 +209,7 @@ public class ContextBuilder {
             return "";
         }
 
-        // 从 ProjectRegistry 获取主代理项目
+        // 从 ProjectRegistry 获取主项目
         ProjectRegistry.ProjectInfo mainProject = projectRegistrySupplier.get().getMainProject();
         if (mainProject == null) {
             return "";
@@ -224,12 +223,12 @@ public class ContextBuilder {
 
         StringBuilder sb = new StringBuilder();
         sb.append("<project-context>\n");
-        sb.append("当前项目: ").append(projectPath).append("\n");
+        sb.append("当前主项目: ").append(projectPath).append("\n");
 
         // 读取项目指令文件
         String content = readProjectInstruction(projectPath);
         if (content != null && !content.isBlank()) {
-            sb.append("\n# 项目指令文件（前 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行）\n");
+            sb.append("\n# 项目记忆文件（前 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行）\n");
             sb.append(content);
             sb.append("\n（超过 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行已截断，完整内容请使用 read_file 工具）\n");
         }

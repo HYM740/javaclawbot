@@ -166,9 +166,14 @@ public class DevConsolePage extends VBox {
             "    if (currentLevel !== 'ALL' && level !== currentLevel) return;\n" +
             "    var line = document.createElement('div');\n" +
             "    line.className = 'log-line ' + level;\n" +
-            "    line.innerHTML = '[' + escapeHtml(ts) + '] ' +\n" +
-            "      '<span class=\"level-tag\">' + level + '</span> ' +\n" +
-            "      escapeHtml(logger) + ' - ' + escapeHtml(msg);\n" +
+            "    if (logger === '') {\n" +
+            "      line.innerHTML = escapeHtml(msg);\n" +
+            "      line.style.paddingLeft = '16px';\n" +
+            "    } else {\n" +
+            "      line.innerHTML = '[' + escapeHtml(ts) + '] ' +\n" +
+            "        '<span class=\"level-tag\">' + level + '</span> ' +\n" +
+            "        escapeHtml(logger) + ' - ' + escapeHtml(msg);\n" +
+            "    }\n" +
             "    applyHighlight(line);\n" +
             "    document.getElementById('log-container').appendChild(line);\n" +
             "    trimLines();\n" +

@@ -191,10 +191,10 @@ public class LogWatcher {
         if (m.matches()) {
             return new LogEntry(m.group(1), m.group(2), m.group(3), m.group(4), line);
         }
-        // 无法匹配标准格式的行，作为 INFO 处理
+        // 无法匹配标准格式的行（多行消息续行），logger 为空，前端按原始文本展示
         return new LogEntry(
             java.time.LocalTime.now().format(TIME_FMT),
-            "INFO", "unknown", line, line);
+            "INFO", "", line, line);
     }
 
     private synchronized void closeFile() {

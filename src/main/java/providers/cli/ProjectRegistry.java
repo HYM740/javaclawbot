@@ -19,7 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * - /unbind p1
  * - /projects
  *
- * 主代理项目: 标记 main=true 的项目，主代理会读取该项目的 CODE-AGENT.md/CLAUDE.md
+ * 主项目: 标记 main=true 的项目，主代理会读取该项目的 CODE-AGENT.md/CLAUDE.md
  */
 @Slf4j
 public class ProjectRegistry {
@@ -78,7 +78,7 @@ public class ProjectRegistry {
      *
      * @param name 项目名称 (如 p1, web, main)
      * @param path 项目路径
-     * @param main 是否为主代理项目
+     * @param main 是否设为主项目
      * @return true 如果成功
      */
     public boolean bind(String name, String path, boolean main) {
@@ -114,14 +114,14 @@ public class ProjectRegistry {
     }
 
     /**
-     * 绑定项目 (非主代理)
+     * 绑定项目 (非主项目)
      */
     public boolean bind(String name, String path) {
         return bind(name, path, false);
     }
 
     /**
-     * 设置项目为主代理项目
+     * 设置项目为主项目
      */
     public boolean setMain(String name) {
         ProjectInfo info = projects.get(name.trim().toLowerCase());
@@ -138,7 +138,7 @@ public class ProjectRegistry {
     }
 
     /**
-     * 清除所有项目的主代理标记
+     * 清除所有项目的主项目标记
      */
     private void clearMainFlag() {
         for (Map.Entry<String, ProjectInfo> entry : projects.entrySet()) {
@@ -150,7 +150,7 @@ public class ProjectRegistry {
     }
 
     /**
-     * 获取主代理项目
+     * 获取主项目
      */
     public ProjectInfo getMainProject() {
         for (ProjectInfo info : projects.values()) {
@@ -162,7 +162,7 @@ public class ProjectRegistry {
     }
 
     /**
-     * 获取主代理项目路径
+     * 获取主项目路径
      */
     public String getMainProjectPath() {
         ProjectInfo info = getMainProject();
@@ -346,8 +346,8 @@ public class ProjectRegistry {
                     "使用 /bind <名称>=<路径> [--main] 绑定项目\n" +
                     "示例:\n" +
                     "  /bind p1=/home/user/project\n" +
-                    "  /bind p1=/home/user/project --main  (设为主代理项目)\n" +
-                    "  /bind --main /home/user/project     (直接设为主代理)";
+                    "  /bind p1=/home/user/project --main  (设为主项目)\n" +
+                    "  /bind --main /home/user/project     (直接设为主项目)";
         }
 
         StringBuilder sb = new StringBuilder();
@@ -365,7 +365,7 @@ public class ProjectRegistry {
                     ProjectInfo info = entry.getValue();
                     sb.append("  • ").append(entry.getKey());
                     if (info.isMain()) {
-                        sb.append(" ⭐ [主代理]");
+                        sb.append(" ⭐ [主项目]");
                     }
                     sb.append(" → ").append(info.getPath());
                     // 检查路径是否存在
@@ -393,8 +393,8 @@ public class ProjectRegistry {
                     "使用 /bind <名称>=<路径> [--main] 绑定项目\n" +
                     "示例:\n" +
                     "  /bind p1=/home/user/project\n" +
-                    "  /bind p1=/home/user/project --main  (设为主代理项目)\n" +
-                    "  /bind --main /home/user/project     (直接设为主代理)";
+                    "  /bind p1=/home/user/project --main  (设为主项目)\n" +
+                    "  /bind --main /home/user/project     (直接设为主项目)";
         }
 
         StringBuilder sb = new StringBuilder();
@@ -412,7 +412,7 @@ public class ProjectRegistry {
                     ProjectInfo info = entry.getValue();
                     sb.append("  • ").append(entry.getKey());
                     if (info.isMain()) {
-                        sb.append(" ⭐ [主代理]");
+                        sb.append(" ⭐ [主项目]");
                     }
                     sb.append(" → ").append(info.getPath());
                     // 检查路径是否存在

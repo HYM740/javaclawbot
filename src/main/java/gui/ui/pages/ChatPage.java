@@ -244,6 +244,8 @@ public class ChatPage extends VBox {
     }
 
     public void addAssistantMessage(String content) {
+        // 过滤 LLM API 适配占位符，不显示无意义文本
+        if ("(empty)".equals(content)) return;
         MessageBubble bubble = new MessageBubble(MessageBubble.Role.ASSISTANT, content);
         bubble.setOnHeightAdjusted(this::scrollToBottom);
         messageContainer.getChildren().add(bubble);
@@ -422,6 +424,12 @@ public class ChatPage extends VBox {
 
     /** 推理+回复合并为一个视觉单元：一个 avatar + 推理块（默认收起）+ 回复块 */
     public void addAssistantMessageWithReasoning(String reasoning, String response) {
+        // 如果回复内容是 LLM API 适配占位符，退化为只显示推理块
+        if ("(empty)".equals(response)) {
+            addReasoningBlock(reasoning);
+            return;
+        }
+
         HBox row = new HBox(12);
         row.setAlignment(Pos.TOP_LEFT);
         row.setPadding(new Insets(8, 0, 8, 0));

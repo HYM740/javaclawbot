@@ -5,7 +5,10 @@ All notable changes to JavaClawBot will be documented in this file.
 ## [2.2.6] - 2026-05-08
 
 ### Fixed
+- **`/stop` 命令误触发标题生成和回调清除**：`handleStopCommand`（及其他系统命令如 `/help`、`/new`、`/clear`、`/mcp-reload`）发布的 outbound 消息使用空 `Map.of()` 元数据，被 `BackendBridge.outboundTask` 误判为"最终回复"，导致：(1) 清除原始用户问题的响应回调 (2) 错误触发标题生成。修复：在 `AgentLoop.java` 中给所有系统命令的 outbound 消息添加 `"_system_command": true` 元数据标记；在 `BackendBridge.java` 的 `outboundTask` 中检测该标记，系统命令消息仅转发到进度回调，不触发响应终结和标题生成流程。
 - **`/context-press` 压缩后 LLM API 报错 `missing field 'content'`**：压缩后的 session 消息包含两类无 `content` 字段的消息：(1) `compact_boundary` 边界标记 (2) `attachment` 附件消息（`skill_listing`、`plan_file_reference`、`task_status` 等）。这些消息通过 `ContextBuilder.buildMessages()` 直接加入 API 消息列表，导致 API 返回 HTTP 400。修复：在 `LLMProvider.sanitizeEmptyContent()` 中增加对 `content` 为 `null`（key 不存在）的处理 — attachment 消息将元数据序列化为可读文本；其他消息设置 `"(empty)"` 占位符。
+- **GUI 聊天界面偶显 `(empty)` 文本**：`LLMProvider.sanitizeEmptyContent()` 对空 content 消息填充的 `"(empty)"` 占位符未在 GUI 渲染层过滤，导致历史会话恢复或流式回调中显示无意义文本。修复：在 `ChatPage.addAssistantMessage()` 和 `addAssistantMessageWithReasoning()` 中添加 `"(empty)"` 字符串拦截，不渲染该占位符到界面。
+- **Dev Console 多行日志续行显示为 `unknown` logger**：`AgentLoop` 的 LLM 思考/回复日志包含多行内容，Logback 将换行原样写入日志文件。`LogWatcher.parseLine()` 的正则 `LOG_PATTERN` 不匹配续行，fallback 硬编码 `"unknown"` 为 logger，续行被渲染为带假 `[时间戳] INFO unknown -` 前缀的伪日志行。修复：`parseLine()` 续行 logger 设为空字符串；`DevConsolePage` 的 JS `appendLog` 检测到空 logger 时按原始文本渲染（缩进 16px），不加任何前缀。
 
 ## [2.2.5] - 2026-05-08
 

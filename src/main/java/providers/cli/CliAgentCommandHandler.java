@@ -21,8 +21,8 @@ import java.util.function.BiConsumer;
  * CLI Agent 命令处理器
  *
  * 处理以下命令:
- * - /bind <名称>=<路径> [--main]  绑定项目，可选设为主代理项目
- * - /bind --main <路径>           直接设置主代理项目
+ * - /bind <名称>=<路径> [--main]  绑定项目，可选设为主项目
+ * - /bind --main <路径>           直接设置主项目
  * - /unbind <名称>                解绑项目
  * - /projects                     列出所有项目
  * - /cc <project> <prompt>        使用 Claude Code
@@ -263,17 +263,17 @@ public class CliAgentCommandHandler {
      *
      * 格式:
      * - /bind p1=/path/to/project           普通绑定
-     * - /bind p1=/path/to/project --main    绑定并设为主代理
-     * - /bind /path/to/project --main       自动命名并设为主代理
-     * - /bind --main /path/to/project       直接设为主代理（名称为 main）
+     * - /bind p1=/path/to/project --main    绑定并设为主项目
+     * - /bind /path/to/project --main       自动命名并设为主项目
+     * - /bind --main /path/to/project       直接设为主项目（名称为 main）
      */
     private void handleBind(InboundMessage msg, String[] parts) {
         if (parts.length < 2 || msg.getContent().equalsIgnoreCase("/bind -help") || msg.getContent().equalsIgnoreCase("/bind -h")) {
             reply(msg, "用法: /bind <名称>=<路径> [--main]\n" +
                     "示例:\n" +
                     "  /bind p1=/home/user/project           # 普通绑定\n" +
-                    "  /bind p1=/home/user/project --main    # 绑定并设为主代理\n" +
-                    "  /bind --main /home/user/project       # 直接设为主代理（名称为 main）");
+                    "  /bind p1=/home/user/project --main    # 绑定并设为主项目\n" +
+                    "  /bind --main /home/user/project       # 直接设为主项目（名称为 main）");
             return;
         }
 
@@ -343,7 +343,7 @@ public class CliAgentCommandHandler {
 
         // 执行绑定
         if (getProjectRegistry().bind(name, path, isMain)) {
-            String mainHint = isMain ? " ⭐ [主代理]" : "";
+            String mainHint = isMain ? " ⭐ [主项目]" : "";
             reply(msg, "✅ 项目已绑定" + mainHint + ": " + name + " → " + path);
         } else {
             reply(msg, "❌ 绑定失败");

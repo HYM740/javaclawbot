@@ -1025,7 +1025,7 @@ public class AgentLoop {
                 msg.getChatId(),
                 total > 0 ? "⏹ 已停止 " + total + " 个任务。" : "没有活动任务可停止。",
                 List.of(),
-                Map.of()
+                Map.of("_system_command", true)
         ));
     }
 
@@ -1111,7 +1111,7 @@ public class AgentLoop {
                     msg.getChatId(),
                     "新会话已开始。",
                     List.of(),
-                    Map.of()
+                    Map.of("_system_command", true)
             ));
         }
 
@@ -1149,7 +1149,7 @@ public class AgentLoop {
                     "  /mcp-reload — 重新加载 MCP 插件\n\n" +
                     "项目绑定 (开发模式):\n" +
                     "  /bind <名称>=<路径> — 绑定项目\n" +
-                    "  /bind --main <路径> — 直接设为主代理项目\n" +
+                    "  /bind --main <路径> — 直接设为主项目\n" +
                     "  /unbind <名称> — 解绑项目\n" +
                     "  /projects — 列出所有已绑定项目\n\n" +
                     "CLI Agent (开发模式):\n" +
@@ -1164,7 +1164,7 @@ public class AgentLoop {
                     msg.getChatId(),
                     output,
                     List.of(),
-                    Map.of()
+                    Map.of("_system_command", true)
             ));
         }
 
@@ -1177,7 +1177,7 @@ public class AgentLoop {
                     msg.getChatId(),
                     output,
                     List.of(),
-                    Map.of()
+                    Map.of("_system_command", true)
             ));
         }
 
