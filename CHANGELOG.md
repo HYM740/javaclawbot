@@ -2,6 +2,14 @@
 
 All notable changes to JavaClawBot will be documented in this file.
 
+## [2.2.5] - 2026-05-08
+
+### Changed
+- **TodoFloatBadge 全面重写**：参照 IDEA 插件同款设计，改进如下：
+  - 视觉：浅色主题（`#ffffff` 背景），圆形按钮 38×38，蓝色脉冲光环，下拉面板紧凑分组（In Progress / Pending / Completed）+ 头部进度条
+  - 定位：改为手动 `layoutX/Y` 精确定位，`setManaged(false)` 避免 StackPane 布局算法干扰，下拉面板始终紧贴按钮上方 8px
+  - 交互：移除拖拽功能，保留点击展开/收起 + 外部点击关闭
+
 ## [2.2.4] - 2026-05-07
 
 ### Fixed

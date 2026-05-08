@@ -130,7 +130,7 @@ public class ChatPage extends VBox {
         StackPane.setAlignment(scrollToBottomBtn, Pos.BOTTOM_RIGHT);
         StackPane.setMargin(scrollToBottomBtn, new Insets(0, 24, 12, 0));
         StackPane.setAlignment(todoFloatBadge, Pos.BOTTOM_RIGHT);
-        StackPane.setMargin(todoFloatBadge, new Insets(0, 20, 62, 0));
+        StackPane.setMargin(todoFloatBadge, new Insets(0, 16, 50, 0));
 
         // 输入区域
         chatInput = new ChatInput();
