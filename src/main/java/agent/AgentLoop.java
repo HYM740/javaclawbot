@@ -2343,10 +2343,9 @@ public class AgentLoop {
                             cliAgentHandler.clearCurrentSessionKey();
                         })
                         .thenCompose(rawResult -> {
-                            // AskUserQuestion 特殊处理：第一次返回 questions 时暂停等待用户输入
-                            if (AskUserQuestionTool.NAME.equals(tc.getName())
-                                && rawResult != null && rawResult.contains("awaiting_response")) {
-                                return handleAskUserQuestionPause(tc, rawResult, msg, messages, toolContext, tools);
+                            // 任意工具返回 awaiting_response 时，进入用户问答暂停流程
+                            if (rawResult != null && rawResult.contains("awaiting_response")) {
+                                return handleAnyToolAskUserPause(tc, rawResult, msg, messages, toolContext, tools);
                             }
 
                             handleToolResult(tc, rawResult, sessionKey, msg, messages, tools);
@@ -2431,11 +2430,16 @@ public class AgentLoop {
         messages.addAll(updated);
     }
 
-    /** AskUserQuestion 第一次调用：发布问题到 UI 并暂停等待用户输入 */
-    private CompletionStage<Void> handleAskUserQuestionPause(
+    /** 任意工具返回 awaiting_response 时：发布问题到 UI 并暂停等待用户输入 */
+    private CompletionStage<Void> handleAnyToolAskUserPause(
             ToolCallRequest tc, String rawResult,
             InboundMessage msg, List<Map<String, Object>> messages,
             ToolUseContext toolContext, ToolView tools) {
+
+        // 从 rawResult 或原始工具调用参数中提取 questions
+        List<Map<String, Object>> extracted = extractQuestionsFromResult(rawResult, tc);
+        final List<Map<String, Object>> questions = (extracted != null) ? extracted : List.of();
+
         // 发布问题到 bus 供 UI 展示（不添加到 messages）
         bus.publishOutbound(new OutboundMessage(
                 msg.getChannel(), msg.getChatId(),
@@ -2454,43 +2458,136 @@ public class AgentLoop {
                         new CancellationException("session stopped"));
             }
 
-            // 用 answers 再次调用 AskUserQuestion
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> questions =
-                (List<Map<String, Object>>) tc.getArguments().get("questions");
-            Map<String, Object> argsWithAnswers = new LinkedHashMap<>(tc.getArguments());
             @SuppressWarnings("unchecked")
             Map<String, String> answers = GsonFactory.getGson().fromJson(answersJson, Map.class);
-            argsWithAnswers.put("answers", answers);
 
-            return tools.execute(tc.getName(), argsWithAnswers, toolContext)
-                    .thenAccept(finalResult -> {
-                        // 构建结构化结果：text 供 LLM 阅读，questions/answers 供 UI 渲染
-                        Map<String, Object> structured = new LinkedHashMap<>();
-                        structured.put("text", finalResult != null ? finalResult : "");
-                        structured.put("questions", questions != null ? questions : List.of());
-                        structured.put("answers", answers != null ? answers : Map.of());
-                        String structuredJson = GsonFactory.toJson(structured);
-
-                        String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), structuredJson);
-                        trackFileReadIfNeeded(tc, r);
-
-                        List<Map<String, Object>> updated =
-                                Helpers.addToolResult(messages, tc.getId(), tc.getName(), r);
-
-                        bus.publishOutbound(new OutboundMessage(
-                                msg.getChannel(), msg.getChatId(),
-                                structuredJson, List.of(),
-                                Map.of("_progress", true, "_tool_result", true,
-                                       "tool_name", tc.getName(), "tool_call_id", tc.getId())));
-
-                        memoryStore.appendToToday(GsonFactory.getGson().toJson(
-                                updated.get(updated.size() - 1)));
-
-                        messages.clear();
-                        messages.addAll(updated);
-                    });
+            if (AskUserQuestionTool.NAME.equals(tc.getName())) {
+                // 标准 AskUserQuestion 流程：用 answers 再次调用渲染结果
+                Map<String, Object> argsWithAnswers = new LinkedHashMap<>(tc.getArguments());
+                argsWithAnswers.put("answers", answers);
+                return tools.execute(tc.getName(), argsWithAnswers, toolContext)
+                        .thenAccept(finalResult -> {
+                            appendUserAnswerToMessages(tc, msg, messages, tools, finalResult, questions, answers);
+                        });
+            } else {
+                // 其他工具（如 db）：将用户确认结果作为工具结果添加到 messages
+                return handleNonAskUserToolAnswer(tc, msg, messages, tools, toolContext, questions, answers);
+            }
         });
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> extractQuestionsFromResult(String rawResult, ToolCallRequest tc) {
+        try {
+            Map<String, Object> rawMap = GsonFactory.getGson().fromJson(rawResult, Map.class);
+            Object q = rawMap.get("questions");
+            if (q instanceof List) return (List<Map<String, Object>>) q;
+        } catch (Exception ignored) {}
+        Object q = tc.getArguments().get("questions");
+        if (q instanceof List) return (List<Map<String, Object>>) q;
+        return null;
+    }
+
+    private CompletionStage<Void> handleNonAskUserToolAnswer(
+            ToolCallRequest tc, InboundMessage msg, List<Map<String, Object>> messages,
+            ToolView tools, ToolUseContext toolContext,
+            List<Map<String, Object>> questions, Map<String, String> answers) {
+
+        // 检查用户是否确认（答案中存在 "允许" 标签的选项）
+        boolean confirmed = answers.values().stream()
+                .anyMatch(v -> "允许".equals(v) || "allow".equalsIgnoreCase(v) || "yes".equalsIgnoreCase(v));
+
+        if (!confirmed) {
+            // 用户拒绝：注入拒绝结果到 messages，告知 LLM
+            Map<String, Object> structured = new LinkedHashMap<>();
+            structured.put("text", "用户拒绝了该操作。");
+            structured.put("questions", questions);
+            structured.put("answers", answers);
+            structured.put("_user_denied", true);
+            return injectToolResult(tc, msg, messages, tools, GsonFactory.toJson(structured));
+        }
+
+        // 用户确认：用原始参数加上 :confirm: true 重新执行工具
+        Map<String, Object> retryArgs = new LinkedHashMap<>(tc.getArguments());
+        // 确保 params 存在
+        @SuppressWarnings("unchecked")
+        Map<String, Object> params = (Map<String, Object>) retryArgs.get("params");
+        if (params == null) {
+            params = new LinkedHashMap<>();
+            retryArgs.put("params", params);
+        } else if (!(params instanceof LinkedHashMap)) {
+            params = new LinkedHashMap<>(params);
+            retryArgs.put("params", params);
+        }
+        params.put(":confirm", "true");
+
+        return tools.execute(tc.getName(), retryArgs, toolContext)
+                .thenCompose(result -> {
+                    // 如果重试结果仍然是 awaiting_response（理论上不应发生），回退为注入确认信息
+                    if (result != null && result.contains("awaiting_response")) {
+                        Map<String, Object> fallback = new LinkedHashMap<>();
+                        fallback.put("text", "用户已确认。系统将允许执行。");
+                        fallback.put("_user_confirmed", true);
+                        return injectToolResult(tc, msg, messages, tools, GsonFactory.toJson(fallback));
+                    }
+                    // 正常执行结果：注入到 messages
+                    String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), result);
+                    trackFileReadIfNeeded(tc, r);
+                    return injectToolResult(tc, msg, messages, tools, r);
+                });
+    }
+
+    /** 将工具结果注入 messages 并通知 UI */
+    private CompletionStage<Void> injectToolResult(
+            ToolCallRequest tc, InboundMessage msg, List<Map<String, Object>> messages,
+            ToolView tools, String resultContent) {
+        String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), resultContent);
+        trackFileReadIfNeeded(tc, r);
+
+        List<Map<String, Object>> updated =
+                Helpers.addToolResult(messages, tc.getId(), tc.getName(), r);
+
+        bus.publishOutbound(new OutboundMessage(
+                msg.getChannel(), msg.getChatId(),
+                resultContent, List.of(),
+                Map.of("_progress", true, "_tool_result", true,
+                       "tool_name", tc.getName(), "tool_call_id", tc.getId())));
+
+        memoryStore.appendToToday(GsonFactory.getGson().toJson(
+                updated.get(updated.size() - 1)));
+
+        messages.clear();
+        messages.addAll(updated);
+        return CompletableFuture.<Void>completedFuture(null);
+    }
+
+    private void appendUserAnswerToMessages(
+            ToolCallRequest tc, InboundMessage msg, List<Map<String, Object>> messages,
+            ToolView tools, String finalResult,
+            List<Map<String, Object>> questions, Map<String, String> answers) {
+        Map<String, Object> structured = new LinkedHashMap<>();
+        structured.put("text", finalResult != null ? finalResult : "");
+        structured.put("questions", questions != null ? questions : List.of());
+        structured.put("answers", answers != null ? answers : Map.of());
+        String structuredJson = GsonFactory.toJson(structured);
+
+        String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), structuredJson);
+        trackFileReadIfNeeded(tc, r);
+
+        List<Map<String, Object>> updated =
+                Helpers.addToolResult(messages, tc.getId(), tc.getName(), r);
+
+        bus.publishOutbound(new OutboundMessage(
+                msg.getChannel(), msg.getChatId(),
+                structuredJson, List.of(),
+                Map.of("_progress", true, "_tool_result", true,
+                       "tool_name", tc.getName(), "tool_call_id", tc.getId())));
+
+        memoryStore.appendToToday(GsonFactory.getGson().toJson(
+                updated.get(updated.size() - 1)));
+
+        messages.clear();
+        messages.addAll(updated);
     }
 
     /**

@@ -1,6 +1,7 @@
 package agent.tool.persistence;
 
 import agent.tool.Tool;
+import agent.tool.ToolUseContext;
 import com.zaxxer.hikari.HikariDataSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -105,6 +106,47 @@ public class DbTool extends Tool {
         return schema;
     }
 
+    // ==================== 覆写 execute(Map, ToolUseContext) ====================
+    // 当 AgentLoop 提供了 ToolUseContext 时使用此方法。
+    // 检测到破坏性 SQL 且无用户确认时，返回 AskUserQuestion 格式响应，
+    // AgentLoop 检测到 awaiting_response 后暂停等待用户确认。
+
+    @Override
+    public CompletionStage<String> execute(Map<String, Object> args, ToolUseContext parentUseContext) {
+        // 前置检查：是否需要用户确认
+        String sql = (String) args.get("sql");
+        if (sql != null) {
+            String upper = sql.trim().toUpperCase();
+            String firstStmt = upper.split(";")[0].trim();
+            if (isDestructive(firstStmt)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> params = args.containsKey("params")
+                        ? (Map<String, Object>) args.get("params")
+                        : Collections.emptyMap();
+                String confirmKey = ":confirm";
+                String paramStr = String.valueOf(params.getOrDefault(confirmKey, "false"));
+                if (!"true".equalsIgnoreCase(paramStr)) {
+                    // 返回 AskUserQuestion 格式，强制触发 AgentLoop 暂停
+                    List<Map<String, Object>> questions = List.of(Map.of(
+                            "question", "是否允许执行以下 SQL 操作？\n"+firstStmt,
+                            "header", "数据库操作",
+                            "options", List.of(
+                                    Map.of("label", "允许", "description", "允许执行该 SQL 语句"),
+                                    Map.of("label", "拒绝", "description", "拒绝执行该 SQL 语句")
+                            )
+                    ));
+                    Map<String, Object> result = new LinkedHashMap<>();
+                    result.put("questions", questions);
+                    result.put("answers", Map.of());
+                    result.put("status", "awaiting_response");
+                    result.put("_sql", sql.trim());
+                    return CompletableFuture.completedFuture(GsonFactory.toJson(result));
+                }
+            }
+        }
+        return execute(args);
+    }
+
     @Override
     public CompletionStage<String> execute(Map<String, Object> args) {
         return CompletableFuture.supplyAsync(() -> {
@@ -163,19 +205,6 @@ public class DbTool extends Tool {
             }
 
             String trimmed = statements[0].trim().toUpperCase();
-
-            // Check: destructive operations need confirmation
-            if (isDestructive(trimmed)) {
-                String confirmKey = ":confirm";
-                String paramStr = String.valueOf(params.getOrDefault(confirmKey, "false"));
-                if (!"true".equalsIgnoreCase(paramStr)) {
-                    Map<String, Object> confirmResp = new LinkedHashMap<>();
-                    confirmResp.put("confirmation_required", true);
-                    confirmResp.put("message", "This SQL statement modifies or destroys data. To execute, add \":confirm\": true to the params.");
-                    confirmResp.put("sql", statements[0]);
-                    return GsonFactory.toJson(confirmResp);
-                }
-            }
 
             // Execute single statement
             return executeStatement(conn, statements[0], params, isTx, args, dsName);

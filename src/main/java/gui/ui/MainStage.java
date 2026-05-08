@@ -432,10 +432,11 @@ public class MainStage {
         String content = progress.content();
         if (content == null || content.isBlank()) return;
 
-        if ("AskUserQuestion".equals(tn)) {
-            if (content.contains("awaiting_response")) {
-                showAskUserQuestionDialog(content, progress.toolCallId());
-            } else if (content.contains("\"questions\"")) {
+        // 任意工具返回值包含 awaiting_response 时，弹出 AskUserQuestion 对话框
+        if (content.contains("awaiting_response")) {
+            showAskUserQuestionDialog(content, progress.toolCallId());
+        } else if ("AskUserQuestion".equals(tn)) {
+            if (content.contains("\"questions\"")) {
                 if (lastToolCard != null) {
                     lastToolCard.setStatus("completed");
                     lastToolCard.addStructuredContent(AskQuestionResultView.build(content));
