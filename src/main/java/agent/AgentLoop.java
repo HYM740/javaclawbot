@@ -1346,12 +1346,20 @@ public class AgentLoop {
                     List<Map<String, Object>> attachments = collectPostCompactAttachments(
                             sessionKey, preCompactReadFileSnapshot, smResult.messagesToKeep);
 
-                    // 构建压缩后的消息列表
+                    // 构建压缩后的消息列表（boundary 不存消息，写入 session metadata）
                     List<Map<String, Object>> compactedMessages = new java.util.ArrayList<>();
-                    compactedMessages.add(smResult.boundaryMarker);
                     compactedMessages.addAll(smResult.summaryMessages);
                     compactedMessages.addAll(smResult.messagesToKeep);
                     compactedMessages.addAll(attachments);
+
+                    // 将 compactMetadata 存入 session metadata（而非作为消息）
+                    Map<String, Object> sessMeta = sess.getMetadata();
+                    Object bMeta = smResult.boundaryMarker.get("compactMetadata");
+                    if (bMeta instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> cm = (Map<String, Object>) bMeta;
+                        sessMeta.put("compactMetadata", new java.util.LinkedHashMap<>(cm));
+                    }
 
                     // 更新 session
                     sess.setMessages(compactedMessages);
@@ -1444,11 +1452,19 @@ public class AgentLoop {
             List<Map<String, Object>> attachments = collectPostCompactAttachments(
                     sessionKey, preCompactReadFileSnapshot, List.of());
 
-            // 构建压缩后的消息列表
+            // 构建压缩后的消息列表（boundary 不存消息，写入 session metadata）
             List<Map<String, Object>> compactedMessages = new java.util.ArrayList<>();
-            compactedMessages.add(boundary);
             compactedMessages.addAll(summaryMessages);
             compactedMessages.addAll(attachments);
+
+            // 将 compactMetadata 存入 session metadata（而非作为消息）
+            Map<String, Object> sessMeta2 = sess.getMetadata();
+            Object bMeta2 = boundary.get("compactMetadata");
+            if (bMeta2 instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> cm = (Map<String, Object>) bMeta2;
+                sessMeta2.put("compactMetadata", new java.util.LinkedHashMap<>(cm));
+            }
 
             // 更新 session
             sess.setMessages(compactedMessages);
@@ -1658,16 +1674,24 @@ public class AgentLoop {
             ToolView tools = buildMemoryRequestTools(channel, chatId, null);
 
             // 同步执行记忆整理, memory命令执行完成后,清理session中上下文（不需要保存到 session）
-            runAgentLoop(msg, initial, tools, false, (context, toolHit) -> bus.publishOutbound(new OutboundMessage(
-                    msg.getChannel()
-                    , msg.getChatId()
-                    , "(记忆处理进程) " + context
-                    , List.of()
-                    , Map.of()
-            )), false).toCompletableFuture().join();
+            RunResult rr = runAgentLoop(msg, initial, tools, false, (context1, toolHit) -> {
+                Map<String, Object> meta = new LinkedHashMap<>();
+                meta.put("_progress", true);
+                meta.put("_tool_hint", toolHit);
+                bus.publishOutbound(new OutboundMessage(
+                        msg.getChannel()
+                        , msg.getChatId()
+                        , "(记忆处理进程) " + context1
+                        , List.of()
+                        , meta
+                ));
+            }, false).toCompletableFuture().join();
 
+            String finalContent = (rr != null && rr.finalContent != null && !rr.finalContent.isBlank())
+                    ? rr.finalContent
+                    : "✅ 记忆整理完成";
             return CompletableFuture.completedFuture(new OutboundMessage(
-                    channel, chatId, "✅ 记忆整理完成", List.of(), Map.of()
+                    channel, chatId, finalContent, List.of(), Map.of()
             ));
         } catch (Exception e) {
             log.warn("记忆整理失败", e);
