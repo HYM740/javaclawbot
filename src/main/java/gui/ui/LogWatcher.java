@@ -7,7 +7,9 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -15,6 +17,9 @@ import java.util.regex.Pattern;
 /**
  * 后台线程，用 WatchService 监听日志文件增量，
  * 解析为 LogEntry 并推入 LogBuffer。
+ *
+ * 支持日志文件滚动（RollingFileAppender）：当文件被重命名并创建新文件时，
+ * 自动关闭旧 reader 并打开新 reader。
  */
 public class LogWatcher {
 
@@ -23,6 +28,9 @@ public class LogWatcher {
 
     private static final DateTimeFormatter TIME_FMT =
         DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
+
+    /** 初始读取时最多保留的行数（匹配 DevConsolePage.MAX_BUFFER_SIZE） */
+    private static final int INITIAL_READ_MAX_LINES = 5000;
 
     private final Path logFile;
     private final ConcurrentLinkedQueue<LogEntry> buffer;
@@ -73,6 +81,9 @@ public class LogWatcher {
             ensureDirAndFile();
             openFile();
             registerWatcher();
+            // 初始读取：只保留最后 INITIAL_READ_MAX_LINES 行，
+            // 防止大文件（2MB+）撑爆缓冲区导致 UI 卡死
+            initialRead(INITIAL_READ_MAX_LINES);
             mainLoop();
         } catch (Exception e) {
             buffer.offer(new LogEntry(
@@ -109,24 +120,56 @@ public class LogWatcher {
             StandardWatchEventKinds.ENTRY_CREATE);
     }
 
+    /**
+     * 初始读取：遍历全部已有行，但仅保留最后 maxLines 行推入缓冲区。
+     * 避免历史日志过多导致 UI 卡死。
+     */
+    private void initialRead(int maxLines) throws IOException {
+        if (reader == null) return;
+        ArrayDeque<LogEntry> ring = new ArrayDeque<>(maxLines);
+        String line;
+        while ((line = reader.readLine()) != null) {
+            LogEntry entry = parseLine(line);
+            if (entry != null) {
+                if (ring.size() >= maxLines) {
+                    ring.pollFirst();
+                }
+                ring.offerLast(entry);
+            }
+        }
+        for (LogEntry entry : ring) {
+            buffer.offer(entry);
+        }
+    }
+
     private void mainLoop() {
         while (!stopped.get()) {
+            WatchKey key = null;
             try {
-                WatchKey key = watchService.poll(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+                key = watchService.poll(500, TimeUnit.MILLISECONDS);
                 if (key != null) {
                     for (WatchEvent<?> event : key.pollEvents()) {
                         Path changed = (Path) event.context();
                         if (changed != null && changed.toString().equals(logFile.getFileName().toString())) {
+                            // 文件滚动：旧文件被重命名、新文件被创建 → 关闭旧 reader 并连接到新文件
+                            if (event.kind() == StandardWatchEventKinds.ENTRY_CREATE) {
+                                closeFile();
+                                openFile();
+                            }
                             readNewLines();
                         }
                     }
-                    key.reset();
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
             } catch (Exception e) {
                 System.err.println("[LogWatcher] 读取异常: " + e.getMessage());
+            } finally {
+                // 无论是否异常都必须 reset，否则 WatchKey 失效导致后续事件全部丢失
+                if (key != null) {
+                    key.reset();
+                }
             }
         }
     }

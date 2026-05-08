@@ -10,6 +10,13 @@ All notable changes to JavaClawBot will be documented in this file.
   - 定位：改为手动 `layoutX/Y` 精确定位，`setManaged(false)` 避免 StackPane 布局算法干扰，下拉面板始终紧贴按钮上方 8px
   - 交互：移除拖拽功能，保留点击展开/收起 + 外部点击关闭
 
+### Fixed
+- **Dev Console 不展示已有日志**：`LogWatcher.run()` 仅在 WatchService 检测到文件变更事件时才调用 `readNewLines()`，导致历史日志永远不会被读取展示。修复：在 `registerWatcher()` 之后、`mainLoop()` 之前调用 `initialRead()` 读取已有内容
+- **日志文件无限膨胀导致 Dev Console 卡死**：`logback.xml` 使用 `FileAppender` + `immediateFlush=true`，日志文件持续增长至 2.7MB（4 万行），`LogWatcher` 初始读取全部推入 WebView → 4 万次 DOM 操作卡死 UI。修复：
+  - `logback.xml`：参照生产认证方案，`FileAppender` → `RollingFileAppender` + `SizeAndTimeBasedRollingPolicy`，单文件上限 1MB，保留最近 5 个滚动历史文件
+  - `LogWatcher.initialRead()`：用 `ArrayDeque` 环形缓冲区只保留最后 5000 行推入 buffer，与 WebView `MAX_BUFFER_SIZE` 对齐
+  - `LogWatcher.mainLoop()`：检测 `ENTRY_CREATE` 事件（文件滚动后重新创建）时，关闭旧 reader 并打开新 reader，确保滚动后不丢日志
+
 ## [2.2.4] - 2026-05-07
 
 ### Fixed
