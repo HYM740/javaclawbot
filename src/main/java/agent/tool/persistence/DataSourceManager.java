@@ -29,7 +29,29 @@ public class DataSourceManager {
     private final ConcurrentHashMap<String, String> dataSourceUrls = new ConcurrentHashMap<>();
     private volatile boolean started = false;
 
-    /** Cached driver class loaders to avoid reloading JARs */
+    /** JDBC URL prefix → Built-in driver class mapping */
+    private static final Map<String, String> BUILTIN_DRIVERS = new LinkedHashMap<>();
+
+    static {
+        BUILTIN_DRIVERS.put("jdbc:mysql:", "com.mysql.cj.jdbc.Driver");
+        BUILTIN_DRIVERS.put("jdbc:postgresql:", "org.postgresql.Driver");
+        BUILTIN_DRIVERS.put("jdbc:mariadb:", "org.mariadb.jdbc.Driver");
+        BUILTIN_DRIVERS.put("jdbc:oracle:thin:", "oracle.jdbc.OracleDriver");
+        BUILTIN_DRIVERS.put("jdbc:sqlserver:", "com.microsoft.sqlserver.jdbc.SQLServerDriver");
+        BUILTIN_DRIVERS.put("jdbc:h2:", "org.h2.Driver");
+        BUILTIN_DRIVERS.put("jdbc:sqlite:", "org.sqlite.JDBC");
+    }
+
+    /** Infer driver class from JDBC URL prefix */
+    public static String inferDriverClass(String jdbcUrl) {
+        if (jdbcUrl == null) return null;
+        for (Map.Entry<String, String> entry : BUILTIN_DRIVERS.entrySet()) {
+            if (jdbcUrl.startsWith(entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return null;
+    }
     private final Map<String, URLClassLoader> driverLoaders = new HashMap<>();
     /** Registered wrapper drivers to track for cleanup */
     private final List<DriverWrapper> registeredDrivers = new ArrayList<>();
@@ -124,12 +146,22 @@ public class DataSourceManager {
 
     private void createDataSource(String name, DbDataSourceConfig cfg) {
         Objects.requireNonNull(cfg.getJdbcUrl(), "jdbcUrl must not be null for datasource '" + name + "'");
-        Objects.requireNonNull(cfg.getDriverClass(), "driverClass must not be null for datasource '" + name + "'");
+
+        // Infer driver class from JDBC URL if not specified
+        String driverClass = cfg.getDriverClass();
+        if (driverClass == null || driverClass.isBlank()) {
+            driverClass = inferDriverClass(cfg.getJdbcUrl());
+            if (driverClass == null) {
+                throw new IllegalArgumentException(
+                    "Cannot infer driver class from JDBC URL: " + cfg.getJdbcUrl()
+                    + ". Set driverClass explicitly or use driverJar for external drivers.");
+            }
+        }
 
         // Load external driver if specified
         boolean externalDriver = cfg.getDriverJar() != null && !cfg.getDriverJar().isBlank();
         if (externalDriver) {
-            loadExternalDriver(cfg.getDriverClass(), cfg.getDriverJar());
+            loadExternalDriver(driverClass, cfg.getDriverJar());
         }
 
         HikariConfig hikariConfig = new HikariConfig();
@@ -140,7 +172,7 @@ public class DataSourceManager {
         // the driver via DriverManager (which already has the DriverWrapper registered).
         // For built-in drivers, setDriverClassName() validates the class is loadable.
         if (!externalDriver) {
-            hikariConfig.setDriverClassName(cfg.getDriverClass());
+            hikariConfig.setDriverClassName(driverClass);
         }
         hikariConfig.setMaximumPoolSize(cfg.getMaxPoolSize());
         hikariConfig.setConnectionTimeout(cfg.getConnectionTimeout());
