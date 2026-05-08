@@ -139,7 +139,9 @@ src/main/java/skills - 技能
 src/main/java/utils - 通用工具
 
 ## 变动
-版本变动，修复bug 请放入 [CHANGELOG.md](CHANGELOG.md) 中 ,如果该文档中版本新增了，pom.xml中也同步更新
+版本变动，修复bug 请放入 [CHANGELOG.md](CHANGELOG.md) 中 ,如果该文档中版本新增了，pom.xml中也同步更新，每次版本变动需要同步在git中打上tag和branch
+## git
+由于在中国，github访问不稳定，需要 git -c http.proxy=http://127.0.0.1:7890  你需要检测是否开启代理，如果未开启代理 尝试一次原始提交 失败后提醒用户开启代理 
 ## 更新日志
 详情需要放入 [CHANGELOG.md](CHANGELOG.md) 中
 这里需要动态总结，并每次更新，记住 版本每次变动，pom同步变动，规则：

@@ -576,7 +576,7 @@ public class BackendBridge {
     public void reloadConfigFromDisk() {
         try {
             this.config = ConfigIO.loadConfig(null);
-            log.info("配置已从磁盘重新加载");
+            log.debug("配置已从磁盘重新加载");
         } catch (Exception e) {
             log.warn("重新加载配置失败: " + e.getMessage());
         }
