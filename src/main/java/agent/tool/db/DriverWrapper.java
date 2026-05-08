@@ -1,4 +1,4 @@
-package agent.tool.persistence;
+package agent.tool.db;
 
 import java.sql.*;
 import java.util.Properties;

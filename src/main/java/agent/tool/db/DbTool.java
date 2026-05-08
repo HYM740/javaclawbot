@@ -1,4 +1,4 @@
-package agent.tool.persistence;
+package agent.tool.db;
 
 import agent.tool.Tool;
 import agent.tool.ToolUseContext;
