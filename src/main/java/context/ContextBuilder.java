@@ -439,9 +439,13 @@ public class ContextBuilder {
                 "content", userBlocks
         ));
 
-        // 添加历史
+        // 添加历史（过滤掉 system 角色消息）
         if (CollUtil.isNotEmpty(history)) {
-            out.addAll(history);
+            for (Map<String, Object> msg : history) {
+                if (msg == null) continue;
+                if ("system".equals(msg.get("role"))) continue;
+                out.add(msg);
+            }
         }
 
         // 当前用户内容（文本 + 可选图片）
@@ -497,9 +501,13 @@ public class ContextBuilder {
                 "content", userBlocks
         ));
 
-        // 添加历史
+        // 添加历史（过滤掉 system 角色消息）
         if (CollUtil.isNotEmpty(history)) {
-            out.addAll(history);
+            for (Map<String, Object> msg : history) {
+                if (msg == null) continue;
+                if ("system".equals(msg.get("role"))) continue;
+                out.add(msg);
+            }
         }
         out.add(mapOf(
                 "role", "user",
@@ -550,9 +558,14 @@ public class ContextBuilder {
                 "content", userBlocks
         ));
 
-        // 添加历史
+        // 添加历史（过滤掉 system 角色消息 — 仅由 ContextBuilder 添加系统提示词）
         if (CollUtil.isNotEmpty(history)) {
-            out.addAll(history);
+            for (Map<String, Object> msg : history) {
+                if (msg == null) continue;
+                // Skip system messages from session — ContextBuilder adds its own system prompt
+                if ("system".equals(msg.get("role"))) continue;
+                out.add(msg);
+            }
         }
 
         // 通过用户指定前缀加载技能
