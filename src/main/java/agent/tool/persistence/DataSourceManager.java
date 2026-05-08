@@ -32,6 +32,9 @@ public class DataSourceManager {
     /** JDBC URL prefix → Built-in driver class mapping */
     private static final Map<String, String> BUILTIN_DRIVERS = new LinkedHashMap<>();
 
+    /** Driver class → human-readable database type name */
+    private static final Map<String, String> DRIVER_TO_DB_TYPE = new LinkedHashMap<>();
+
     static {
         BUILTIN_DRIVERS.put("jdbc:mysql:", "com.mysql.cj.jdbc.Driver");
         BUILTIN_DRIVERS.put("jdbc:postgresql:", "org.postgresql.Driver");
@@ -40,6 +43,13 @@ public class DataSourceManager {
         BUILTIN_DRIVERS.put("jdbc:sqlserver:", "com.microsoft.sqlserver.jdbc.SQLServerDriver");
         BUILTIN_DRIVERS.put("jdbc:h2:", "org.h2.Driver");
         BUILTIN_DRIVERS.put("jdbc:sqlite:", "org.sqlite.JDBC");
+
+        for (Map.Entry<String, String> e : BUILTIN_DRIVERS.entrySet()) {
+            String urlPrefix = e.getKey();
+            // Strip "jdbc:" prefix and trailing ":"
+            String type = urlPrefix.substring(5).replace(":", "");
+            DRIVER_TO_DB_TYPE.put(e.getValue(), type);
+        }
     }
 
     /** Infer driver class from JDBC URL prefix */
@@ -115,6 +125,34 @@ public class DataSourceManager {
      */
     public Map<String, String> listDataSources() {
         return new LinkedHashMap<>(dataSourceUrls);
+    }
+
+    /**
+     * Infer database type name from JDBC URL.
+     */
+    public static String inferDbType(String jdbcUrl) {
+        if (jdbcUrl == null) return null;
+        for (Map.Entry<String, String> e : BUILTIN_DRIVERS.entrySet()) {
+            if (jdbcUrl.startsWith(e.getKey())) {
+                String type = e.getKey().substring(5).replace(":", "");
+                return type;
+            }
+        }
+        return "unknown";
+    }
+
+    /**
+     * List datasource info with name, JDBC URL, and database type.
+     */
+    public Map<String, Map<String, String>> listDataSourceInfo() {
+        Map<String, Map<String, String>> result = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : dataSourceUrls.entrySet()) {
+            Map<String, String> info = new LinkedHashMap<>();
+            info.put("jdbcUrl", entry.getValue());
+            info.put("dbType", inferDbType(entry.getValue()));
+            result.put(entry.getKey(), info);
+        }
+        return result;
     }
 
     /**

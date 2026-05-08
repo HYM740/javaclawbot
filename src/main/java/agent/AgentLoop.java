@@ -21,6 +21,7 @@ import agent.tool.message.MessageTool;
 import agent.tool.message.PruneMessagesTool;
 import agent.tool.persistence.DataSourceManager;
 import agent.tool.persistence.DbTool;
+import agent.tool.persistence.ListDataSourceTool;
 import agent.tool.shell.ExecTool;
 import agent.tool.shell.Shell;
 import agent.tool.skill.SkillTool;
@@ -683,6 +684,7 @@ public class AgentLoop {
         // 数据库查询工具
         dataSourceManager.start();
         sharedTools.register(new DbTool(dataSourceManager));
+        sharedTools.register(new ListDataSourceTool(dataSourceManager));
 
         // Plan Mode 工具
         sharedTools.register(new agent.tool.plan.EnterPlanModeTool());
