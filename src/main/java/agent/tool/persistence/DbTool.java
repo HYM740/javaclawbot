@@ -51,9 +51,11 @@ public class DbTool extends Tool {
                 "",
                 "Notes:",
                 "- Read-only SQL (SELECT/SHOW/DESCRIBE/EXPLAIN) executes directly.",
-                "- Destructive SQL (INSERT/UPDATE/DELETE/DDL) requires explicit confirmation.",
+                "- Destructive SQL (INSERT/UPDATE/DELETE/DDL) requires user confirmation via AskUserQuestion.",
                 "- Use BEGIN/COMMIT/ROLLBACK for transaction control.",
-                "- Large result sets are paginated; use page parameter to navigate.");
+                "- Large result sets are paginated; use page parameter to navigate.",
+                "- **所有数据库操作必须使用 db 工具，禁止使用 Bash 或其他工具执行数据库操作。**"
+                );
     }
 
     @Override
