@@ -62,6 +62,16 @@
 3. [步骤] → 验证：[检查点]
 
 清晰的成功标准能让你独立迭代。模糊的标准（例如“让它能用”）则需要不断确认。
+5. 编码后必须添加数据流日志，日志通常采用sfl4j 和 logback 切勿使用其他日志 格式为：
+```java
+if(log.enableDebug) {
+    log.debug()
+        }
+log.info  log.warn log.error
+```
+
+## 可参考的经验
+[经验.md](%E7%BB%8F%E9%AA%8C.md)
 
 ## 执行顺序（复杂任务）
 
@@ -131,55 +141,8 @@ src/main/java/utils - 通用工具
 ## 变动
 版本变动，修复bug 请放入 [CHANGELOG.md](CHANGELOG.md) 中 ,如果该文档中版本新增了，pom.xml中也同步更新
 ## 更新日志
-详情需要放入 [CHANGELOG.md](CHANGELOG.md) 中 
-这里需要动态总结，并每次更新，规则：
+详情需要放入 [CHANGELOG.md](CHANGELOG.md) 中
+这里需要动态总结，并每次更新，记住 版本每次变动，pom同步变动，规则：
 | Date | Version | Change |
 |------|---------|--------|
 | 2026-04-23 | 1.7.0 | xxxxx. |
-
-## JavaFX GUI 经验总结
-
-### WebView 高度自适应
-
-**核心原则：内容必须在 WebView 宽度确定之后加载，否则 scrollHeight 不准。**
-
-错误做法：
-- 在 WebView 隐藏时 loadContent → 展开时 reload 并 measure → 文档异步加载可能在布局完成前就绪，此时 WebView 渲染宽度仍是旧值（0 或 100px），内容按窄宽度换行 → scrollHeight 极高 → 大量空白
-
-正确做法：
-1. WebView 始终保持 `managed=true`（在布局中占位）
-2. **宽度绑定在 loadContent 之前设置**
-3. `Platform.runLater` 延迟 loadContent 到场景布局完成后
-4. 文档就绪后测量高度，存入变量复用
-5. 折叠/展开仅切换 `maxHeight=0` ↔ 存储值，不操作 visibility
-
-### WebView JS 高度测量
-
-```java
-// 用 Math.max，不是只用 body.scrollHeight
-wv.getEngine().executeScript(
-    "(function(){return Math.max(document.body.scrollHeight,"
-    + "document.documentElement.scrollHeight);})()");
-```
-
-### WebView 背景色
-
-`-fx-background-color` 对 WebView（native 节点）可能不生效。三层兜底：
-1. JavaFX: `wv.setStyle("-fx-background-color: ...")`
-2. CSS: `html{background:...;height:100%}` — height:100% 确保 html 填满 WebView 视口，遮盖内容下方的 native 背景
-3. CSS: `body{background:...}`
-
-### WebView 滚轮事件
-
-WebView 是 native 节点，会截获滚轮事件不给外层 ScrollPane。必须在 WebView 上加 `addEventFilter(ScrollEvent.SCROLL, e -> { e.consume(); Event.fireEvent(parent, e.copyFor(parent, parent)); })`。
-
-### StageStyle.TRANSPARENT 定制窗口
-
-- 窗口控件：三个 SVGPath 按钮（最小化/最大化/关闭），放在 BorderPane.setTop 的 HBox 中
-- 边缘拖拽 resize：Scene 级别 event filter 监听 MOUSE_MOVED/PRESSED/DRAGGED/RELEASED，根据鼠标位置判断方向（四边+四角），更新 stage x/y/width/height
-- 窗口拖拽：在 top bar 上监听 MOUSE_PRESSED/DRAGGED
-- 关闭按钮直接调 `Platform.exit()` + `System.exit(0)` 兜底，不能只靠 onCloseRequest
-
-### SVGPath 替代 Unicode 图标
-
-Unicode 符号（如 ⏹ ✕ □）在 macOS 中文环境下渲染不一致。直接用 SVGPath + fill/stroke 控制颜色，hover/press 状态更新 fill 值即可。

@@ -141,14 +141,16 @@ public class ContextBuilder {
         // 配置工作流程
         String agents = bootstrapLoader.loadAgents();
         parts.add(agents);
-        // 可用技能说明
-        parts.add(skills.buildSkillsSimpleSummary());
 
         // 构建记忆
         String context = buildMemoryContext();
+
         if (context != null && !context.isBlank()) {
             parts.add(context);
         }
+
+        // 可用技能说明
+        parts.add(skills.buildSkillsSimpleSummary());
 
         // 配置身份
         parts.add(bootstrapLoader.loadIdentity());
@@ -382,8 +384,12 @@ public class ContextBuilder {
                  %s
                  
                  %s
-                 重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。
+                 
+                 **重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。**
                  `memory/YYYY-MM-dd.md` 格式文件为原始相关记忆，切勿直接使用`read_file`阅读整个文件，优先使用memory_search 搜索最近上下文，再根据获取的行数阅读详细上下文
+                 **已学习的经验(memory_search 无法搜索到 必须使用read_file 工具才能阅读)**：
+                 1. **语义记忆**（`{工作空间}/memory/semantic-patterns.json`）
+                 2. **情景记忆**（`{工作空间}/memory/episodic/YYYY-MM-DD-{skill}.json`）
                  </system-reminder>
                 """.formatted(LocalDate.now(), mem, projectCtx));
         return sb.toString();

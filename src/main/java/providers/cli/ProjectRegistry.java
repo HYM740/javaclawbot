@@ -383,4 +383,47 @@ public class ProjectRegistry {
 
         return sb.toString();
     }
+
+    /**
+     * 格式化项目列表为字符串
+     */
+    public String formatProject() {
+        if (projects.isEmpty()) {
+            return "📁 暂无绑定项目\n\n" +
+                    "使用 /bind <名称>=<路径> [--main] 绑定项目\n" +
+                    "示例:\n" +
+                    "  /bind p1=/home/user/project\n" +
+                    "  /bind p1=/home/user/project --main  (设为主代理项目)\n" +
+                    "  /bind --main /home/user/project     (直接设为主代理)";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("📁 已绑定项目 (").append(projects.size()).append("):\n");
+
+        // 先显示 main 项目
+        projects.entrySet().stream()
+                .sorted((a, b) -> {
+                    // main 项目排在前面
+                    if (a.getValue().isMain() && !b.getValue().isMain()) return -1;
+                    if (!a.getValue().isMain() && b.getValue().isMain()) return 1;
+                    return a.getKey().compareTo(b.getKey());
+                })
+                .forEach(entry -> {
+                    ProjectInfo info = entry.getValue();
+                    sb.append("  • ").append(entry.getKey());
+                    if (info.isMain()) {
+                        sb.append(" ⭐ [主代理]");
+                    }
+                    sb.append(" → ").append(info.getPath());
+                    // 检查路径是否存在
+                    if (!Files.exists(Path.of(info.getPath()))) {
+                        sb.append(" ⚠️ (路径不存在)");
+                    }
+                    sb.append("\n");
+                });
+
+        return sb.toString();
+    }
 }
+
+

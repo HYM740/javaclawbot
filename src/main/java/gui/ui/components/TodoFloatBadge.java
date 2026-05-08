@@ -186,7 +186,7 @@ public class TodoFloatBadge extends StackPane {
         titleRow.setAlignment(Pos.CENTER_LEFT);
         HBox.setHgrow(titleRow, Priority.ALWAYS);
 
-        Label titleLabel = new Label("Tasks");
+        Label titleLabel = new Label("任务");
         titleLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 600; -fx-text-fill: rgba(0,0,0,0.8);");
 
         Region spacer = new Region();
@@ -218,7 +218,7 @@ public class TodoFloatBadge extends StackPane {
 
         progressBar.getChildren().addAll(bg, fg);
 
-        Label progressText = new Label(completed + " / " + total + " completed");
+        Label progressText = new Label(completed + " / " + total + " 已完成");
         progressText.setStyle("-fx-font-size: 10px; -fx-text-fill: rgba(0,0,0,0.4);");
 
         headerBox.getChildren().addAll(titleRow, progressBar, progressText);
@@ -234,7 +234,7 @@ public class TodoFloatBadge extends StackPane {
                 .filter(t -> "in_progress".equals(t.get("status")))
                 .toList();
         if (!inProgressItems.isEmpty()) {
-            addSectionHeader(listBox, "In Progress", inProgressItems.size());
+            addSectionHeader(listBox, "进行中", inProgressItems.size());
             for (Map<String, Object> item : inProgressItems) addTodoRow(listBox, item, "in_progress");
         }
 
@@ -243,7 +243,7 @@ public class TodoFloatBadge extends StackPane {
                 .filter(t -> "pending".equals(t.get("status")))
                 .toList();
         if (!pendingItems.isEmpty()) {
-            addSectionHeader(listBox, "Pending", pendingItems.size());
+            addSectionHeader(listBox, "待处理", pendingItems.size());
             for (Map<String, Object> item : pendingItems) addTodoRow(listBox, item, "pending");
         }
 
@@ -252,7 +252,7 @@ public class TodoFloatBadge extends StackPane {
                 .filter(t -> "completed".equals(t.get("status")))
                 .toList();
         if (!completedItems.isEmpty()) {
-            addSectionHeader(listBox, "Completed", completedItems.size());
+            addSectionHeader(listBox, "已完成", completedItems.size());
             for (Map<String, Object> item : completedItems) addTodoRow(listBox, item, "completed");
         }
 
