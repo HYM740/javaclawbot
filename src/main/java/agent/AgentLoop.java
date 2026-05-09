@@ -12,16 +12,14 @@ import agent.tool.*;
 import agent.tool.cli.CliAgentTool;
 import agent.tool.cron.CronTool;
 import agent.tool.plan.AskUserQuestionTool;
-import agent.tool.plan.EnterPlanModeTool;
-import agent.tool.plan.ExitPlanModeTool;
 import agent.tool.task.TodoWriteTool;
 import agent.tool.file.*;
 import agent.tool.mcp.McpManager;
 import agent.tool.message.MessageTool;
 import agent.tool.message.PruneMessagesTool;
-import agent.tool.persistence.DataSourceManager;
-import agent.tool.persistence.DbTool;
-import agent.tool.persistence.ListDataSourceTool;
+import agent.tool.db.DataSourceManager;
+import agent.tool.db.DbTool;
+import agent.tool.db.ListDataSourceTool;
 import agent.tool.shell.ExecTool;
 import agent.tool.shell.Shell;
 import agent.tool.skill.SkillTool;
@@ -32,11 +30,9 @@ import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
 import config.Config;
 import config.agent.AgentRuntimeSettings;
-import config.agent.SessionMemoryConfig;
 import config.provider.model.ModelConfig;
 
 import config.channel.ChannelsConfig;
@@ -52,7 +48,6 @@ import context.auto.AutoCompactThreshold;
 import context.auto.CompactBoundary;
 import context.auto.CompactPrompt;
 import context.auto.CompactService;
-import context.auto.CompactionResult;
 import context.auto.MicroCompactService;
 import context.auto.PlanFileManager;
 import context.auto.PostCompactCleanup;
@@ -3039,6 +3034,13 @@ public class AgentLoop {
         return mcpManager;
     }
 
+    /**
+     * 获取数据源管理器
+     */
+    public DataSourceManager getDataSourceManager() {
+        return dataSourceManager;
+    }
+
     private AtomicBoolean stopFlag(String sessionKey) {
         return stopFlags.computeIfAbsent(sessionKey, k -> new AtomicBoolean(false));
     }
@@ -3088,7 +3090,7 @@ public class AgentLoop {
     }
 
     // =================== Phase 4: 任务系统取消处理方法 ===================
-    
+
     /**
      * 处理取消请求（对应 useCancelRequest.ts - handleCancel）
      * 使用 TaskControlService 终止所有 Agent 任务

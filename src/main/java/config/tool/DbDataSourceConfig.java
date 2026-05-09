@@ -15,4 +15,5 @@ public class DbDataSourceConfig {
     private String driverJar;
     private int maxPoolSize = 10;
     private long connectionTimeout = 30000;
+    private boolean enable = true;
 }
