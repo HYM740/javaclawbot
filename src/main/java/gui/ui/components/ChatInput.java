@@ -42,7 +42,9 @@ public class ChatInput extends VBox {
 
     private final TextArea inputArea;
     private final Button sendButton;
-    private final Label statusBar;
+    private final HBox statusBar;
+    private final Label leftStatusLabel;
+    private final ProjectStatusBadge projectBadge;
     private final CompletionPopup completionPopup;
     private final List<Consumer<String>> sendListeners = new ArrayList<>();
     // 附件：图片路径（放入 media）、其他文件路径（拼入消息文本）
@@ -213,11 +215,19 @@ public class ChatInput extends VBox {
         gap.setPrefHeight(4);
         gap.setMinHeight(4);
 
-        // 状态栏
-        statusBar = new Label("\u25CF 模型就绪 \u00B7 Claude Sonnet 4");
-        statusBar.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0, 0, 0, 0.36);");
+        // 状态栏：左右分布
+        statusBar = new HBox();
         statusBar.setPadding(new Insets(0, 16, 0, 16));
-        statusBar.setAlignment(Pos.CENTER);
+
+        leftStatusLabel = new Label("\u25CF 模型就绪 \u00B7 Claude Sonnet 4");
+        leftStatusLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: #000000;");
+
+        Region statusSpacer = new Region();
+        HBox.setHgrow(statusSpacer, Priority.ALWAYS);
+
+        projectBadge = new ProjectStatusBadge();
+
+        statusBar.getChildren().addAll(leftStatusLabel, statusSpacer, projectBadge);
 
         // Completion popup (after inputArea created)
         completionPopup = new CompletionPopup(inputArea);
@@ -680,8 +690,7 @@ public class ChatInput extends VBox {
     }
 
     public void setStatusText(String text) {
-        statusBar.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0, 0, 0, 0.36);");
-        statusBar.setText(text);
+        leftStatusLabel.setText(text);
     }
 
     public void setWorkspacePath(java.nio.file.Path path) {
@@ -690,6 +699,21 @@ public class ChatInput extends VBox {
 
     public void setProjectPath(java.nio.file.Path path) {
         completionPopup.setProjectPath(path);
+    }
+
+    /** 设置 ProjectRegistry 引用并刷新徽标 */
+    public void setProjectRegistry(providers.cli.ProjectRegistry registry, java.nio.file.Path workspacePath) {
+        projectBadge.refresh(registry, workspacePath);
+    }
+
+    /** 刷新项目徽标 */
+    public void refreshProjectBadge(providers.cli.ProjectRegistry registry, java.nio.file.Path workspacePath) {
+        projectBadge.refresh(registry, workspacePath);
+    }
+
+    /** 获取 ProjectStatusBadge（用于设置点击回调） */
+    public ProjectStatusBadge getProjectBadge() {
+        return projectBadge;
     }
 
     /** 设置停止回调（点击 ⏹ 或双击 Esc 时触发） */

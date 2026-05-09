@@ -121,8 +121,11 @@ public class AgentsPage extends VBox {
         String provider = cfg.getProviderName(model);
         if (provider == null) provider = "auto";
 
+        String fastModel = defaults.getFastModel() != null && !defaults.getFastModel().isBlank()
+            ? defaults.getFastModel() : "未配置";
+
         agentList.getChildren().add(createAgentCard("default",
-            "模型: " + model + " · 提供方: " + provider
+            "模型: " + model + " · 快速模型: " + fastModel + " · 提供方: " + provider
                 + " · 最大迭代: " + defaults.getMaxToolIterations(),
             "已配置", true));
     }
@@ -148,6 +151,12 @@ public class AgentsPage extends VBox {
 
         TextField modelField = new TextField(defaults.getModel() != null ? defaults.getModel() : "");
         modelField.setPromptText("默认模型"); modelField.setStyle(fieldStyle); modelField.setPrefHeight(40);
+
+        Label fastModelLabel = new Label("快速模型 — 用于标题生成等轻量级任务，为空则回退到默认模型");
+        fastModelLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: rgba(0,0,0,0.45); -fx-padding: 0 0 0 4px;");
+
+        TextField fastModelField = new TextField(defaults.getFastModel() != null ? defaults.getFastModel() : "");
+        fastModelField.setPromptText("快速模型（可选）"); fastModelField.setStyle(fieldStyle); fastModelField.setPrefHeight(40);
 
         TextField providerField = new TextField(defaults.getProvider() != null ? defaults.getProvider() : "");
         providerField.setPromptText("默认提供方"); providerField.setStyle(fieldStyle); providerField.setPrefHeight(40);
@@ -190,13 +199,15 @@ public class AgentsPage extends VBox {
             try { defaults.setMaxConcurrent(Integer.parseInt(maxConcurrentField.getText())); } catch (NumberFormatException ignored) {}
             defaults.setDevelopment(devCheck.isSelected());
             defaults.setAutoCompactEnabled(autoCompactCheck.isSelected());
+            defaults.setFastModel(fastModelField.getText());
             try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
             dialog.close();
             Platform.runLater(() -> refresh());
         });
         btnRow.getChildren().addAll(cancelBtn, saveBtn);
 
-        root.getChildren().addAll(title, modelField, providerField, maxIterField, memWindowField,
+        root.getChildren().addAll(title, modelField, fastModelLabel, fastModelField,
+            providerField, maxIterField, memWindowField,
             timeoutField, maxConcurrentField, devCheck, autoCompactCheck, btnRow);
 
         Scene scene = new Scene(root);

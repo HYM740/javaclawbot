@@ -323,14 +323,13 @@ public class BootstrapLoader {
                 .replace("{is_git}", String.valueOf(isGitRepo))
                 .replace("{is_svn}", String.valueOf(isSvnRepo))
                 .replace("{model}", modelName);
-        if (isDevMode() && projectRegistrySupplier != null
-                && StrUtil.isNotBlank(projectRegistrySupplier.get().getMainProjectPath())){
-            content = content.replace("{project_dir}", projectRegistrySupplier.get().getMainProjectPath());
+        if (isDevMode() && projectRegistrySupplier != null){
+            String projectFormat = projectRegistrySupplier.get().formatProject();
+            content = content.replace("{project_dir}", projectFormat);
         }else {
-            content = content.replace("{project_dir}", "");
+            content = content.replace("{project_dir}", "非开发者模式，无需项目");
         }
         return content;
-
     }
 
 

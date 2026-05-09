@@ -6,7 +6,7 @@
 
     <groupId>com.zjky.ai</groupId>
     <artifactId>javaclawbot</artifactId>
-    <version>2.2.0</version>
+    <version>2.2.7</version>
     <packaging>jar</packaging>
 
     <!--  仓库 spring.ai 相关仓库  -->
@@ -75,6 +75,12 @@
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <version>${lombok.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>1.7.36</version>
         </dependency>
 
         <!--    用作计算corn下一次执行时间    -->

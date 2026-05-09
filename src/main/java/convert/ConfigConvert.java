@@ -107,6 +107,7 @@ public interface ConfigConvert {
         target.setMaxToolIterations( source.getMaxToolIterations() );
         target.setMemoryWindow( source.getMemoryWindow() );
         target.setSkillMaxLoad( source.getSkillMaxLoad() );
+        target.setFastModel( source.getFastModel() );
         target.setConsolidateThreshold( source.getConsolidateThreshold() );
         target.setSoftTrimThreshold( source.getSoftTrimThreshold() );
         target.setMaxConcurrent( source.getMaxConcurrent() );

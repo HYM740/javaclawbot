@@ -1,5 +1,9 @@
 package utils;
 
+import config.ConfigIO;
+import config.ConfigReloader;
+import providers.HotSwappableProvider;
+import providers.LLMProvider;
 import providers.ToolCallRequest;
 
 import java.nio.file.Files;
@@ -27,6 +31,19 @@ public final class Helpers {
 
     private Helpers() {}
 
+    /**
+     * 创建“可热更新 + fallback”的 Provider 代理
+     * <p>
+     * 设计说明：
+     * - AgentLoop 依旧只依赖 LLMProvider 抽象
+     * - 实际传入的是 HotSwappableProvider（代理）
+     * - 每次 chat 前自动检查 config.json 是否变化
+     */
+    public static LLMProvider makeHotProvider() {
+        Path configPath = ConfigIO.getConfigPath();
+        ConfigReloader reloader = new ConfigReloader(configPath);
+        return new HotSwappableProvider(reloader);
+    }
     /**
      * 确保目录存在（不存在则递归创建）
      */
@@ -82,6 +99,16 @@ public final class Helpers {
         if (toolCalls == null || toolCalls.isEmpty()) return "";
         List<String> parts = new ArrayList<>();
         for (var tc : toolCalls) {
+            // Prefer file_path argument for display — shows filename in tool card
+            if (tc.getArguments() != null && tc.getArguments().containsKey("file_path")) {
+                Object fp = tc.getArguments().get("file_path");
+                if (fp instanceof String sfp && !sfp.isBlank()) {
+                    String name = sfp.replace('\\', '/');
+                    int lastSlash = name.lastIndexOf('/');
+                    parts.add(tc.getName() + " " + (lastSlash >= 0 ? name.substring(lastSlash + 1) : name));
+                    continue;
+                }
+            }
             Object val = (tc.getArguments() != null && !tc.getArguments().isEmpty())
                     ? tc.getArguments().values().iterator().next()
                     : null;
