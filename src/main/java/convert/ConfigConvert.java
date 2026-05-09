@@ -401,6 +401,10 @@ public interface ConfigConvert {
         if ( !isEmpty( source.getMcpServers() ) ) {
             target.setMcpServers( source.getMcpServers() );
         }
+        // db：非空才拷贝
+        if ( source.getDb() != null && !source.getDb().getDatasources().isEmpty() ) {
+            target.setDb( source.getDb() );
+        }
     }
 
     /**

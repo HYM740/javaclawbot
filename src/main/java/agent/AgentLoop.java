@@ -12,13 +12,14 @@ import agent.tool.*;
 import agent.tool.cli.CliAgentTool;
 import agent.tool.cron.CronTool;
 import agent.tool.plan.AskUserQuestionTool;
-import agent.tool.plan.EnterPlanModeTool;
-import agent.tool.plan.ExitPlanModeTool;
 import agent.tool.task.TodoWriteTool;
 import agent.tool.file.*;
 import agent.tool.mcp.McpManager;
 import agent.tool.message.MessageTool;
 import agent.tool.message.PruneMessagesTool;
+import agent.tool.db.DataSourceManager;
+import agent.tool.db.DbTool;
+import agent.tool.db.ListDataSourceTool;
 import agent.tool.shell.ExecTool;
 import agent.tool.shell.Shell;
 import agent.tool.skill.SkillTool;
@@ -29,11 +30,9 @@ import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
 import cn.hutool.core.collection.CollUtil;
-import cn.hutool.core.io.resource.ResourceUtil;
 import cn.hutool.core.util.StrUtil;
 import config.Config;
 import config.agent.AgentRuntimeSettings;
-import config.agent.SessionMemoryConfig;
 import config.provider.model.ModelConfig;
 
 import config.channel.ChannelsConfig;
@@ -49,7 +48,6 @@ import context.auto.AutoCompactThreshold;
 import context.auto.CompactBoundary;
 import context.auto.CompactPrompt;
 import context.auto.CompactService;
-import context.auto.CompactionResult;
 import context.auto.MicroCompactService;
 import context.auto.PlanFileManager;
 import context.auto.PostCompactCleanup;
@@ -160,6 +158,10 @@ public class AgentLoop {
      */
     private final McpManager mcpManager;
     /**
+     * 数据库连接管理器
+     */
+    private DataSourceManager dataSourceManager;
+    /**
      * CLI Agent 命令处理器
      */
     private CliAgentCommandHandler cliAgentHandler;
@@ -264,6 +266,7 @@ public class AgentLoop {
 
         this.mcpServers = (mcpServers != null) ? mcpServers : Map.of();
         this.mcpManager = new McpManager(workspace, mcpServers, executor);
+        this.dataSourceManager = new DataSourceManager(currentConfig().getTools().getDb());
 
         // 初始化 CLI Agent 命令处理器（内部管理 defaultRegistry + per-session 注册表）
         this.cliAgentHandler = new CliAgentCommandHandler(workspace);
@@ -673,6 +676,11 @@ public class AgentLoop {
         // MCP 重载工具：按名称刷新指定 MCP server
         sharedTools.register(new agent.tool.mcp.McpReloadTool(mcpManager));
 
+        // 数据库查询工具
+        dataSourceManager.start();
+        sharedTools.register(new DbTool(dataSourceManager));
+        sharedTools.register(new ListDataSourceTool(dataSourceManager));
+
         // Plan Mode 工具
         sharedTools.register(new agent.tool.plan.EnterPlanModeTool());
         sharedTools.register(new agent.tool.plan.ExitPlanModeTool());
@@ -905,6 +913,9 @@ public class AgentLoop {
         running.compareAndSet(true, false);
         if (queue != null) {
             queue.shutdown();
+        }
+        if (dataSourceManager != null) {
+            dataSourceManager.shutdown();
         }
         // 取消所有等待用户输入的问题
         pendingUserQuestions.values().forEach(f ->
@@ -2329,10 +2340,9 @@ public class AgentLoop {
                             cliAgentHandler.clearCurrentSessionKey();
                         })
                         .thenCompose(rawResult -> {
-                            // AskUserQuestion 特殊处理：第一次返回 questions 时暂停等待用户输入
-                            if (AskUserQuestionTool.NAME.equals(tc.getName())
-                                && rawResult != null && rawResult.contains("awaiting_response")) {
-                                return handleAskUserQuestionPause(tc, rawResult, msg, messages, toolContext, tools);
+                            // 任意工具返回 awaiting_response 时，进入用户问答暂停流程
+                            if (rawResult != null && rawResult.contains("awaiting_response")) {
+                                return handleAnyToolAskUserPause(tc, rawResult, msg, messages, toolContext, tools);
                             }
 
                             handleToolResult(tc, rawResult, sessionKey, msg, messages, tools);
@@ -2417,11 +2427,16 @@ public class AgentLoop {
         messages.addAll(updated);
     }
 
-    /** AskUserQuestion 第一次调用：发布问题到 UI 并暂停等待用户输入 */
-    private CompletionStage<Void> handleAskUserQuestionPause(
+    /** 任意工具返回 awaiting_response 时：发布问题到 UI 并暂停等待用户输入 */
+    private CompletionStage<Void> handleAnyToolAskUserPause(
             ToolCallRequest tc, String rawResult,
             InboundMessage msg, List<Map<String, Object>> messages,
             ToolUseContext toolContext, ToolView tools) {
+
+        // 从 rawResult 或原始工具调用参数中提取 questions
+        List<Map<String, Object>> extracted = extractQuestionsFromResult(rawResult, tc);
+        final List<Map<String, Object>> questions = (extracted != null) ? extracted : List.of();
+
         // 发布问题到 bus 供 UI 展示（不添加到 messages）
         bus.publishOutbound(new OutboundMessage(
                 msg.getChannel(), msg.getChatId(),
@@ -2440,43 +2455,136 @@ public class AgentLoop {
                         new CancellationException("session stopped"));
             }
 
-            // 用 answers 再次调用 AskUserQuestion
-            @SuppressWarnings("unchecked")
-            List<Map<String, Object>> questions =
-                (List<Map<String, Object>>) tc.getArguments().get("questions");
-            Map<String, Object> argsWithAnswers = new LinkedHashMap<>(tc.getArguments());
             @SuppressWarnings("unchecked")
             Map<String, String> answers = GsonFactory.getGson().fromJson(answersJson, Map.class);
-            argsWithAnswers.put("answers", answers);
 
-            return tools.execute(tc.getName(), argsWithAnswers, toolContext)
-                    .thenAccept(finalResult -> {
-                        // 构建结构化结果：text 供 LLM 阅读，questions/answers 供 UI 渲染
-                        Map<String, Object> structured = new LinkedHashMap<>();
-                        structured.put("text", finalResult != null ? finalResult : "");
-                        structured.put("questions", questions != null ? questions : List.of());
-                        structured.put("answers", answers != null ? answers : Map.of());
-                        String structuredJson = GsonFactory.toJson(structured);
-
-                        String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), structuredJson);
-                        trackFileReadIfNeeded(tc, r);
-
-                        List<Map<String, Object>> updated =
-                                Helpers.addToolResult(messages, tc.getId(), tc.getName(), r);
-
-                        bus.publishOutbound(new OutboundMessage(
-                                msg.getChannel(), msg.getChatId(),
-                                structuredJson, List.of(),
-                                Map.of("_progress", true, "_tool_result", true,
-                                       "tool_name", tc.getName(), "tool_call_id", tc.getId())));
-
-                        memoryStore.appendToToday(GsonFactory.getGson().toJson(
-                                updated.get(updated.size() - 1)));
-
-                        messages.clear();
-                        messages.addAll(updated);
-                    });
+            if (AskUserQuestionTool.NAME.equals(tc.getName())) {
+                // 标准 AskUserQuestion 流程：用 answers 再次调用渲染结果
+                Map<String, Object> argsWithAnswers = new LinkedHashMap<>(tc.getArguments());
+                argsWithAnswers.put("answers", answers);
+                return tools.execute(tc.getName(), argsWithAnswers, toolContext)
+                        .thenAccept(finalResult -> {
+                            appendUserAnswerToMessages(tc, msg, messages, tools, finalResult, questions, answers);
+                        });
+            } else {
+                // 其他工具（如 db）：将用户确认结果作为工具结果添加到 messages
+                return handleNonAskUserToolAnswer(tc, msg, messages, tools, toolContext, questions, answers);
+            }
         });
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> extractQuestionsFromResult(String rawResult, ToolCallRequest tc) {
+        try {
+            Map<String, Object> rawMap = GsonFactory.getGson().fromJson(rawResult, Map.class);
+            Object q = rawMap.get("questions");
+            if (q instanceof List) return (List<Map<String, Object>>) q;
+        } catch (Exception ignored) {}
+        Object q = tc.getArguments().get("questions");
+        if (q instanceof List) return (List<Map<String, Object>>) q;
+        return null;
+    }
+
+    private CompletionStage<Void> handleNonAskUserToolAnswer(
+            ToolCallRequest tc, InboundMessage msg, List<Map<String, Object>> messages,
+            ToolView tools, ToolUseContext toolContext,
+            List<Map<String, Object>> questions, Map<String, String> answers) {
+
+        // 检查用户是否确认（答案中存在 "允许" 标签的选项）
+        boolean confirmed = answers.values().stream()
+                .anyMatch(v -> "允许".equals(v) || "allow".equalsIgnoreCase(v) || "yes".equalsIgnoreCase(v));
+
+        if (!confirmed) {
+            // 用户拒绝：注入拒绝结果到 messages，告知 LLM
+            Map<String, Object> structured = new LinkedHashMap<>();
+            structured.put("text", "用户拒绝了该操作。");
+            structured.put("questions", questions);
+            structured.put("answers", answers);
+            structured.put("_user_denied", true);
+            return injectToolResult(tc, msg, messages, tools, GsonFactory.toJson(structured));
+        }
+
+        // 用户确认：用原始参数加上 :confirm: true 重新执行工具
+        Map<String, Object> retryArgs = new LinkedHashMap<>(tc.getArguments());
+        // 确保 params 存在
+        @SuppressWarnings("unchecked")
+        Map<String, Object> params = (Map<String, Object>) retryArgs.get("params");
+        if (params == null) {
+            params = new LinkedHashMap<>();
+            retryArgs.put("params", params);
+        } else if (!(params instanceof LinkedHashMap)) {
+            params = new LinkedHashMap<>(params);
+            retryArgs.put("params", params);
+        }
+        params.put(":confirm", "true");
+
+        return tools.execute(tc.getName(), retryArgs, toolContext)
+                .thenCompose(result -> {
+                    // 如果重试结果仍然是 awaiting_response（理论上不应发生），回退为注入确认信息
+                    if (result != null && result.contains("awaiting_response")) {
+                        Map<String, Object> fallback = new LinkedHashMap<>();
+                        fallback.put("text", "用户已确认。系统将允许执行。");
+                        fallback.put("_user_confirmed", true);
+                        return injectToolResult(tc, msg, messages, tools, GsonFactory.toJson(fallback));
+                    }
+                    // 正常执行结果：注入到 messages
+                    String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), result);
+                    trackFileReadIfNeeded(tc, r);
+                    return injectToolResult(tc, msg, messages, tools, r);
+                });
+    }
+
+    /** 将工具结果注入 messages 并通知 UI */
+    private CompletionStage<Void> injectToolResult(
+            ToolCallRequest tc, InboundMessage msg, List<Map<String, Object>> messages,
+            ToolView tools, String resultContent) {
+        String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), resultContent);
+        trackFileReadIfNeeded(tc, r);
+
+        List<Map<String, Object>> updated =
+                Helpers.addToolResult(messages, tc.getId(), tc.getName(), r);
+
+        bus.publishOutbound(new OutboundMessage(
+                msg.getChannel(), msg.getChatId(),
+                resultContent, List.of(),
+                Map.of("_progress", true, "_tool_result", true,
+                       "tool_name", tc.getName(), "tool_call_id", tc.getId())));
+
+        memoryStore.appendToToday(GsonFactory.getGson().toJson(
+                updated.get(updated.size() - 1)));
+
+        messages.clear();
+        messages.addAll(updated);
+        return CompletableFuture.<Void>completedFuture(null);
+    }
+
+    private void appendUserAnswerToMessages(
+            ToolCallRequest tc, InboundMessage msg, List<Map<String, Object>> messages,
+            ToolView tools, String finalResult,
+            List<Map<String, Object>> questions, Map<String, String> answers) {
+        Map<String, Object> structured = new LinkedHashMap<>();
+        structured.put("text", finalResult != null ? finalResult : "");
+        structured.put("questions", questions != null ? questions : List.of());
+        structured.put("answers", answers != null ? answers : Map.of());
+        String structuredJson = GsonFactory.toJson(structured);
+
+        String r = maybePersistToolResult(tools, tc.getName(), tc.getId(), structuredJson);
+        trackFileReadIfNeeded(tc, r);
+
+        List<Map<String, Object>> updated =
+                Helpers.addToolResult(messages, tc.getId(), tc.getName(), r);
+
+        bus.publishOutbound(new OutboundMessage(
+                msg.getChannel(), msg.getChatId(),
+                structuredJson, List.of(),
+                Map.of("_progress", true, "_tool_result", true,
+                       "tool_name", tc.getName(), "tool_call_id", tc.getId())));
+
+        memoryStore.appendToToday(GsonFactory.getGson().toJson(
+                updated.get(updated.size() - 1)));
+
+        messages.clear();
+        messages.addAll(updated);
     }
 
     /**
@@ -2926,6 +3034,13 @@ public class AgentLoop {
         return mcpManager;
     }
 
+    /**
+     * 获取数据源管理器
+     */
+    public DataSourceManager getDataSourceManager() {
+        return dataSourceManager;
+    }
+
     private AtomicBoolean stopFlag(String sessionKey) {
         return stopFlags.computeIfAbsent(sessionKey, k -> new AtomicBoolean(false));
     }
@@ -2975,7 +3090,7 @@ public class AgentLoop {
     }
 
     // =================== Phase 4: 任务系统取消处理方法 ===================
-    
+
     /**
      * 处理取消请求（对应 useCancelRequest.ts - handleCancel）
      * 使用 TaskControlService 终止所有 Agent 任务

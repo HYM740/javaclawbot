@@ -9,7 +9,6 @@ import cli.RuntimeComponents;
 import config.Config;
 import config.ConfigIO;
 import config.ConfigReloader;
-import config.channel.ChannelsConfig;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.PropertyNamingStrategies;
@@ -39,6 +38,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+
+import agent.tool.db.DataSourceManager;
+import config.tool.DbDataSourceConfig;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.util.Properties;
 
 /**
  * BackendBridge — JavaFX GUI 与 javaclawbot 后端的桥接层。
@@ -542,6 +547,9 @@ public class BackendBridge {
     /** MCP 服务器实时状态 */
     public enum McpStatus { CONNECTED, DISABLED, DISCONNECTED }
 
+    /** 数据源实时状态 */
+    public enum DataSourceStatus { CONNECTED, DISABLED, DISCONNECTED }
+
     /** 获取单个 MCP 服务器的实时状态 */
     public McpStatus getMcpStatus(String serverName) {
         MCPServerConfig cfg = config.getTools().getMcpServers().get(serverName);
@@ -709,6 +717,163 @@ public class BackendBridge {
                 this.config.obtainTemperature(defaultModel),
                 this.config.getAgents().getDefaults().getReasoningEffort()
             );
+        }
+    }
+
+    private DataSourceManager getDataSourceManager() {
+        return agentLoop != null ? agentLoop.getDataSourceManager() : null;
+    }
+
+    public boolean addDataSource(String name, String jdbcUrl, String username, String password,
+                                  String driverClass, int maxPoolSize, long connectionTimeout) {
+        if (config.getTools().getDb().getDatasources().containsKey(name)) {
+            throw new IllegalArgumentException("数据源名称已存在: " + name);
+        }
+        DbDataSourceConfig cfg = new DbDataSourceConfig();
+        cfg.setJdbcUrl(jdbcUrl);
+        cfg.setUsername(username);
+        cfg.setPassword(password);
+        cfg.setDriverClass(driverClass);
+        cfg.setMaxPoolSize(maxPoolSize);
+        cfg.setConnectionTimeout(connectionTimeout);
+        cfg.setEnable(true);
+        config.getTools().getDb().getDatasources().put(name, cfg);
+        try {
+            ConfigIO.saveConfig(config, null);
+            DataSourceManager mgr = getDataSourceManager();
+            if (mgr != null) {
+                mgr.addDataSource(name, cfg);
+            }
+            return true;
+        } catch (IOException e) {
+            config.getTools().getDb().getDatasources().remove(name);
+            throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
+        }
+    }
+
+    public boolean updateDataSource(String oldName, String newName, String jdbcUrl, String username,
+                                     String password, String driverClass, int maxPoolSize,
+                                     long connectionTimeout) {
+        Map<String, DbDataSourceConfig> dbs = config.getTools().getDb().getDatasources();
+        if (!dbs.containsKey(oldName)) {
+            throw new IllegalArgumentException("数据源不存在: " + oldName);
+        }
+        DbDataSourceConfig oldCfg = dbs.remove(oldName);
+        DataSourceManager mgr = getDataSourceManager();
+        if (mgr != null) {
+            mgr.removeDataSource(oldName);
+        }
+
+        DbDataSourceConfig cfg = new DbDataSourceConfig();
+        cfg.setJdbcUrl(jdbcUrl);
+        cfg.setUsername(username);
+        // If password is the placeholder "******", keep the old one
+        if ("******".equals(password)) {
+            cfg.setPassword(oldCfg.getPassword());
+        } else {
+            cfg.setPassword(password);
+        }
+        cfg.setDriverClass(driverClass);
+        cfg.setMaxPoolSize(maxPoolSize);
+        cfg.setConnectionTimeout(connectionTimeout);
+        cfg.setEnable(oldCfg.isEnable());
+        dbs.put(newName, cfg);
+        try {
+            ConfigIO.saveConfig(config, null);
+            if (mgr != null && cfg.isEnable()) {
+                mgr.addDataSource(newName, cfg);
+            }
+            return true;
+        } catch (IOException e) {
+            dbs.remove(newName);
+            dbs.put(oldName, oldCfg);
+            throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
+        }
+    }
+
+    public boolean deleteDataSource(String name) {
+        Map<String, DbDataSourceConfig> dbs = config.getTools().getDb().getDatasources();
+        if (dbs.remove(name) != null) {
+            DataSourceManager mgr = getDataSourceManager();
+            if (mgr != null) {
+                mgr.removeDataSource(name);
+            }
+            try {
+                ConfigIO.saveConfig(config, null);
+                return true;
+            } catch (IOException e) {
+                throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
+            }
+        }
+        return false;
+    }
+
+    public String testDataSourceConnection(String jdbcUrl, String username, String password,
+                                            String driverClass) {
+        try {
+            if (driverClass != null && !driverClass.isBlank()) {
+                Class.forName(driverClass);
+            } else {
+                String inferred = DataSourceManager.inferDriverClass(jdbcUrl);
+                if (inferred != null) {
+                    Class.forName(inferred);
+                }
+            }
+            Properties props = new Properties();
+            props.setProperty("user", username != null ? username : "");
+            props.setProperty("password", password != null ? password : "");
+            DriverManager.setLoginTimeout(5);
+            try (Connection conn = DriverManager.getConnection(jdbcUrl, props)) {
+                return null; // success
+            }
+        } catch (Exception e) {
+            return e.getMessage() != null ? e.getMessage() : "连接失败（未知错误）";
+        }
+    }
+
+    public DataSourceStatus getDataSourceStatus(String name) {
+        Map<String, DbDataSourceConfig> dbs = config.getTools().getDb().getDatasources();
+        DbDataSourceConfig cfg = dbs.get(name);
+        if (cfg == null) return DataSourceStatus.DISCONNECTED;
+        if (!cfg.isEnable()) return DataSourceStatus.DISABLED;
+        DataSourceManager mgr = getDataSourceManager();
+        if (mgr != null && mgr.getDataSource(name) != null) {
+            return DataSourceStatus.CONNECTED;
+        }
+        return DataSourceStatus.DISCONNECTED;
+    }
+
+    public boolean reconnectDataSource(String name) {
+        Map<String, DbDataSourceConfig> dbs = config.getTools().getDb().getDatasources();
+        DbDataSourceConfig cfg = dbs.get(name);
+        if (cfg == null) return false;
+        if (!cfg.isEnable()) return false;
+        DataSourceManager mgr = getDataSourceManager();
+        if (mgr != null) {
+            mgr.removeDataSource(name);
+            mgr.addDataSource(name, cfg);
+            return true;
+        }
+        return false;
+    }
+
+    public boolean toggleDataSource(String name, boolean enable) {
+        Map<String, DbDataSourceConfig> dbs = config.getTools().getDb().getDatasources();
+        DbDataSourceConfig cfg = dbs.get(name);
+        if (cfg == null) return false;
+        cfg.setEnable(enable);
+        DataSourceManager mgr = getDataSourceManager();
+        try {
+            if (enable) {
+                if (mgr != null) mgr.addDataSource(name, cfg);
+            } else {
+                if (mgr != null) mgr.removeDataSource(name);
+            }
+            ConfigIO.saveConfig(config, null);
+            return true;
+        } catch (IOException e) {
+            cfg.setEnable(!enable);
+            throw new RuntimeException("保存配置失败: " + e.getMessage(), e);
         }
     }
 
