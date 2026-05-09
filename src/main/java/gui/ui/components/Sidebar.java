@@ -125,6 +125,7 @@ public class Sidebar extends VBox {
             {"\uD83D\uDCE1", "Channels"},
             {"\u26A1", "Skills"},
             {"\uD83D\uDD0C", "MCP"},
+            {"\uD83D\uDDC4", "Databases"},
             {"\u23F0", "Cron Tasks"}
         };
 

@@ -20,6 +20,7 @@ public class ToolsConfig {
     private boolean restrictToWorkspace = false;
     @JsonProperty("mcpServers")
     private Map<String, MCPServerConfig> mcpServers = new HashMap<>();
+    private DbToolConfig db = new DbToolConfig();
 
     public WebToolsConfig getWeb() {
         return web;
@@ -48,5 +49,13 @@ public class ToolsConfig {
 
     public void setMcpServers(Map<String, MCPServerConfig> mcpServers) {
         this.mcpServers = (mcpServers != null) ? mcpServers : new HashMap<>();
+    }
+
+    public DbToolConfig getDb() {
+        return db;
+    }
+
+    public void setDb(DbToolConfig db) {
+        this.db = (db != null) ? db : new DbToolConfig();
     }
 }

@@ -532,18 +532,63 @@ public class ChatInput extends VBox {
 
         // 截图工具 / 浏览器复制的原始图片数据
         if (clipboard.hasImage()) {
-            Image fxImage = clipboard.getImage();
-            if (fxImage != null) {
+            // 优先通过 AWT 系统剪贴板获取 BufferedImage（避免 JavaFX Image 异步加载/像素格式问题）
+            BufferedImage awtImage = getAwtClipboardImage();
+            if (awtImage != null) {
                 try {
+                    int imgW = awtImage.getWidth();
+                    int imgH = awtImage.getHeight();
+                    if (imgW <= 0 || imgH <= 0) {
+                        log.warn("AWT剪贴板图片尺寸无效: {}x{}", imgW, imgH);
+                        return handled;
+                    }
                     Path tmpDir = Path.of(System.getProperty("java.io.tmpdir"), "javaclawbot", "clipboard");
                     Files.createDirectories(tmpDir);
                     Path tmpFile = tmpDir.resolve("clipboard_" + System.currentTimeMillis() + ".png");
-                    BufferedImage buffered = javafxImageToBuffered(fxImage);
-                    ImageIO.write(buffered, "png", tmpFile.toFile());
+                    boolean written = ImageIO.write(awtImage, "png", tmpFile.toFile());
+                    if (!written || !tmpFile.toFile().isFile() || tmpFile.toFile().length() == 0) {
+                        log.warn("剪贴板图片保存可能失败: written={}, size={}", written,
+                            tmpFile.toFile().isFile() ? tmpFile.toFile().length() : -1);
+                        return handled;
+                    }
+                    log.info("剪贴板图片已保存: {} ({}x{}, {} bytes)",
+                        tmpFile, imgW, imgH, tmpFile.toFile().length());
                     handleFile(tmpFile);
                     handled = true;
                 } catch (Exception ex) {
                     log.warn("剪贴板图片保存失败", ex);
+                }
+            } else {
+                // 降级：JavaFX Image 方式
+                Image fxImage = clipboard.getImage();
+                if (fxImage != null) {
+                    try {
+                        if (fxImage.getProgress() < 1.0) {
+                            log.warn("剪贴板图片未完全加载, progress={}", fxImage.getProgress());
+                        }
+                        int imgW = (int) fxImage.getWidth();
+                        int imgH = (int) fxImage.getHeight();
+                        if (imgW <= 0 || imgH <= 0) {
+                            log.warn("JavaFX剪贴板图片尺寸无效: {}x{}", imgW, imgH);
+                            return handled;
+                        }
+                        Path tmpDir = Path.of(System.getProperty("java.io.tmpdir"), "javaclawbot", "clipboard");
+                        Files.createDirectories(tmpDir);
+                        Path tmpFile = tmpDir.resolve("clipboard_" + System.currentTimeMillis() + ".png");
+                        BufferedImage buffered = javafxImageToBuffered(fxImage);
+                        boolean written = ImageIO.write(buffered, "png", tmpFile.toFile());
+                        if (!written || !tmpFile.toFile().isFile() || tmpFile.toFile().length() == 0) {
+                            log.warn("JavaFX剪贴板图片保存可能失败: written={}, size={}", written,
+                                tmpFile.toFile().isFile() ? tmpFile.toFile().length() : -1);
+                            return handled;
+                        }
+                        log.info("剪贴板图片已保存(JavaFX降级): {} ({}x{}, {} bytes)",
+                            tmpFile, imgW, imgH, tmpFile.toFile().length());
+                        handleFile(tmpFile);
+                        handled = true;
+                    } catch (Exception ex) {
+                        log.warn("JavaFX剪贴板图片保存失败", ex);
+                    }
                 }
             }
         }
@@ -551,16 +596,55 @@ public class ChatInput extends VBox {
         return handled;
     }
 
+    /**
+     * 通过 AWT Toolkit 系统剪贴板获取 BufferedImage，完全绕过 JavaFX Clipboard 的像素格式转换问题。
+     * 截图工具（如 Snipaste、微信截图）通常将图片以 DataFlavor.imageFlavor 存入系统剪贴板，
+     * AWT 能直接获取原生 BufferedImage，避免 JavaFX Image 异步加载和 premultiplied alpha 问题。
+     */
+    private static BufferedImage getAwtClipboardImage() {
+        try {
+            java.awt.Toolkit toolkit = java.awt.Toolkit.getDefaultToolkit();
+            java.awt.datatransfer.Clipboard systemClipboard = toolkit.getSystemClipboard();
+            java.awt.datatransfer.Transferable contents = systemClipboard.getContents(null);
+            if (contents != null && contents.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.imageFlavor)) {
+                Object data = contents.getTransferData(java.awt.datatransfer.DataFlavor.imageFlavor);
+                if (data instanceof BufferedImage bi) {
+                    return bi;
+                }
+                if (data instanceof java.awt.Image awtImg) {
+                    // 如果 getTransferData 返回的是非 BufferedImage 的 Image，手动转一下
+                    int w = awtImg.getWidth(null);
+                    int h = awtImg.getHeight(null);
+                    if (w > 0 && h > 0) {
+                        BufferedImage bi = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+                        java.awt.Graphics2D g = bi.createGraphics();
+                        g.drawImage(awtImg, 0, 0, null);
+                        g.dispose();
+                        return bi;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("AWT剪贴板图片获取失败", e);
+        }
+        return null;
+    }
+
     /** JavaFX Image → AWT BufferedImage */
     private static BufferedImage javafxImageToBuffered(Image fxImage) {
         int w = (int) fxImage.getWidth();
         int h = (int) fxImage.getHeight();
+        if (w <= 0 || h <= 0) {
+            return new BufferedImage(1, 1, BufferedImage.TYPE_INT_ARGB);
+        }
+        // 使用参数管理缓冲区创建，确保与 GraphicsEnvironment 兼容
         BufferedImage buffered = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
         PixelReader reader = fxImage.getPixelReader();
+        // 用 setRGB 批量写入前预先读取整行，减少 JavaFX native 调用
+        int[] row = new int[w];
         for (int y = 0; y < h; y++) {
-            for (int x = 0; x < w; x++) {
-                buffered.setRGB(x, y, reader.getArgb(x, y));
-            }
+            reader.getPixels(0, y, w, 1, javafx.scene.image.PixelFormat.getIntArgbInstance(), row, 0, w);
+            buffered.setRGB(0, y, w, 1, row, 0, w);
         }
         return buffered;
     }

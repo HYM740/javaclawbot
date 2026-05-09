@@ -7,6 +7,7 @@ import gui.ui.components.Sidebar;
 import gui.ui.components.TodoResultView;
 import gui.ui.components.ToolCallCard;
 import gui.ui.pages.*;
+import gui.ui.pages.DatabasesPage;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -298,6 +299,7 @@ public class MainStage {
         pages.put("channels", new ChannelsPage());
         pages.put("skills", new SkillsPage());
         pages.put("mcp", new McpPage(stage));
+        pages.put("databases", new DatabasesPage(stage));
         pages.put("crontasks", new CronPage());
         pages.put("devconsole", new DevConsolePage());
         pages.put("settings", new SettingsPage());
@@ -328,6 +330,7 @@ public class MainStage {
                 javafx.scene.Node pageNode = pages.get(page.replace(" ", "").toLowerCase());
                 if (pageNode instanceof ModelsPage p) p.refresh();
                 else if (pageNode instanceof AgentsPage p) p.refresh();
+                else if (pageNode instanceof DatabasesPage p) p.refresh();
                 else if (pageNode instanceof SettingsPage p) p.refresh();
             }
             if ("chat".equalsIgnoreCase(page.replace(" ", "")) && backendBridge != null) {
@@ -434,10 +437,11 @@ public class MainStage {
         String content = progress.content();
         if (content == null || content.isBlank()) return;
 
-        if ("AskUserQuestion".equals(tn)) {
-            if (content.contains("awaiting_response")) {
-                showAskUserQuestionDialog(content, progress.toolCallId());
-            } else if (content.contains("\"questions\"")) {
+        // 任意工具返回值包含 awaiting_response 时，弹出 AskUserQuestion 对话框
+        if (content.contains("awaiting_response")) {
+            showAskUserQuestionDialog(content, progress.toolCallId());
+        } else if ("AskUserQuestion".equals(tn)) {
+            if (content.contains("\"questions\"")) {
                 if (lastToolCard != null) {
                     lastToolCard.setStatus("completed");
                     lastToolCard.addStructuredContent(AskQuestionResultView.build(content));
@@ -503,6 +507,7 @@ public class MainStage {
         else if (page instanceof ChannelsPage p) p.setBackendBridge(backendBridge);
         else if (page instanceof SkillsPage p) p.setBackendBridge(backendBridge);
         else if (page instanceof McpPage p) p.setBackendBridge(backendBridge);
+        else if (page instanceof DatabasesPage p) p.setBackendBridge(backendBridge);
         else if (page instanceof CronPage p) p.setBackendBridge(backendBridge);
         else if (page instanceof SettingsPage p) {
             p.setBackendBridge(backendBridge);
@@ -611,6 +616,7 @@ public class MainStage {
                     injectBridgeToPage(pages.get("channels"));
                     injectBridgeToPage(pages.get("skills"));
                     injectBridgeToPage(pages.get("mcp"));
+                    injectBridgeToPage(pages.get("databases"));
                     injectBridgeToPage(pages.get("crontasks"));
                     injectBridgeToPage(pages.get("settings"));
                 });

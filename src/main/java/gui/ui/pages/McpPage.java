@@ -91,8 +91,17 @@ public class McpPage extends VBox {
     private McpServerCard.Callback createCardCallback() {
         return new McpServerCard.Callback() {
             @Override
-            public void onEdit(String name, String command) {
-                AddMcpServerDialog dialog = new AddMcpServerDialog(stage, name, name, command);
+            public void onEdit(String name, String command, MCPServerConfig cfg) {
+                String jsonStr = null;
+                if (cfg != null) {
+                    try {
+                        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                        mapper.setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
+                        mapper.configure(com.fasterxml.jackson.databind.SerializationFeature.INDENT_OUTPUT, true);
+                        jsonStr = mapper.writeValueAsString(cfg);
+                    } catch (Exception ignored) {}
+                }
+                AddMcpServerDialog dialog = new AddMcpServerDialog(stage, name, name, command, jsonStr);
                 dialog.showAndWait();
                 if (dialog.isConfirmed()) {
                     String newName = dialog.getServerName();
@@ -160,7 +169,7 @@ public class McpPage extends VBox {
             }
             java.util.List<String> tools = backendBridge.getMcpServerTools(name);
             serverList.getChildren().add(
-                new McpServerCard(name, cmd, statusText, isGood, tools, null, createCardCallback()));
+                new McpServerCard(name, cmd, statusText, isGood, tools, null, createCardCallback(), entry.getValue()));
         }
     }
 }
