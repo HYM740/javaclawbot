@@ -1025,7 +1025,7 @@ public class AgentLoop {
                 msg.getChatId(),
                 total > 0 ? "⏹ 已停止 " + total + " 个任务。" : "没有活动任务可停止。",
                 List.of(),
-                Map.of()
+                Map.of("_system_command", true)
         ));
     }
 
@@ -1111,7 +1111,7 @@ public class AgentLoop {
                     msg.getChatId(),
                     "新会话已开始。",
                     List.of(),
-                    Map.of()
+                    Map.of("_system_command", true)
             ));
         }
 
@@ -1149,7 +1149,7 @@ public class AgentLoop {
                     "  /mcp-reload — 重新加载 MCP 插件\n\n" +
                     "项目绑定 (开发模式):\n" +
                     "  /bind <名称>=<路径> — 绑定项目\n" +
-                    "  /bind --main <路径> — 直接设为主代理项目\n" +
+                    "  /bind --main <路径> — 直接设为主项目\n" +
                     "  /unbind <名称> — 解绑项目\n" +
                     "  /projects — 列出所有已绑定项目\n\n" +
                     "CLI Agent (开发模式):\n" +
@@ -1164,7 +1164,7 @@ public class AgentLoop {
                     msg.getChatId(),
                     output,
                     List.of(),
-                    Map.of()
+                    Map.of("_system_command", true)
             ));
         }
 
@@ -1177,7 +1177,7 @@ public class AgentLoop {
                     msg.getChatId(),
                     output,
                     List.of(),
-                    Map.of()
+                    Map.of("_system_command", true)
             ));
         }
 
@@ -1346,12 +1346,20 @@ public class AgentLoop {
                     List<Map<String, Object>> attachments = collectPostCompactAttachments(
                             sessionKey, preCompactReadFileSnapshot, smResult.messagesToKeep);
 
-                    // 构建压缩后的消息列表
+                    // 构建压缩后的消息列表（boundary 不存消息，写入 session metadata）
                     List<Map<String, Object>> compactedMessages = new java.util.ArrayList<>();
-                    compactedMessages.add(smResult.boundaryMarker);
                     compactedMessages.addAll(smResult.summaryMessages);
                     compactedMessages.addAll(smResult.messagesToKeep);
                     compactedMessages.addAll(attachments);
+
+                    // 将 compactMetadata 存入 session metadata（而非作为消息）
+                    Map<String, Object> sessMeta = sess.getMetadata();
+                    Object bMeta = smResult.boundaryMarker.get("compactMetadata");
+                    if (bMeta instanceof Map) {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> cm = (Map<String, Object>) bMeta;
+                        sessMeta.put("compactMetadata", new java.util.LinkedHashMap<>(cm));
+                    }
 
                     // 更新 session
                     sess.setMessages(compactedMessages);
@@ -1444,11 +1452,19 @@ public class AgentLoop {
             List<Map<String, Object>> attachments = collectPostCompactAttachments(
                     sessionKey, preCompactReadFileSnapshot, List.of());
 
-            // 构建压缩后的消息列表
+            // 构建压缩后的消息列表（boundary 不存消息，写入 session metadata）
             List<Map<String, Object>> compactedMessages = new java.util.ArrayList<>();
-            compactedMessages.add(boundary);
             compactedMessages.addAll(summaryMessages);
             compactedMessages.addAll(attachments);
+
+            // 将 compactMetadata 存入 session metadata（而非作为消息）
+            Map<String, Object> sessMeta2 = sess.getMetadata();
+            Object bMeta2 = boundary.get("compactMetadata");
+            if (bMeta2 instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> cm = (Map<String, Object>) bMeta2;
+                sessMeta2.put("compactMetadata", new java.util.LinkedHashMap<>(cm));
+            }
 
             // 更新 session
             sess.setMessages(compactedMessages);
@@ -1658,16 +1674,24 @@ public class AgentLoop {
             ToolView tools = buildMemoryRequestTools(channel, chatId, null);
 
             // 同步执行记忆整理, memory命令执行完成后,清理session中上下文（不需要保存到 session）
-            runAgentLoop(msg, initial, tools, false, (context, toolHit) -> bus.publishOutbound(new OutboundMessage(
-                    msg.getChannel()
-                    , msg.getChatId()
-                    , "(记忆处理进程) " + context
-                    , List.of()
-                    , Map.of()
-            )), false).toCompletableFuture().join();
+            RunResult rr = runAgentLoop(msg, initial, tools, false, (context1, toolHit) -> {
+                Map<String, Object> meta = new LinkedHashMap<>();
+                meta.put("_progress", true);
+                meta.put("_tool_hint", toolHit);
+                bus.publishOutbound(new OutboundMessage(
+                        msg.getChannel()
+                        , msg.getChatId()
+                        , "(记忆处理进程) " + context1
+                        , List.of()
+                        , meta
+                ));
+            }, false).toCompletableFuture().join();
 
+            String finalContent = (rr != null && rr.finalContent != null && !rr.finalContent.isBlank())
+                    ? rr.finalContent
+                    : "✅ 记忆整理完成";
             return CompletableFuture.completedFuture(new OutboundMessage(
-                    channel, chatId, "✅ 记忆整理完成", List.of(), Map.of()
+                    channel, chatId, finalContent, List.of(), Map.of()
             ));
         } catch (Exception e) {
             log.warn("记忆整理失败", e);
@@ -2025,7 +2049,7 @@ public class AgentLoop {
                 if (isContextPress && usageAcc.hasData() && (contextRatio > consolidateThreshold || contextRatio > softTrimThreshold )) {
                     var session = sessions.getOrCreate(msg.getSessionKey());
                     List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
-                            messages, consolidateThreshold,  currentSoftTrimThreshold(), pruningSettings, contextWindow,
+                            messages, pruningSettings, contextWindow,
                             // 不修剪 skill 工具的结果，因为其中包含技能内容，裁剪后 LLM 不知道该技能
                             toolName -> !"skill".equalsIgnoreCase(toolName)
                     );

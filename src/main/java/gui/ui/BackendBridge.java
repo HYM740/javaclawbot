@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import config.mcp.MCPServerConfig;
 import corn.CronService;
 import javafx.application.Platform;
+import lombok.extern.slf4j.Slf4j;
 import providers.CustomProvider;
 import providers.LLMProvider;
 import providers.ProviderRegistry;
@@ -49,9 +50,9 @@ import java.util.function.Consumer;
  * 3. 提供异步消息收发接口（Platform.runLater 回调）
  * 4. 提供各页面所需的后端组件 getter
  */
+@Slf4j
 public class BackendBridge {
 
-    private static final java.util.logging.Logger log = java.util.logging.Logger.getLogger(BackendBridge.class.getName());
 
     /** 进度事件：区分思考内容、工具调用、工具结果 */
     public record ProgressEvent(String content, boolean isToolHint,
@@ -114,7 +115,7 @@ public class BackendBridge {
         this.sessionManager = new SessionManager(this.config.getWorkspacePath());
 
         // 3) LLMProvider
-        this.provider = makeProvider(this.config);
+        this.provider = Helpers.makeHotProvider();
 
         // 4) CronService
         Path cronStorePath = ConfigIO.getDataDir().resolve("cron").resolve("jobs.json");
@@ -199,10 +200,19 @@ public class BackendBridge {
                     boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
                     boolean isToolResult = Boolean.TRUE.equals(meta.get("_tool_result"));
                     boolean isReasoning = Boolean.TRUE.equals(meta.get("_reasoning"));
+                    boolean isSystemCommand = Boolean.TRUE.equals(meta.get("_system_command"));
                     String toolName = meta.get("tool_name") instanceof String s ? s : null;
                     String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
 
-                    if (isProgress) {
+                    if (isSystemCommand) {
+                        // 系统命令回复（/stop、/help 等）— 仅转发到进度回调，不清除响应回调和标题生成
+                        String content = out.getContent() != null ? out.getContent() : "";
+                        Consumer<ProgressEvent> cb = currentProgressCallback.get();
+                        if (cb != null) {
+                            Platform.runLater(() -> cb.accept(
+                                new ProgressEvent(content, false)));
+                        }
+                    } else if (isProgress) {
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {
@@ -400,6 +410,13 @@ public class BackendBridge {
         // 清除缓存，强制下次 getOrCreate 从磁盘加载
         sessionManager.evictFromCache(sessionKey);
 
+        // 为恢复的会话加载对应的 ProjectRegistry，避免上一轮绑定遗留
+        ProjectRegistry sessionRegistry = createProjectRegistry(sessionId);
+        this.projectRegistry = sessionRegistry;
+        if (agentLoop != null) {
+            agentLoop.updateProjectRegistry(sessionRegistry);
+        }
+
         // 根据会话已有消息数初始化标题生成计数器，避免恢复历史后重复触发
         Session session = sessionManager.getOrCreate(sessionKey);
         int count = countUserMessages(session);
@@ -461,8 +478,20 @@ public class BackendBridge {
                     }
                 }
 
-                log.info("开始生成标题: sessionId=" + sessionId + ", force=" + force);
-                String title = TitleGenerator.generateTitle(provider, session, force);
+                String fastModel = config.getAgents().getDefaults().getFastModel();
+                String defaultModel = provider.getDefaultModel();
+                String effectiveModel = (fastModel != null && !fastModel.isBlank()) ? fastModel : defaultModel;
+                log.info("[标题诊断] 开始生成标题: sessionId=" + sessionId + " force=" + force
+                    + " provider=" + provider.getClass().getSimpleName()
+                    + " fastModel=" + fastModel
+                    + " defaultModel=" + defaultModel
+                    + " effectiveModel=" + effectiveModel
+                    + " sessionMsgs=" + session.getMessages().size());
+                String title = TitleGenerator.generateTitle(
+                    provider, session,
+                    fastModel,   // noThinking=true，标题生成不需要思考
+                    force
+                );
                 if (title != null && !title.isBlank()) {
                     sessionManager.save(session);
                     log.info("标题生成成功(AI): sessionId=" + sessionId + ", title=" + title);
@@ -483,17 +512,40 @@ public class BackendBridge {
                     sessionManager.save(session);
                     log.info("标题回退(截断首条消息): sessionId=" + sessionId + ", title=" + fallback);
                 } else {
-                    // force=false AI 生成失败，不设回退标题，留给 force=true 重试
-                    log.info("标题首次生成失败（AI 不可用），等待 force=true 重试: sessionId=" + sessionId);
+                    // force=false AI 生成失败，立即回退到截断首条用户消息（不再等待 force=true 重试）
+                    String fallback = extractFirstUserMessage(session);
+                    if (fallback == null || fallback.isBlank()) {
+                        fallback = "新对话-" + java.time.LocalDate.now()
+                            .format(java.time.format.DateTimeFormatter.ofPattern("yy-MM-dd"));
+                    }
+                    session.getMetadata().put("title", fallback);
+                    sessionManager.save(session);
+                    log.info("标题回退(AI不可用，截断首条消息): sessionId=" + sessionId + ", title=" + fallback);
                 }
             } catch (Exception e) {
-                log.warning("标题生成异常: " + e.getMessage());
+                log.warn("标题生成异常: " + e.getMessage());
+            } finally {
+                // 重置标志位，允许下次消息重新尝试标题生成/更新
+                resetTitleFlags(force);
             }
             // 通知 UI 刷新侧栏标题
             if (onTitleChanged != null) {
                 Platform.runLater(onTitleChanged);
             }
         }, executor);
+    }
+
+    /**
+     * 重置标题生成标志位。
+     * force=true 时重置 titleRegenerationPending；
+     * force=false 时重置 titleGenerationPending（允许下次消息重试）。
+     */
+    private void resetTitleFlags(boolean force) {
+        if (force) {
+            titleRegenerationPending.set(false);
+        } else {
+            titleGenerationPending.set(false);
+        }
     }
 
     /** 从会话历史中提取首条用户消息（截取 20 字）作为标题回退 */
@@ -533,9 +585,9 @@ public class BackendBridge {
     public void reloadConfigFromDisk() {
         try {
             this.config = ConfigIO.loadConfig(null);
-            log.fine("配置已从磁盘重新加载");
+            log.debug("配置已从磁盘重新加载");
         } catch (Exception e) {
-            log.warning("重新加载配置失败: " + e.getMessage());
+            log.warn("重新加载配置失败: " + e.getMessage());
         }
     }
 
@@ -698,7 +750,7 @@ public class BackendBridge {
      */
     public void refreshProvider() {
         String defaultModel = this.config.getAgents().getDefaults().getModel();
-        LLMProvider newProvider = makeProvider(this.config);
+        LLMProvider newProvider = Helpers.makeHotProvider();
         this.provider = newProvider;
         if (this.agentLoop != null) {
             this.agentLoop.updateProvider(newProvider);
@@ -858,7 +910,7 @@ public class BackendBridge {
                         }
                     }
                 } catch (IOException e) {
-                    log.warning("初始化 zjkycode.js 失败: " + e.getMessage());
+                    log.warn("初始化 zjkycode.js 失败: " + e.getMessage());
                 }
             }
         }
@@ -882,44 +934,4 @@ public class BackendBridge {
         return registry;
     }
 
-    private static LLMProvider makeProvider(Config config) {
-        String model = config.getAgents().getDefaults().getModel();
-        String providerName = config.getProviderName(model);
-        var p = config.getProvider(model);
-
-        if ("openai_codex".equals(providerName) || (model != null && model.startsWith("openai-codex/"))) {
-            throw new RuntimeException("Error: OpenAI Codex is not supported in this Java build.");
-        }
-
-        String apiKey = (p != null && p.getApiKey() != null) ? p.getApiKey() : null;
-        String apiBase = config.getApiBase(model);
-
-        if ("custom".equals(providerName)) {
-            if (apiBase == null || apiBase.isBlank()) apiBase = "http://localhost:8000/v1";
-            if (apiKey == null || apiKey.isBlank()) apiKey = "no-key";
-            return new CustomProvider(apiKey, apiBase, model);
-        }
-
-        if (apiBase != null && !apiBase.isBlank()) {
-            if (apiKey == null || apiKey.isBlank()) apiKey = "no-key";
-            return new CustomProvider(apiKey, apiBase, model);
-        }
-
-        ProviderRegistry.ProviderSpec spec = ProviderRegistry.findByName(providerName);
-        boolean isOauth = spec != null && spec.isOauth();
-        boolean hasKey = apiKey != null && !apiKey.isBlank();
-
-        if (!hasKey && !isOauth) {
-            throw new RuntimeException("未找到模型 " + model + " 的 API Key。请配置 providers." + providerName + ".api_key");
-        }
-
-        String effectiveBase = apiBase;
-        if (effectiveBase == null || effectiveBase.isBlank()) {
-            if (spec != null && spec.getDefaultApiBase() != null && !spec.getDefaultApiBase().isBlank()) {
-                effectiveBase = spec.getDefaultApiBase();
-            }
-        }
-
-        return new CustomProvider(hasKey ? apiKey : "no-key", effectiveBase, model);
-    }
 }

@@ -6,15 +6,24 @@ import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.data.MutableDataSet;
 import gui.ui.components.ChatInput;
 import gui.ui.components.MessageBubble;
+import gui.ui.components.ProjectPopover;
+import gui.ui.components.ProjectStatusBadge;
 import gui.ui.components.TodoFloatBadge;
 import gui.ui.components.ToolCallCard;
+import providers.cli.ProjectRegistry;
+import java.nio.file.Path;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
+import javafx.geometry.Side;
 import javafx.geometry.Pos;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.MenuItem;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
@@ -130,7 +139,7 @@ public class ChatPage extends VBox {
         StackPane.setAlignment(scrollToBottomBtn, Pos.BOTTOM_RIGHT);
         StackPane.setMargin(scrollToBottomBtn, new Insets(0, 24, 12, 0));
         StackPane.setAlignment(todoFloatBadge, Pos.BOTTOM_RIGHT);
-        StackPane.setMargin(todoFloatBadge, new Insets(0, 20, 62, 0));
+        StackPane.setMargin(todoFloatBadge, new Insets(0, 16, 50, 0));
 
         // 输入区域
         chatInput = new ChatInput();
@@ -244,6 +253,8 @@ public class ChatPage extends VBox {
     }
 
     public void addAssistantMessage(String content) {
+        // 过滤 LLM API 适配占位符，不显示无意义文本
+        if ("(empty)".equals(content)) return;
         MessageBubble bubble = new MessageBubble(MessageBubble.Role.ASSISTANT, content);
         bubble.setOnHeightAdjusted(this::scrollToBottom);
         messageContainer.getChildren().add(bubble);
@@ -422,6 +433,12 @@ public class ChatPage extends VBox {
 
     /** 推理+回复合并为一个视觉单元：一个 avatar + 推理块（默认收起）+ 回复块 */
     public void addAssistantMessageWithReasoning(String reasoning, String response) {
+        // 如果回复内容是 LLM API 适配占位符，退化为只显示推理块
+        if ("(empty)".equals(response)) {
+            addReasoningBlock(reasoning);
+            return;
+        }
+
         HBox row = new HBox(12);
         row.setAlignment(Pos.TOP_LEFT);
         row.setPadding(new Insets(8, 0, 8, 0));
@@ -816,5 +833,70 @@ public class ChatPage extends VBox {
             return sb.toString();
         } catch (Exception ignored) {}
         return args.length() > 100 ? args.substring(0, 100) + "..." : args;
+    }
+
+    private ProjectPopover projectPopover;
+    private ProjectRegistry projectRegistry;
+    private Path workspacePath;
+
+    /** 设置项目注册信息并初始化 Popover */
+    public void setProjectInfo(ProjectRegistry registry, Path workspacePath) {
+        this.projectRegistry = registry;
+        this.workspacePath = workspacePath;
+
+        if (projectPopover == null) {
+            projectPopover = new ProjectPopover();
+        }
+
+        chatInput.setProjectRegistry(registry, workspacePath);
+
+        ProjectStatusBadge badge = chatInput.getProjectBadge();
+        badge.setOnClick(() -> {
+            if (projectPopover.isShowing()) {
+                projectPopover.hide();
+                return;
+            }
+
+            String mode = badge.getCurrentMode();
+            if ("workspace".equals(mode)) {
+                showWorkspaceMenu(badge, workspacePath);
+            } else {
+                projectPopover.show(badge, registry, () -> {
+                    chatInput.refreshProjectBadge(registry, workspacePath);
+                });
+            }
+        });
+    }
+
+    /** 刷新项目徽标 */
+    public void refreshProjectBadge() {
+        if (projectRegistry != null) {
+            chatInput.refreshProjectBadge(projectRegistry, workspacePath);
+        }
+    }
+
+    /** 普通用户：显示工作空间操作菜单 */
+    private void showWorkspaceMenu(ProjectStatusBadge badge, Path wsPath) {
+        if (wsPath == null) return;
+        ContextMenu menu = new ContextMenu();
+
+        MenuItem copyItem = new MenuItem("\uD83D\uDCCB 复制路径");
+        copyItem.setOnAction(e -> {
+            ClipboardContent content = new ClipboardContent();
+            content.putString(wsPath.toString());
+            Clipboard.getSystemClipboard().setContent(content);
+        });
+
+        MenuItem openItem = new MenuItem("\uD83D\uDCC2 打开文件夹");
+        openItem.setOnAction(e -> {
+            try {
+                java.awt.Desktop.getDesktop().open(wsPath.toFile());
+            } catch (Exception ex) {
+                // ignore
+            }
+        });
+
+        menu.getItems().addAll(copyItem, openItem);
+        menu.show(badge, Side.TOP, 0, 0);
     }
 }

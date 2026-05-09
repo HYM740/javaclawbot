@@ -1,3 +1,293 @@
+# DevConsole 实施计划
+
+> **对于代理工作者：** 必需的子技能：使用 zjkycode:subagent-driven-development（推荐）或 zjkycode:executing-plans 来逐任务实施此计划。步骤使用复选框（`- [ ]`）语法进行跟踪。
+
+**目标：** 实现 DevConsole 页面，通过 logback.xml 输出日志文件，用 WebView 实时展示、过滤、搜索高亮。
+
+**架构：** 新建 logback.xml → 日志写入 `~/.javaclawbot/logs/app.log`；新增 LogWatcher 后台线程用 WatchService 增量读取；新增 DevConsolePage 用 WebView + JS 渲染日志，提供级别过滤、搜索高亮、导出清除。
+
+**技术栈：** Java 17, JavaFX 17.0.2, Logback 1.2.11, SLF4J, WebView + JavaScript
+
+---
+
+### 任务 1：创建 logback.xml 配置文件
+
+**文件：**
+- 创建：`src/main/resources/logback.xml`
+
+- [ ] **步骤 1：编写 logback.xml**
+
+```xml
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <file>${user.home}/.javaclawbot/logs/app.log</file>
+        <append>true</append>
+        <immediateFlush>true</immediateFlush>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
+```
+
+- [ ] **步骤 2：编译验证**
+
+运行：`mvn compile -q`
+预期：编译成功，无错误
+
+- [ ] **步骤 3：提交**
+
+```bash
+git add src/main/resources/logback.xml
+git commit -m "feat: add logback.xml with FileAppender for DevConsole log source"
+```
+
+---
+
+### 任务 2：创建 LogEntry 数据类
+
+**文件：**
+- 创建：`src/main/java/gui/ui/LogEntry.java`
+
+- [ ] **步骤 1：编写 LogEntry record**
+
+```java
+package gui.ui;
+
+/**
+ * 日志条目，由 LogWatcher 从日志文件解析产生。
+ */
+public record LogEntry(
+    String timestamp,   // "10:23:45.123"
+    String level,       // "INFO", "WARN", "ERROR", "DEBUG", "TRACE"
+    String logger,      // "agent.AgentLoop"
+    String message,     // "Agent 循环已启动"
+    String raw          // 原始行（用于导出）
+) {}
+```
+
+- [ ] **步骤 2：编译验证**
+
+运行：`mvn compile -q`
+预期：编译成功
+
+- [ ] **步骤 3：提交**
+
+```bash
+git add src/main/java/gui/ui/LogEntry.java
+git commit -m "feat: add LogEntry record for log line representation"
+```
+
+---
+
+### 任务 3：创建 LogWatcher 后台线程
+
+**文件：**
+- 创建：`src/main/java/gui/ui/LogWatcher.java`
+
+- [ ] **步骤 1：编写 LogWatcher 类**
+
+```java
+package gui.ui;
+
+import java.io.IOException;
+import java.io.RandomAccessFile;
+import java.nio.file.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * 后台线程，用 WatchService 监听日志文件增量，
+ * 解析为 LogEntry 并推入 LogBuffer。
+ */
+public class LogWatcher {
+
+    private static final Pattern LOG_PATTERN =
+        Pattern.compile("^(\\d{2}:\\d{2}:\\d{2}\\.\\d{3})\\s+(TRACE|DEBUG|INFO|WARN|ERROR)\\s+(\\S+)\\s+-\\s+(.*)$");
+
+    private final Path logFile;
+    private final ConcurrentLinkedQueue<LogEntry> buffer;
+    private final AtomicBoolean stopped = new AtomicBoolean(false);
+
+    private RandomAccessFile raf;
+    private WatchService watchService;
+    private Thread thread;
+
+    public LogWatcher(ConcurrentLinkedQueue<LogEntry> buffer) {
+        this.buffer = buffer;
+        String home = System.getProperty("user.home");
+        Path logDir = Paths.get(home, ".javaclawbot", "logs");
+        this.logFile = logDir.resolve("app.log");
+    }
+
+    /**
+     * 启动后台监听线程。
+     */
+    public void start() {
+        stopped.set(false);
+        thread = new Thread(this::run, "log-watcher");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
+    /**
+     * 停止监听，释放资源。
+     */
+    public void stop() {
+        stopped.set(true);
+        if (thread != null) {
+            thread.interrupt();
+        }
+        closeFile();
+        closeWatcher();
+    }
+
+    public boolean isStopped() {
+        return stopped.get();
+    }
+
+    private void run() {
+        try {
+            ensureDirAndFile();
+            openFile();
+            registerWatcher();
+            mainLoop();
+        } catch (Exception e) {
+            // 将 LogWatcher 自身错误也推入 buffer
+            buffer.offer(new LogEntry(
+                java.time.LocalTime.now().toString().substring(0, 12),
+                "ERROR", "LogWatcher",
+                "LogWatcher 异常: " + e.getMessage(),
+                "ERROR LogWatcher - LogWatcher 异常: " + e.getMessage()
+            ));
+        } finally {
+            closeFile();
+            closeWatcher();
+        }
+    }
+
+    private void ensureDirAndFile() throws IOException {
+        Path logDir = logFile.getParent();
+        if (!Files.exists(logDir)) {
+            Files.createDirectories(logDir);
+        }
+        if (!Files.exists(logFile)) {
+            Files.createFile(logFile);
+        }
+    }
+
+    private void openFile() throws IOException {
+        raf = new RandomAccessFile(logFile.toFile(), "r");
+    }
+
+    private void registerWatcher() throws IOException {
+        watchService = FileSystems.getDefault().newWatchService();
+        logFile.getParent().register(watchService,
+            StandardWatchEventKinds.ENTRY_MODIFY,
+            StandardWatchEventKinds.ENTRY_CREATE);
+    }
+
+    private void mainLoop() {
+        while (!stopped.get()) {
+            try {
+                WatchKey key = watchService.poll(500, java.util.concurrent.TimeUnit.MILLISECONDS);
+                if (key != null) {
+                    for (WatchEvent<?> event : key.pollEvents()) {
+                        Path changed = (Path) event.context();
+                        if (changed != null && changed.toString().equals(logFile.getFileName().toString())) {
+                            readNewLines();
+                        }
+                    }
+                    key.reset();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            } catch (Exception e) {
+                // 读取异常不中断主循环
+            }
+        }
+    }
+
+    private void readNewLines() throws IOException {
+        if (raf == null) return;
+        // 如果 raf 被关闭（stop 时），跳过
+        String line;
+        while ((line = raf.readLine()) != null) {
+            LogEntry entry = parseLine(line);
+            if (entry != null) {
+                buffer.offer(entry);
+            }
+        }
+    }
+
+    private LogEntry parseLine(String line) {
+        if (line == null || line.isBlank()) return null;
+        Matcher m = LOG_PATTERN.matcher(line);
+        if (m.matches()) {
+            return new LogEntry(m.group(1), m.group(2), m.group(3), m.group(4), line);
+        }
+        // 无法匹配标准格式的行，作为 INFO 处理
+        return new LogEntry(
+            java.time.LocalTime.now().toString().substring(0, 12),
+            "INFO", "unknown", line, line);
+    }
+
+    private void closeFile() {
+        try {
+            if (raf != null) {
+                raf.close();
+                raf = null;
+            }
+        } catch (IOException ignored) {}
+    }
+
+    private void closeWatcher() {
+        try {
+            if (watchService != null) {
+                watchService.close();
+                watchService = null;
+            }
+        } catch (IOException ignored) {}
+    }
+}
+```
+
+- [ ] **步骤 2：编译验证**
+
+运行：`mvn compile -q`
+预期：编译成功
+
+- [ ] **步骤 3：提交**
+
+```bash
+git add src/main/java/gui/ui/LogWatcher.java
+git commit -m "feat: add LogWatcher for real-time log file tailing"
+```
+
+---
+
+### 任务 4：创建 DevConsolePage 页面
+
+**文件：**
+- 创建：`src/main/java/gui/ui/pages/DevConsolePage.java`
+
+- [ ] **步骤 1：编写 DevConsolePage 类**
+
+```java
 package gui.ui.pages;
 
 import gui.ui.LogEntry;
@@ -63,6 +353,7 @@ public class DevConsolePage extends VBox {
                 startUITimer();
             } else {
                 stopUITimer();
+                // LogWatcher 保持运行（后台收集）
             }
         });
     }
@@ -166,14 +457,9 @@ public class DevConsolePage extends VBox {
             "    if (currentLevel !== 'ALL' && level !== currentLevel) return;\n" +
             "    var line = document.createElement('div');\n" +
             "    line.className = 'log-line ' + level;\n" +
-            "    if (logger === '') {\n" +
-            "      line.innerHTML = escapeHtml(msg);\n" +
-            "      line.style.paddingLeft = '16px';\n" +
-            "    } else {\n" +
-            "      line.innerHTML = '[' + escapeHtml(ts) + '] ' +\n" +
-            "        '<span class=\"level-tag\">' + level + '</span> ' +\n" +
-            "        escapeHtml(logger) + ' - ' + escapeHtml(msg);\n" +
-            "    }\n" +
+            "    line.innerHTML = '[' + escapeHtml(ts) + '] ' +\n" +
+            "      '<span class=\"level-tag\">' + level + '</span> ' +\n" +
+            "      escapeHtml(logger) + ' - ' + escapeHtml(msg);\n" +
             "    applyHighlight(line);\n" +
             "    document.getElementById('log-container').appendChild(line);\n" +
             "    trimLines();\n" +
@@ -303,6 +589,7 @@ public class DevConsolePage extends VBox {
         if (file == null) return;
 
         try (FileWriter fw = new FileWriter(file)) {
+            // 获取当前 WebView 中的所有行文本
             if (engine != null) {
                 Object text = engine.executeScript(
                     "Array.from(document.querySelectorAll('.log-line')).map(function(e){return e.textContent;}).join('\\n')");
@@ -335,3 +622,95 @@ public class DevConsolePage extends VBox {
                 .replace("\r", "\\r");
     }
 }
+```
+
+- [ ] **步骤 2：编译验证**
+
+运行：`mvn compile -q`
+预期：编译成功
+
+- [ ] **步骤 3：提交**
+
+```bash
+git add src/main/java/gui/ui/pages/DevConsolePage.java
+git commit -m "feat: add DevConsolePage with WebView log viewer, filtering, search and export"
+```
+
+---
+
+### 任务 5：在 MainStage 中注册 DevConsole 页面
+
+**文件：**
+- 修改：`src/main/java/gui/ui/MainStage.java`
+
+- [ ] **步骤 1：在 setupPages() 中注册页面**
+
+在 `MainStage.java` 的 `setupPages()` 方法中，在 `pages.put("crontasks", new CronPage());` 下方添加一行：
+
+```java
+pages.put("devconsole", new DevConsolePage());
+```
+
+具体修改位置：`MainStage.java` 第 301 行后。修改后 `setupPages()` 中页面注册部分变为：
+
+```java
+// 创建所有页面
+chatPage = new ChatPage();
+pages.put("chat", chatPage);
+pages.put("models", new ModelsPage());
+pages.put("agents", new AgentsPage());
+pages.put("channels", new ChannelsPage());
+pages.put("skills", new SkillsPage());
+pages.put("mcp", new McpPage(stage));
+pages.put("crontasks", new CronPage());
+pages.put("devconsole", new DevConsolePage());
+pages.put("settings", new SettingsPage());
+```
+
+- [ ] **步骤 2：确保 import 语句存在**
+
+检查 `MainStage.java` 头部是否有 `import gui.ui.pages.DevConsolePage;`。由于 pages 包在 `import gui.ui.pages.*;` 已通配导入（第 9 行），无需额外 import。
+
+- [ ] **步骤 3：编译验证**
+
+运行：`mvn compile -q`
+预期：编译成功，无错误
+
+- [ ] **步骤 4：提交**
+
+```bash
+git add src/main/java/gui/ui/MainStage.java
+git commit -m "feat: register DevConsolePage in MainStage sidebar navigation"
+```
+
+---
+
+### 任务 6：集成测试 & 验证
+
+**文件：** 无新建
+
+- [ ] **步骤 1：编译整个项目**
+
+运行：`mvn compile -q`
+预期：BUILD SUCCESS
+
+- [ ] **步骤 2：验证 logback.xml 被正确加载**
+
+检查 `src/main/resources/logback.xml` 文件存在且内容正确。启动应用后检查 `~/.javaclawbot/logs/app.log` 是否生成。
+
+- [ ] **步骤 3：手动验证 DevConsole 功能**
+
+启动 GUI 应用后：
+1. 点击侧栏 "Dev Console" → 页面显示白色终端风格的日志视图
+2. 日志实时追加，状态栏显示 "● 监听中"
+3. 选择级别过滤 → 仅显示对应级别日志
+4. 搜索框输入关键词 → 高亮并跳转
+5. 点击"导出" → 选择路径保存日志文件
+6. 点击"清除" → 日志清空，行数归零
+
+- [ ] **步骤 4：提交**
+
+```bash
+git add -A
+git commit -m "test: verify DevConsole integration and log output"
+```

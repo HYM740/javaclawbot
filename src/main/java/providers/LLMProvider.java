@@ -94,6 +94,28 @@ public abstract class LLMProvider {
                 }
             }
 
+            // Handle messages missing the "content" field entirely
+            if (content == null) {
+                Map<String, Object> clean = new HashMap<>(msg);
+                clean.put("content", "(empty)");
+                result.add(clean);
+                continue;
+            }
+
+            // Convert "attachment" role to "user" — most LLM APIs don't accept "attachment" role.
+            // Serialize attachment metadata as text content so the model can still see it.
+            if ("attachment".equals(msg.get("role"))) {
+                Map<String, Object> clean = new HashMap<>(msg);
+                clean.put("role", "user");
+                // If content is a Map (e.g. file_reference), convert to text
+                if (content instanceof Map) {
+                    String type = msg.get("type") instanceof String t ? t : "unknown";
+                    clean.put("content", "[System Attachment: " + type + "] " + content.toString());
+                }
+                result.add(clean);
+                continue;
+            }
+
             result.add(msg);
         }
 

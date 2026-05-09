@@ -90,7 +90,7 @@ public class CliAgentTool extends Tool {
 
         Map<String, Object> main = new java.util.LinkedHashMap<>();
         main.put("type", "boolean");
-        main.put("description", "是否设为主代理项目 (bind 时使用，默认 false)");
+        main.put("description", "是否设为主项目 (bind 时使用，默认 false)");
 
         Map<String, Object> props = new java.util.LinkedHashMap<>();
         props.put("action", action);
@@ -145,7 +145,7 @@ public class CliAgentTool extends Tool {
         boolean success = registry.bind(project, path, main);
 
         if (success) {
-            String mainHint = main ? " [主代理项目]" : "";
+            String mainHint = main ? " [主项目]" : "";
             return CompletableFuture.completedFuture(
                     "✅ 项目已绑定" + mainHint + ": " + project + " → " + path);
         } else {
@@ -167,7 +167,7 @@ public class CliAgentTool extends Tool {
         if (success) {
             // 停止相关的 Agent
             cliAgentHandler.getAgentPool().stopAllForProject(project);
-            String mainHint = wasMain ? " (原主代理项目已清除)" : "";
+            String mainHint = wasMain ? " (原主项目已清除)" : "";
             return CompletableFuture.completedFuture("✅ 项目已解绑" + mainHint + ": " + project);
         } else {
             return CompletableFuture.completedFuture("❌ 项目不存在: " + project);
@@ -189,7 +189,7 @@ public class CliAgentTool extends Tool {
             ProjectRegistry.ProjectInfo info = entry.getValue();
             sb.append("  • ").append(entry.getKey());
             if (info.isMain()) {
-                sb.append(" ⭐ [主代理]");
+                sb.append(" ⭐ [主项目]");
             }
             sb.append(" → ").append(info.getPath()).append("\n");
         }

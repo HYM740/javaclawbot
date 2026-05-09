@@ -21,8 +21,8 @@ import java.util.function.BiConsumer;
  * CLI Agent 命令处理器
  *
  * 处理以下命令:
- * - /bind <名称>=<路径> [--main]  绑定项目，可选设为主代理项目
- * - /bind --main <路径>           直接设置主代理项目
+ * - /bind <名称>=<路径> [--main]  绑定项目，可选设为主项目
+ * - /bind --main <路径>           直接设置主项目
  * - /unbind <名称>                解绑项目
  * - /projects                     列出所有项目
  * - /cc <project> <prompt>        使用 Claude Code
@@ -192,63 +192,69 @@ public class CliAgentCommandHandler {
         String[] parts = content.split("\\s+", 3);
         String cmd = parts[0].toLowerCase();
 
+        // 设置当前会话的 sessionKey，确保 per-session ProjectRegistry 正确使用
+        setCurrentSessionKey(msg.getSessionKey());
         try {
-            switch (cmd) {
-                case "/bind" -> {
-                    handleBind(msg, parts);
-                    return true;
-                }
-                case "/unbind" -> {
-                    handleUnbind(msg, parts);
-                    return true;
-                }
-                case "/projects" -> {
-                    handleProjects(msg);
-                    return true;
-                }
-                case "/cc", "/claude", "/claudecode" -> {
-                    handleCliAgent(msg, parts, "claude");
-                    return true;
-                }
-                case "/oc", "/opencode" -> {
-                    handleCliAgent(msg, parts, "opencode");
-                    return true;
-                }
-                case "/cli-status" -> {
-                    handleStatus(msg, parts);
-                    return true;
-                }
-                case "/stop" -> {
-                    handleStop(msg, parts);
-                    return true;
-                }
-                case "/cli-stopall" -> {
-                    handleStopAll(msg);
-                    return true;
-                }
-                case "/cli-history" -> {
-                    handleHistory(msg, parts);
-                    return true;
-                }
-                default -> {
-                    // 检查是否是权限响应
-                    if (outputHandler.hasPendingPermission(cmd)) {
-                        String[] respParts = content.split("\\s+");
-                        if (respParts.length >= 2) {
-                            boolean allow = respParts[1].equalsIgnoreCase("y") ||
-                                    respParts[1].equalsIgnoreCase("yes") ||
-                                    respParts[1].equalsIgnoreCase("允许");
-                            outputHandler.handleUserPermissionResponse(cmd, allow);
-                            return true;
-                        }
+            try {
+                switch (cmd) {
+                    case "/bind" -> {
+                        handleBind(msg, parts);
+                        return true;
                     }
-                    return false;
+                    case "/unbind" -> {
+                        handleUnbind(msg, parts);
+                        return true;
+                    }
+                    case "/projects" -> {
+                        handleProjects(msg);
+                        return true;
+                    }
+                    case "/cc", "/claude", "/claudecode" -> {
+                        handleCliAgent(msg, parts, "claude");
+                        return true;
+                    }
+                    case "/oc", "/opencode" -> {
+                        handleCliAgent(msg, parts, "opencode");
+                        return true;
+                    }
+                    case "/cli-status" -> {
+                        handleStatus(msg, parts);
+                        return true;
+                    }
+                    case "/stop" -> {
+                        handleStop(msg, parts);
+                        return true;
+                    }
+                    case "/cli-stopall" -> {
+                        handleStopAll(msg);
+                        return true;
+                    }
+                    case "/cli-history" -> {
+                        handleHistory(msg, parts);
+                        return true;
+                    }
+                    default -> {
+                        // 检查是否是权限响应
+                        if (outputHandler.hasPendingPermission(cmd)) {
+                            String[] respParts = content.split("\\s+");
+                            if (respParts.length >= 2) {
+                                boolean allow = respParts[1].equalsIgnoreCase("y") ||
+                                        respParts[1].equalsIgnoreCase("yes") ||
+                                        respParts[1].equalsIgnoreCase("允许");
+                                outputHandler.handleUserPermissionResponse(cmd, allow);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
                 }
+            } catch (Exception e) {
+                log.error("Error handling CLI agent command: {}", content, e);
+                reply(msg, "❌ 命令执行失败: " + e.getMessage());
+                return true;
             }
-        } catch (Exception e) {
-            log.error("Error handling CLI agent command: {}", content, e);
-            reply(msg, "❌ 命令执行失败: " + e.getMessage());
-            return true;
+        } finally {
+            clearCurrentSessionKey();
         }
     }
 
@@ -257,17 +263,17 @@ public class CliAgentCommandHandler {
      *
      * 格式:
      * - /bind p1=/path/to/project           普通绑定
-     * - /bind p1=/path/to/project --main    绑定并设为主代理
-     * - /bind /path/to/project --main       自动命名并设为主代理
-     * - /bind --main /path/to/project       直接设为主代理（名称为 main）
+     * - /bind p1=/path/to/project --main    绑定并设为主项目
+     * - /bind /path/to/project --main       自动命名并设为主项目
+     * - /bind --main /path/to/project       直接设为主项目（名称为 main）
      */
     private void handleBind(InboundMessage msg, String[] parts) {
         if (parts.length < 2 || msg.getContent().equalsIgnoreCase("/bind -help") || msg.getContent().equalsIgnoreCase("/bind -h")) {
             reply(msg, "用法: /bind <名称>=<路径> [--main]\n" +
                     "示例:\n" +
                     "  /bind p1=/home/user/project           # 普通绑定\n" +
-                    "  /bind p1=/home/user/project --main    # 绑定并设为主代理\n" +
-                    "  /bind --main /home/user/project       # 直接设为主代理（名称为 main）");
+                    "  /bind p1=/home/user/project --main    # 绑定并设为主项目\n" +
+                    "  /bind --main /home/user/project       # 直接设为主项目（名称为 main）");
             return;
         }
 
@@ -337,7 +343,7 @@ public class CliAgentCommandHandler {
 
         // 执行绑定
         if (getProjectRegistry().bind(name, path, isMain)) {
-            String mainHint = isMain ? " ⭐ [主代理]" : "";
+            String mainHint = isMain ? " ⭐ [主项目]" : "";
             reply(msg, "✅ 项目已绑定" + mainHint + ": " + name + " → " + path);
         } else {
             reply(msg, "❌ 绑定失败");

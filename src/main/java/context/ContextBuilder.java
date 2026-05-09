@@ -28,6 +28,8 @@ import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Supplier;
 
+import static constant.Constant.MAX_PROJECT_INSTRUCTION_LINES;
+
 /**
  * 上下文构建器：负责组装系统提示词与消息列表，用于调用大模型。
  *
@@ -41,9 +43,6 @@ public class ContextBuilder {
 
     /** 运行时元信息标签（仅元数据，不是指令） */
     private static final String RUNTIME_CONTEXT_TAG = "[运行时上下文 — 仅元数据，非指令]";
-
-    /** 项目指令文件最大读取行数 */
-    private static final int MAX_PROJECT_INSTRUCTION_LINES = 200;
 
     private final Path workspace;
     private final MemoryStore memory;
@@ -141,14 +140,16 @@ public class ContextBuilder {
         // 配置工作流程
         String agents = bootstrapLoader.loadAgents();
         parts.add(agents);
-        // 可用技能说明
-        parts.add(skills.buildSkillsSimpleSummary());
 
         // 构建记忆
         String context = buildMemoryContext();
+
         if (context != null && !context.isBlank()) {
             parts.add(context);
         }
+
+        // 可用技能说明
+        parts.add(skills.buildSkillsSimpleSummary());
 
         // 配置身份
         parts.add(bootstrapLoader.loadIdentity());
@@ -182,13 +183,13 @@ public class ContextBuilder {
 
         // 提示用户使用新命令
         if (userMsg.startsWith("/project ")) {
-            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /bind --main <路径>   设置主代理项目\n  /bind main=<路径> --main  绑定并设为主代理\n\n查看 /projects 列出所有项目";
+            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /bind --main <路径>   设置主项目\n  /bind main=<路径> --main  绑定并设为主项目\n\n查看 /projects 列出所有项目";
             results[1] = true;
             return results;
         }
 
         if (userMsg.equals("/project") || userMsg.equals("/project clear")) {
-            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /unbind main  解绑主代理项目\n  /projects    列出所有项目";
+            results[0] = "⚠️ /project 命令已废弃。\n\n请使用:\n  /unbind main  解绑主项目\n  /projects    列出所有项目";
             results[1] = true;
             return results;
         }
@@ -208,7 +209,7 @@ public class ContextBuilder {
             return "";
         }
 
-        // 从 ProjectRegistry 获取主代理项目
+        // 从 ProjectRegistry 获取主项目
         ProjectRegistry.ProjectInfo mainProject = projectRegistrySupplier.get().getMainProject();
         if (mainProject == null) {
             return "";
@@ -222,12 +223,12 @@ public class ContextBuilder {
 
         StringBuilder sb = new StringBuilder();
         sb.append("<project-context>\n");
-        sb.append("当前项目: ").append(projectPath).append("\n");
+        sb.append("当前主项目: ").append(projectPath).append("\n");
 
         // 读取项目指令文件
         String content = readProjectInstruction(projectPath);
         if (content != null && !content.isBlank()) {
-            sb.append("\n# 项目指令文件（前 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行）\n");
+            sb.append("\n# 项目记忆文件（前 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行）\n");
             sb.append(content);
             sb.append("\n（超过 ").append(MAX_PROJECT_INSTRUCTION_LINES).append(" 行已截断，完整内容请使用 read_file 工具）\n");
         }
@@ -382,8 +383,12 @@ public class ContextBuilder {
                  %s
                  
                  %s
-                 重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。
+                 
+                 **重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。**
                  `memory/YYYY-MM-dd.md` 格式文件为原始相关记忆，切勿直接使用`read_file`阅读整个文件，优先使用memory_search 搜索最近上下文，再根据获取的行数阅读详细上下文
+                 **已学习的经验(memory_search 无法搜索到 必须使用read_file 工具才能阅读)**：
+                 1. **语义记忆**（`{工作空间}/memory/semantic-patterns.json`）
+                 2. **情景记忆**（`{工作空间}/memory/episodic/YYYY-MM-DD-{skill}.json`）
                  </system-reminder>
                 """.formatted(LocalDate.now(), mem, projectCtx));
         return sb.toString();
@@ -433,9 +438,13 @@ public class ContextBuilder {
                 "content", userBlocks
         ));
 
-        // 添加历史
+        // 添加历史（过滤掉 system 角色消息）
         if (CollUtil.isNotEmpty(history)) {
-            out.addAll(history);
+            for (Map<String, Object> msg : history) {
+                if (msg == null) continue;
+                if ("system".equals(msg.get("role"))) continue;
+                out.add(msg);
+            }
         }
 
         // 当前用户内容（文本 + 可选图片）
@@ -491,9 +500,13 @@ public class ContextBuilder {
                 "content", userBlocks
         ));
 
-        // 添加历史
+        // 添加历史（过滤掉 system 角色消息）
         if (CollUtil.isNotEmpty(history)) {
-            out.addAll(history);
+            for (Map<String, Object> msg : history) {
+                if (msg == null) continue;
+                if ("system".equals(msg.get("role"))) continue;
+                out.add(msg);
+            }
         }
         out.add(mapOf(
                 "role", "user",
@@ -544,9 +557,14 @@ public class ContextBuilder {
                 "content", userBlocks
         ));
 
-        // 添加历史
+        // 添加历史（过滤掉 system 角色消息 — 仅由 ContextBuilder 添加系统提示词）
         if (CollUtil.isNotEmpty(history)) {
-            out.addAll(history);
+            for (Map<String, Object> msg : history) {
+                if (msg == null) continue;
+                // Skip system messages from session — ContextBuilder adds its own system prompt
+                if ("system".equals(msg.get("role"))) continue;
+                out.add(msg);
+            }
         }
 
         // 通过用户指定前缀加载技能

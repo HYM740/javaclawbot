@@ -62,6 +62,11 @@ public class AgentDefaults {
 
     private String reasoningEffort = null;
 
+    /**
+     * 标题生成等轻量级任务的快速/廉价模型。
+     * 为 null 时 fallback 到主 model。
+     */
+    private String fastModel;
 
     /**
      * 全局最大并发数（对齐 OpenClaw maxConcurrent）

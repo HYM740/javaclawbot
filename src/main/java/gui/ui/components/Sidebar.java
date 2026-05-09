@@ -340,8 +340,17 @@ public class Sidebar extends VBox {
     private String extractTitle(java.util.Map<String, Object> sessionItem) {
         Object meta = sessionItem.get("metadata");
         if (meta instanceof java.util.Map) {
-            Object title = ((java.util.Map<?, ?>) meta).get("title");
-            if (title instanceof String s && !s.isBlank()) return s;
+            @SuppressWarnings("unchecked")
+            java.util.Map<String, Object> metaMap = (java.util.Map<String, Object>) meta;
+            Object title = metaMap.get("title");
+            if (title instanceof String s && !s.isBlank()) {
+                // 插件端会话追加标记
+                Object source = metaMap.get("source");
+                if ("idea-plugin".equals(source)) {
+                    return s + "（插件端）";
+                }
+                return s;
+            }
         }
         return null;
     }
