@@ -45,6 +45,12 @@ public class ChatInput extends VBox {
     private final HBox statusBar;
     private final Label leftStatusLabel;
     private final ProjectStatusBadge projectBadge;
+    /** 上下文使用率进度条容器 */
+    private final HBox contextUsageBar;
+    /** 进度条填充区域（宽度动态变化） */
+    private final Region contextProgressFill;
+    /** 百分比文字标签 */
+    private final Label contextPercentLabel;
     private final CompletionPopup completionPopup;
     private final List<Consumer<String>> sendListeners = new ArrayList<>();
     // 附件：图片路径（放入 media）、其他文件路径（拼入消息文本）
@@ -227,7 +233,38 @@ public class ChatInput extends VBox {
 
         projectBadge = new ProjectStatusBadge();
 
-        statusBar.getChildren().addAll(leftStatusLabel, statusSpacer, projectBadge);
+        // ── 上下文使用率进度条（电池风格） ──
+        // 电池外壳：Pane 固定 46×4，灰色圆角边框
+        javafx.scene.layout.Pane progressPane = new javafx.scene.layout.Pane();
+        progressPane.setPrefSize(46, 4);
+        progressPane.setMinSize(46, 4);
+        progressPane.setMaxSize(46, 4);
+        progressPane.setStyle("-fx-background-color: transparent; -fx-border-color: #d1d5db; -fx-border-width: 1px; -fx-border-radius: 3px;");
+
+        // 电量填充：Region，绝对定位在 Pane 内，左/上各留 1px 边距
+        contextProgressFill = new Region();
+        contextProgressFill.setPrefWidth(0);
+        contextProgressFill.setPrefHeight(2);
+        contextProgressFill.setLayoutX(1);
+        contextProgressFill.setLayoutY(1);
+        contextProgressFill.setStyle("-fx-background-color: #22c55e; -fx-background-radius: 1px;");
+
+        progressPane.getChildren().add(contextProgressFill);
+
+        contextPercentLabel = new Label("0%");
+        contextPercentLabel.setStyle("-fx-font-size: 10px; -fx-font-weight: 600; -fx-text-fill: #9ca3af;");
+
+        contextUsageBar = new HBox(4, progressPane, contextPercentLabel);
+        contextUsageBar.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        contextUsageBar.setVisible(false);
+        contextUsageBar.setManaged(false);
+
+        // 间距：在标签和进度条之间留空
+        Region contextGap = new Region();
+        contextGap.setPrefWidth(10);
+        contextGap.setMinWidth(10);
+
+        statusBar.getChildren().addAll(leftStatusLabel, contextGap, contextUsageBar, statusSpacer, projectBadge);
 
         // Completion popup (after inputArea created)
         completionPopup = new CompletionPopup(inputArea);
@@ -691,6 +728,37 @@ public class ChatInput extends VBox {
 
     public void setStatusText(String text) {
         leftStatusLabel.setText(text);
+    }
+
+    /**
+     * 更新上下文使用率展示。
+     * @param ratio 0.0 ~ 1.0，上下文使用比例
+     */
+    public void setContextUsage(double ratio) {
+        if (Double.isNaN(ratio) || Double.isInfinite(ratio)) ratio = 0.0;
+        double clamped = Math.max(0.0, Math.min(1.0, ratio));
+        int percent = (int) Math.round(clamped * 100);
+        int barWidth = (int) Math.round(clamped * 44);
+
+        // 颜色：≤60% 绿 / ≤85% 黄 / >85% 红
+        String color;
+        if (clamped <= 0.60) {
+            color = "#22c55e";
+        } else if (clamped <= 0.85) {
+            color = "#eab308";
+        } else {
+            color = "#ef4444";
+        }
+
+        javafx.application.Platform.runLater(() -> {
+            contextProgressFill.setPrefWidth(barWidth);
+            contextProgressFill.setStyle("-fx-background-color: " + color + "; -fx-background-radius: 1px;");
+            contextPercentLabel.setText(percent + "%");
+            contextPercentLabel.setStyle("-fx-font-size: 10px; -fx-font-weight: 600; -fx-text-fill: " + color + ";");
+
+            contextUsageBar.setVisible(true);
+            contextUsageBar.setManaged(true);
+        });
     }
 
     public void setWorkspacePath(java.nio.file.Path path) {

@@ -1,6 +1,7 @@
 package gui.ui;
 
 import agent.AgentLoop;
+import agent.UsageAccumulator;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
@@ -985,6 +986,21 @@ public class BackendBridge {
     /** 获取最近一次回复的推理内容（可能为 null） */
     public String getLastReasoningContent() {
         return lastReasoningContent;
+    }
+
+    /**
+     * 获取当前会话的上下文使用率 (0.0 ~ 1.0)。
+     *
+     * 用于状态栏展示。有真实 usage 数据时使用 lastCall 的 prompt tokens；
+     * 首轮无数据时回退到消息字符估算。
+     */
+    public double getContextUsageRatio() {
+        if (agentLoop == null || sessionManager == null) return 0.0;
+        Session session = sessionManager.getOrCreate(sessionKey);
+        if (session == null) return 0.0;
+        UsageAccumulator usageAcc = session.obtainLastUsage();
+        List<Map<String, Object>> messages = session.getMessages();
+        return agentLoop.getContextRatioByUsage(usageAcc, messages);
     }
 
     // ── 资源清理 ──

@@ -352,6 +352,7 @@ public class MainStage {
                                     backendBridge.resumeSession(sid);
                                     List<Map<String, Object>> history = backendBridge.getSessionHistory(sid);
                                     chatPage.loadMessages(history);
+                                    chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                                     return;
                                 }
                             }
@@ -360,6 +361,7 @@ public class MainStage {
                         backendBridge.resetTitleCounter();
                         backendBridge.newSession();
                         chatPage.clearMessages();
+                        chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                         sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
                     });
                 });
@@ -372,6 +374,7 @@ public class MainStage {
                 CompletableFuture.runAsync(() -> backendBridge.newSession())
                     .thenRun(() -> Platform.runLater(() -> {
                         chatPage.clearMessages();
+                        chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                         chatPage.refreshProjectBadge();
                         sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
                     }));
@@ -384,6 +387,7 @@ public class MainStage {
                     List<Map<String, Object>> history = backendBridge.getSessionHistory(sessionId);
                     Platform.runLater(() -> {
                         chatPage.loadMessages(history);
+                        chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                         chatPage.refreshProjectBadge();
                         showPage("chat");
                     });
@@ -515,6 +519,9 @@ public class MainStage {
                 // 热刷新 provider 和 AgentLoop，使模型变更即时生效
                 backendBridge.refreshProvider();
                 chatPage.setStatusText("\u25CF 模型就绪 \u00B7 " + model);
+                if (backendBridge != null) {
+                    chatPage.setContextUsage(backendBridge.getContextUsageRatio());
+                }
             });
         }
     }
@@ -550,6 +557,8 @@ public class MainStage {
                         chatPage.getChatInput().setSending(true);
                         chatPage.addThinkingPlaceholder();
                         chatPage.setStatusText("\u25CF \u601D\u8003\u4E2D...");
+                        // 更新上下文使用率（首轮为估算值，后续为真实值）
+                        chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                         java.util.List<String> allMedia = chatPage.getChatInput().getAllAttachmentPaths();
                         backendBridge.sendMessage(
                             text,
@@ -577,6 +586,7 @@ public class MainStage {
                                 }
                                 chatPage.setStatusText("\u25CF 模型就绪 \u00B7 "
                                     + backendBridge.getConfig().getAgents().getDefaults().getModel());
+                                chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                                 sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
                             },
                             error -> {
@@ -593,6 +603,9 @@ public class MainStage {
                         backendBridge.getConfig().getWorkspacePath());
                     chatPage.getChatInput().setProjectPath(backendBridge.getProjectDir());
 
+                    // 设置后端桥接引用（用于会话切换时刷新项目徽标）
+                    chatPage.setBackendBridge(backendBridge);
+
                     // 设置项目注册信息（状态栏右下角徽标 + Popover）
                     chatPage.setProjectInfo(
                         backendBridge.getProjectRegistry(),
@@ -601,6 +614,7 @@ public class MainStage {
                     // Initial status
                     chatPage.setStatusText("\u25CF 模型就绪 \u00B7 "
                         + backendBridge.getConfig().getAgents().getDefaults().getModel());
+                    chatPage.setContextUsage(0.0);
 
                     // Refresh sidebar history, ensure fresh session for welcome page
                     sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());

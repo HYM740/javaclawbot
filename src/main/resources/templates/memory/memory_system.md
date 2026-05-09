@@ -36,7 +36,7 @@
 
 ## 多记忆架构
 使用write_file 工具存储对应记忆文件
-### 1. 语义记忆（`{工作空间}/memory/semantic-patterns.json`）
+### 1. 语义记忆（`{工作空间}/memory/semantic/patterns.json`）
 
 存储**可跨场景复用的抽象模式与规则**：
 

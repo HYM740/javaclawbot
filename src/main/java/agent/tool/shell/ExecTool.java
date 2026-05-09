@@ -11,6 +11,8 @@ import java.util.regex.Pattern;
 
 import lombok.extern.slf4j.Slf4j;
 
+import static constant.Constant.importantPrompt;
+
 /**
  * Shell execution tool: executes a bash command and returns its output.
  *
@@ -214,7 +216,7 @@ public class ExecTool extends Tool {
             "   - If your command is long running and you would like to be notified when it finishes – use `run_in_background`. No sleep needed.",
             "   - Do not retry failing commands in a sleep loop — diagnose the root cause.",
             "   - If you must poll an external process, use a check command (e.g. `gh run view`) rather than sleeping first.",
-            "   - If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user."
+            "   - If you must sleep, keep the duration short (1-5 seconds) to avoid blocking the user." + importantPrompt
         ));
     }
 

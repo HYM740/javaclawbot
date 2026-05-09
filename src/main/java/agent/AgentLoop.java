@@ -589,7 +589,7 @@ public class AgentLoop {
      * @param messages   当前消息列表（仅在第一轮无真实数据时使用）
      * @return 上下文比例 (0.0 ~ 1.0)
      */
-    private double getContextRatioByUsage(UsageAccumulator usageAcc, List<Map<String, Object>> messages) {
+    public double getContextRatioByUsage(UsageAccumulator usageAcc, List<Map<String, Object>> messages) {
         // 如果有真实数据（后续轮次），用真实的 prompt_tokens，不再乘系数
         if (usageAcc != null && usageAcc.hasData()) {
             long promptTokens = usageAcc.getContextSize();
