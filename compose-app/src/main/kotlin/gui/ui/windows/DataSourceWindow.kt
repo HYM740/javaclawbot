@@ -128,15 +128,16 @@ fun DataSourceWindow(
                                 try {
                                     val pool = maxPoolSize.toIntOrNull() ?: 5
                                     val timeout = connectionTimeout.toLongOrNull() ?: 30000L
+                                    val pwd = if (isEdit && password.isBlank()) "******" else password
                                     if (isEdit) {
                                         bridge.updateDataSource(
                                             editData!!.oldName, name.trim(), jdbcUrl.trim(),
-                                            username.trim(), password, driverClass.trim(), pool, timeout
+                                            username.trim(), pwd, driverClass.trim(), pool, timeout
                                         )
                                     } else {
                                         bridge.addDataSource(
                                             name.trim(), jdbcUrl.trim(), username.trim(),
-                                            password, driverClass.trim(), pool, timeout
+                                            pwd, driverClass.trim(), pool, timeout
                                         )
                                     }
                                     onSaved()

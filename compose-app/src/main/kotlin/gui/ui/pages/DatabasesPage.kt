@@ -21,12 +21,16 @@ import gui.ui.Bridge
 import gui.ui.theme.*
 import gui.ui.windows.DataSourceEditData
 import gui.ui.windows.DataSourceWindow
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("DatabasesPage")
 
 @Composable
 fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
     var showAddWindow by remember { mutableStateOf(false) }
     var editData by remember { mutableStateOf<DataSourceEditData?>(null) }
     var deleteTarget by remember { mutableStateOf<String?>(null) }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableStateOf(0) }
 
     // Force refresh on data changes
@@ -144,14 +148,20 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                                 try {
                                     bridge?.reconnectDataSource(name)
                                     refreshKey++
-                                } catch (e: Exception) {}
+                                } catch (e: Exception) {
+                                    log.warn("重连数据源失败: $name", e)
+                                    statusMessage = "重连失败: ${e.message}"
+                                }
                             }) { Text("重连", color = AppColors.StatusWarn, fontSize = 13.sp) }
 
                             TextButton(onClick = {
                                 try {
                                     bridge?.toggleDataSource(name, !enable)
                                     refreshKey++
-                                } catch (e: Exception) {}
+                                } catch (e: Exception) {
+                                    log.warn("切换数据源状态失败: $name", e)
+                                    statusMessage = "操作失败: ${e.message}"
+                                }
                             }) {
                                 Text(
                                     if (enable) "⛔ 禁用" else "⚡ 启用",
@@ -220,9 +230,12 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                     TextButton(onClick = {
                         try {
                             bridge?.deleteDataSource(target)
-                        } catch (_: Exception) {}
-                        deleteTarget = null
-                        refreshKey++
+                            deleteTarget = null
+                            refreshKey++
+                        } catch (e: Exception) {
+                            log.warn("删除数据源失败: $target", e)
+                            statusMessage = "删除失败: ${e.message}"
+                        }
                     }) {
                         Text("删除", color = AppColors.StatusError)
                     }
