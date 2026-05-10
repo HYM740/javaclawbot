@@ -17,6 +17,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
+import androidx.compose.foundation.layout.width
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.runtime.*
 import com.vladsch.flexmark.ast.*
@@ -129,6 +131,7 @@ private fun CodeBlock(text: String) {
 @Composable
 private fun TableNode(node: TableBlock) {
     var showDialog by remember { mutableStateOf(false) }
+    val colWidths = remember(node) { calculateColumnWidths(node) }
 
     Box(
         modifier = Modifier
@@ -145,8 +148,8 @@ private fun TableNode(node: TableBlock) {
                     Column {
                         node.children.forEach { child ->
                             when (child) {
-                                is TableHead -> TableHeaderRow(child)
-                                is TableBody -> TableBodyContent(child)
+                                is TableHead -> TableHeaderRow(child, colWidths)
+                                is TableBody -> TableBodyContent(child, colWidths)
                                 is TableSeparator -> { /* skip separator row */ }
                                 else -> RenderMarkdownNode(child)
                             }
@@ -204,8 +207,8 @@ private fun TableNode(node: TableBlock) {
                             ) {
                                 node.children.forEach { child ->
                                     when (child) {
-                                        is TableHead -> TableHeaderRow(child)
-                                        is TableBody -> TableBodyContent(child)
+                                        is TableHead -> TableHeaderRow(child, colWidths)
+                                        is TableBody -> TableBodyContent(child, colWidths)
                                         is TableSeparator -> { /* skip separator row */ }
                                         else -> RenderMarkdownNode(child)
                                     }
@@ -220,13 +223,13 @@ private fun TableNode(node: TableBlock) {
 }
 
 @Composable
-private fun TableHeaderRow(node: TableHead) {
+private fun TableHeaderRow(node: TableHead, colWidths: List<Dp>) {
     Row {
         node.children.forEach { row ->
             if (row is TableRow) {
-                row.children.forEach { cell ->
+                row.children.forEachIndexed { colIndex, cell ->
                     if (cell is TableCell) {
-                        TableCellContent(cell, isHeader = true)
+                        TableCellContent(cell, isHeader = true, colWidth = colWidths.getOrElse(colIndex) { 80.dp })
                     }
                 }
             }
@@ -235,16 +238,16 @@ private fun TableHeaderRow(node: TableHead) {
 }
 
 @Composable
-private fun TableBodyContent(node: TableBody) {
+private fun TableBodyContent(node: TableBody, colWidths: List<Dp>) {
     Column {
         node.children.forEachIndexed { rowIndex, row ->
             if (row is TableRow) {
                 val bgColor = if (rowIndex % 2 == 0) Color.Transparent
                     else AppColors.CodeBackground
                 Row(modifier = Modifier.background(bgColor)) {
-                    row.children.forEach { cell ->
+                    row.children.forEachIndexed { colIndex, cell ->
                         if (cell is TableCell) {
-                            TableCellContent(cell, isHeader = false)
+                            TableCellContent(cell, isHeader = false, colWidth = colWidths.getOrElse(colIndex) { 80.dp })
                         }
                     }
                 }
@@ -254,7 +257,7 @@ private fun TableBodyContent(node: TableBody) {
 }
 
 @Composable
-private fun TableCellContent(node: TableCell, isHeader: Boolean) {
+private fun TableCellContent(node: TableCell, isHeader: Boolean, colWidth: Dp) {
     val align = when (node.alignment) {
         TableCell.Alignment.LEFT -> Alignment.TopStart
         TableCell.Alignment.CENTER -> Alignment.TopCenter
@@ -264,7 +267,7 @@ private fun TableCellContent(node: TableCell, isHeader: Boolean) {
 
     Box(
         modifier = Modifier
-            .defaultMinSize(minWidth = 80.dp)
+            .width(colWidth)
             .border(0.5.dp, AppColors.Border)
             .padding(horizontal = 12.dp, vertical = 6.dp),
         contentAlignment = align
@@ -285,4 +288,31 @@ private fun TableCellContent(node: TableCell, isHeader: Boolean) {
             }
         }
     }
+}
+
+private fun calculateColumnWidths(node: TableBlock): List<Dp> {
+    val charWidth = 8.5f
+    val padding = 24f
+    val minWidth = 80f
+    val maxChars = mutableListOf<Int>()
+
+    fun scanRow(row: Node) {
+        row.children.forEachIndexed { i, cell ->
+            if (cell is TableCell) {
+                while (maxChars.size <= i) maxChars.add(0)
+                val text = TextCollectingVisitor().collectAndGetText(cell)
+                if (text.length > maxChars[i]) maxChars[i] = text.length
+            }
+        }
+    }
+
+    for (child in node.children) {
+        when (child) {
+            is TableHead -> child.children.forEach { n -> if (n is TableRow) scanRow(n) }
+            is TableBody -> child.children.forEach { n -> if (n is TableRow) scanRow(n) }
+            else -> {}
+        }
+    }
+
+    return maxChars.map { maxOf(minWidth, it * charWidth + padding).dp }
 }
