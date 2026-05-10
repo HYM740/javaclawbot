@@ -20,8 +20,18 @@ import com.vladsch.flexmark.parser.Parser
 import com.vladsch.flexmark.util.ast.Node
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
+import com.vladsch.flexmark.ext.tables.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.border
+import androidx.compose.material.Dialog
+import androidx.compose.ui.Alignment
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.Color
 
-private val MARKDOWN_PARSER: Parser = Parser.builder().build()
+private val MARKDOWN_PARSER: Parser = Parser.builder()
+    .extensions(listOf(TablesExtension.create()))
+    .build()
 
 @Composable
 fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
@@ -87,6 +97,7 @@ private fun RenderMarkdownNode(node: Node) {
         ) {
             Column { node.children.forEach { RenderMarkdownNode(it) } }
         }
+        is TableBlock -> TableNode(node)
         else -> {
             val text = node.chars.toString().ifEmpty { return }
             Text(text, style = AppTheme.typography.body)
@@ -107,5 +118,144 @@ private fun CodeBlock(text: String) {
             .padding(12.dp)
     ) {
         Text(text, style = AppTheme.typography.mono, color = AppColors.TextPrimary)
+    }
+}
+
+@Composable
+private fun TableNode(node: TableBlock) {
+    var showDialog by remember { mutableStateOf(false) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
+    ) {
+        Row(
+            modifier = Modifier.horizontalScroll(rememberScrollState())
+        ) {
+            Column {
+                node.children.forEach { child ->
+                    when (child) {
+                        is TableHead -> TableHeaderRow(child)
+                        is TableBody -> TableBodyContent(child)
+                        else -> RenderMarkdownNode(child)
+                    }
+                }
+            }
+        }
+
+        // Top-right expand button
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(4.dp)
+                .size(24.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(AppColors.CodeBackground.copy(alpha = 0.7f))
+                .clickable { showDialog = true },
+            contentAlignment = Alignment.Center
+        ) {
+            Text("\u2BF6", fontSize = 12.sp, color = AppColors.TextSecondary)
+        }
+    }
+
+    // Dialog
+    if (showDialog) {
+        Dialog(onDismissRequest = { showDialog = false }) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .fillMaxHeight(0.8f)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White)
+                    .padding(16.dp)
+            ) {
+                // Close button
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(28.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { showDialog = false },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("\u2715", fontSize = 14.sp, color = AppColors.TextSecondary)
+                }
+
+                // Table content (scrollable)
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(top = 28.dp)
+                        .horizontalScroll(rememberScrollState())
+                ) {
+                    Column {
+                        node.children.forEach { child ->
+                            when (child) {
+                                is TableHead -> TableHeaderRow(child)
+                                is TableBody -> TableBodyContent(child)
+                                else -> RenderMarkdownNode(child)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableHeaderRow(node: TableHead) {
+    Row {
+        node.children.forEach { row ->
+            if (row is TableRow) {
+                row.children.forEachIndexed { index, cell ->
+                    if (cell is TableCell) {
+                        TableCellContent(cell, isHeader = true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableBodyContent(node: TableBody) {
+    Column {
+        node.children.forEachIndexed { rowIndex, row ->
+            if (row is TableRow) {
+                val bgColor = if (rowIndex % 2 == 0) Color.Transparent
+                    else AppColors.CodeBackground
+                Row(modifier = Modifier.background(bgColor)) {
+                    row.children.forEach { cell ->
+                        if (cell is TableCell) {
+                            TableCellContent(cell, isHeader = false)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TableCellContent(node: TableCell, isHeader: Boolean) {
+    Box(
+        modifier = Modifier
+            .defaultMinSize(minWidth = 80.dp)
+            .border(0.5.dp, AppColors.Border)
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        if (isHeader) {
+            val visitor = TextCollectingVisitor()
+            val text = visitor.collectAndGetText(node)
+            Text(text, fontWeight = FontWeight.Bold, style = AppTheme.typography.body)
+        } else {
+            Column {
+                node.children.forEach { RenderMarkdownNode(it) }
+            }
+        }
     }
 }
