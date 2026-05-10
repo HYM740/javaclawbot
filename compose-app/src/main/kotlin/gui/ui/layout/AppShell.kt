@@ -24,31 +24,34 @@ fun AppShell(
     modifier: Modifier = Modifier,
     content: @Composable (showTabBar: Boolean) -> Unit
 ) {
-    var navExpanded by remember { mutableStateOf(true) }
+    var sidebarExpanded by remember { mutableStateOf(true) }
 
     Column(modifier = modifier.fillMaxSize()) {
-        TopNavBar(
-            expanded = navExpanded,
-            onToggleExpand = { navExpanded = !navExpanded },
-            activePage = activePage,
-            onPageSelected = onPageSelected
-        )
-        // Only show TabBar on chat/history pages
-        if (activePage == "chat" || activePage == "__history__") {
-            TabBar(
-                tabs = tabs,
-                activeTabId = activeTabId,
-                showHistoryActive = showHistoryActive,
-                onTabSelected = onTabSelected,
-                onTabClosed = onTabClosed,
-                onNewTab = onNewTab,
-                onHistorySelected = onHistorySelected
+        Row(modifier = Modifier.weight(1f)) {
+            SidebarNav(
+                expanded = sidebarExpanded,
+                onToggleExpand = { sidebarExpanded = !sidebarExpanded },
+                activePage = activePage,
+                onPageSelected = onPageSelected
             )
-        }
-        Box(
-            Modifier.weight(1f).fillMaxWidth().background(AppColors.Background)
-        ) {
-            content(activePage == "chat" || activePage == "__history__")
+            Column(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                if (activePage == "chat" || activePage == "__history__") {
+                    TabBar(
+                        tabs = tabs,
+                        activeTabId = activeTabId,
+                        showHistoryActive = showHistoryActive,
+                        onTabSelected = onTabSelected,
+                        onTabClosed = onTabClosed,
+                        onNewTab = onNewTab,
+                        onHistorySelected = onHistorySelected
+                    )
+                }
+                Box(
+                    Modifier.weight(1f).fillMaxWidth().background(AppColors.Background)
+                ) {
+                    content(activePage == "chat" || activePage == "__history__")
+                }
+            }
         }
         StatusBar(status = statusInfo)
     }
