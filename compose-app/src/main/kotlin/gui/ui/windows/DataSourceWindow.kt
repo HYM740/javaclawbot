@@ -44,7 +44,7 @@ fun DataSourceWindow(
     var name by remember { mutableStateOf(editData?.name ?: "") }
     var jdbcUrl by remember { mutableStateOf(editData?.jdbcUrl ?: "") }
     var username by remember { mutableStateOf(editData?.username ?: "") }
-    var password by remember { mutableStateOf(if (isEdit) "******" else "") }
+    var password by remember { mutableStateOf("") }
     var driverClass by remember { mutableStateOf(editData?.driverClass ?: "") }
     var maxPoolSize by remember { mutableStateOf((editData?.maxPoolSize ?: 5).toString()) }
     var connectionTimeout by remember { mutableStateOf((editData?.connectionTimeout ?: 30000L).toString()) }
@@ -68,11 +68,11 @@ fun DataSourceWindow(
 
             fieldInput("名称", name, "例如: my-db") { name = it; error = null }
             fieldInput("JDBC URL", jdbcUrl, "jdbc:postgresql://localhost:5432/mydb") { jdbcUrl = it; error = null }
-            fieldInput("用户名", username, "root") { username = it }
-            fieldInput("密码", password, if (isEdit) "留空保留原密码" else "****") { password = it }
-            fieldInput("驱动类", driverClass, "自动推断") { driverClass = it }
-            fieldInput("连接池大小", maxPoolSize, "5") { maxPoolSize = it }
-            fieldInput("连接超时 (ms)", connectionTimeout, "30000") { connectionTimeout = it }
+            fieldInput("用户名", username, "root") { username = it; error = null }
+            fieldInput("密码", password, if (isEdit) "留空则保留原密码" else "****") { password = it; error = null }
+            fieldInput("驱动类", driverClass, "自动推断") { driverClass = it; error = null }
+            fieldInput("连接池大小", maxPoolSize, "5") { maxPoolSize = it; error = null }
+            fieldInput("连接超时 (ms)", connectionTimeout, "30000") { connectionTimeout = it; error = null }
 
             if (error != null) {
                 Spacer(Modifier.height(8.dp))
@@ -84,8 +84,12 @@ fun DataSourceWindow(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(
                     onClick = {
+                        if (bridge == null) {
+                            testResult = "连接失败: 后端未初始化"
+                            return@TextButton
+                        }
                         testing = true; testResult = null
-                        val msg = bridge?.testDataSourceConnection(
+                        val msg = bridge.testDataSourceConnection(
                             jdbcUrl.trim(), username.trim(), password, driverClass.trim()
                         )
                         testing = false
@@ -117,16 +121,20 @@ fun DataSourceWindow(
                             name.isBlank() -> error = "请输入名称"
                             jdbcUrl.isBlank() -> error = "请输入 JDBC URL"
                             else -> {
+                                if (bridge == null) {
+                                    error = "后端未初始化，请重启应用"
+                                    return@TextButton
+                                }
                                 try {
                                     val pool = maxPoolSize.toIntOrNull() ?: 5
                                     val timeout = connectionTimeout.toLongOrNull() ?: 30000L
                                     if (isEdit) {
-                                        bridge?.updateDataSource(
+                                        bridge.updateDataSource(
                                             editData!!.oldName, name.trim(), jdbcUrl.trim(),
                                             username.trim(), password, driverClass.trim(), pool, timeout
                                         )
                                     } else {
-                                        bridge?.addDataSource(
+                                        bridge.addDataSource(
                                             name.trim(), jdbcUrl.trim(), username.trim(),
                                             password, driverClass.trim(), pool, timeout
                                         )
