@@ -4,6 +4,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.Icon
@@ -24,9 +26,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import gui.ui.theme.AppColors
-import gui.ui.theme.AppTheme
 import gui.ui.theme.CjkFontResolver
+import org.slf4j.LoggerFactory
+import java.awt.Desktop
+import java.nio.file.Path
 import kotlin.math.roundToInt
+
+private val log = LoggerFactory.getLogger("ChatInput")
+
+data class Attachment(val path: Path, val type: AttachmentType)
+enum class AttachmentType { IMAGE, FILE }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -34,13 +43,17 @@ fun ChatInput(
     sending: Boolean,
     statusText: String = "",
     contextUsage: Float = 0f,
-    onSend: (String) -> Unit,
+    messages: List<String> = emptyList(),
+    onSend: (String, List<String>?) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var text by remember { mutableStateOf("") }
     var escCount by remember { mutableStateOf(0) }
     var lastEscTime by remember { mutableStateOf(0L) }
+    var attachments by remember { mutableStateOf(listOf<Attachment>()) }
+    var historyIndex by remember { mutableStateOf(-1) }
+    var draftText by remember { mutableStateOf("") }
 
     val clamped = contextUsage.coerceIn(0f, 1f)
     val percent = (clamped * 100).roundToInt()
@@ -51,7 +64,6 @@ fun ChatInput(
     }
 
     Column(modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
-        // Status bar row
         if (statusText.isNotBlank() || contextUsage > 0f) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
@@ -71,8 +83,6 @@ fun ChatInput(
 
                 if (contextUsage > 0f) {
                     Spacer(Modifier.width(8.dp))
-
-                    // Battery-style progress bar
                     Box(
                         Modifier.size(46.dp, 4.dp)
                             .border(1.dp, Color(0xFFD1D5DB), RoundedCornerShape(3.dp)),
@@ -84,9 +94,7 @@ fun ChatInput(
                                 .background(barColor, RoundedCornerShape(1.dp))
                         )
                     }
-
                     Spacer(Modifier.width(4.dp))
-
                     Text(
                         "$percent%",
                         style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 10.sp, color = barColor)
@@ -95,9 +103,63 @@ fun ChatInput(
             }
         }
 
-        // Input box
         Column(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp)).background(Color.White).padding(12.dp)) {
+
+            // Attachment preview
+            if (attachments.isNotEmpty()) {
+                LazyRow(
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(attachments, key = { it.path.toString() }) { att ->
+                        Box {
+                            when (att.type) {
+                                AttachmentType.IMAGE -> {
+                                    Box(
+                                        Modifier.size(80.dp, 60.dp)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(Color(0xFFF3F4F6))
+                                            .clickable { openWithSystem(att.path) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("🖼", fontSize = 14.sp)
+                                    }
+                                }
+                                AttachmentType.FILE -> {
+                                    Row(
+                                        Modifier.clip(RoundedCornerShape(8.dp))
+                                            .background(Color(0xFFF3F4F6))
+                                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                                            .clickable { openWithSystem(att.path) },
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text("📄", fontSize = 14.sp)
+                                        Spacer(Modifier.width(4.dp))
+                                        Text(
+                                            att.path.fileName.toString(),
+                                            fontSize = 12.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 150.dp)
+                                        )
+                                    }
+                                }
+                            }
+                            // Remove button
+                            Box(
+                                Modifier.align(Alignment.TopEnd).offset(x = 4.dp, y = (-4).dp)
+                                    .size(16.dp).clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFF6B7280))
+                                    .clickable { attachments = attachments - att },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("×", color = Color.White, fontSize = 10.sp)
+                            }
+                        }
+                    }
+                }
+            }
 
             BasicTextField(
                 value = text,
@@ -105,8 +167,39 @@ fun ChatInput(
                 modifier = Modifier.fillMaxWidth().heightIn(min = 40.dp).onPreviewKeyEvent { event ->
                     if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
                     when {
+                        event.key == Key.DirectionUp && event.isAltPressed -> {
+                            val userMessages = messages.filter { it.isNotBlank() }
+                            if (userMessages.isEmpty()) return@onPreviewKeyEvent true
+                            if (historyIndex == -1) {
+                                draftText = text
+                                historyIndex = 0
+                            } else {
+                                historyIndex = minOf(historyIndex + 1, userMessages.size - 1)
+                            }
+                            text = userMessages[historyIndex]
+                            true
+                        }
+                        event.key == Key.DirectionDown && event.isAltPressed -> {
+                            val userMessages = messages.filter { it.isNotBlank() }
+                            if (userMessages.isEmpty() || historyIndex == -1) return@onPreviewKeyEvent true
+                            historyIndex--
+                            if (historyIndex < 0) {
+                                text = draftText
+                                draftText = ""
+                                historyIndex = -1
+                            } else {
+                                text = userMessages[historyIndex]
+                            }
+                            true
+                        }
                         event.key == Key.Enter && !event.isShiftPressed -> {
-                            if (text.isNotBlank()) { onSend(text.trim()); text = "" }; true
+                            if (text.isNotBlank() || attachments.isNotEmpty()) {
+                                val mediaPaths = attachments.map { it.path.toString() }
+                                onSend(text.trim(), mediaPaths)
+                                text = ""
+                                attachments = emptyList()
+                            }
+                            true
                         }
                         event.key == Key.Escape && sending -> {
                             val now = System.currentTimeMillis()
@@ -122,7 +215,7 @@ fun ChatInput(
                     Box {
                         if (text.isEmpty()) {
                             Text(
-                                "输入你的问题...",
+                                "输入你的问题...（ALT+↑/↓ 历史消息）",
                                 style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 15.sp, color = AppColors.TextSecondary),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -134,11 +227,39 @@ fun ChatInput(
             )
 
             Spacer(Modifier.height(8.dp))
+
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // Attach button
+                Box(Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))
+                    .background(AppColors.HoverBg).clickable {
+                        selectFiles { files -> attachments = attachments + files }
+                    },
+                    contentAlignment = Alignment.Center) {
+                    Text("📎", fontSize = 14.sp)
+                }
+                Spacer(Modifier.width(4.dp))
+                // @ mention button
+                Box(Modifier.size(32.dp).clip(RoundedCornerShape(8.dp))
+                    .background(AppColors.HoverBg).clickable {
+                        text = text + "@"
+                    },
+                    contentAlignment = Alignment.Center) {
+                    Text("@", fontSize = 14.sp, color = AppColors.TextSecondary)
+                }
+
                 Spacer(Modifier.weight(1f))
+
                 Box(Modifier.size(40.dp).clip(RoundedCornerShape(10.dp))
                     .background(if (sending) Color(0x1ADC2626) else AppColors.HoverBg)
-                    .clickable { if (sending) onStop() else { if (text.isNotBlank()) { onSend(text.trim()); text = "" } } },
+                    .clickable {
+                        if (sending) onStop()
+                        else if (text.isNotBlank() || attachments.isNotEmpty()) {
+                            val mediaPaths = attachments.map { it.path.toString() }
+                            onSend(text.trim(), mediaPaths)
+                            text = ""
+                            attachments = emptyList()
+                        }
+                    },
                     contentAlignment = Alignment.Center) {
                     Icon(if (sending) Icons.Filled.Close else Icons.AutoMirrored.Filled.Send,
                         if (sending) "Stop" else "Send", Modifier.size(20.dp),
@@ -146,5 +267,33 @@ fun ChatInput(
                 }
             }
         }
+    }
+}
+
+private fun openWithSystem(path: Path) {
+    try {
+        Desktop.getDesktop().open(path.toFile())
+    } catch (e: Exception) {
+        log.warn("无法打开文件: {}", path, e)
+    }
+}
+
+private fun selectFiles(onResult: (List<Attachment>) -> Unit) {
+    val dialog = java.awt.FileDialog(null as java.awt.Frame?, "选择文件")
+    dialog.isMultipleMode = true
+    dialog.isVisible = true
+    val files = dialog.files
+    if (files != null) {
+        val attachments = files.mapNotNull { f ->
+            val path = f.toPath()
+            val name = path.fileName.toString().lowercase()
+            val type = when {
+                name.endsWith(".png") || name.endsWith(".jpg") || name.endsWith(".jpeg") ||
+                name.endsWith(".gif") || name.endsWith(".webp") || name.endsWith(".bmp") -> AttachmentType.IMAGE
+                else -> AttachmentType.FILE
+            }
+            Attachment(path, type)
+        }
+        onResult(attachments)
     }
 }

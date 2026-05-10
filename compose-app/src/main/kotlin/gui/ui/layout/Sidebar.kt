@@ -23,9 +23,8 @@ import androidx.compose.ui.unit.dp
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
 
-data class NavItem(val icon: String, val label: String, val pageKey: String)
-data class HistoryGroup(val label: String, val items: List<HistoryEntry>)
-data class HistoryEntry(val sessionId: String, val title: String)
+import gui.ui.model.HistoryGroup
+import gui.ui.model.HistoryEntry
 
 @Composable
 fun Sidebar(
