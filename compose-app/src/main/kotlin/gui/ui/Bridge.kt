@@ -1,0 +1,81 @@
+package gui.ui
+
+import gui.ui.model.StatusInfo
+import kotlinx.coroutines.*
+
+class Bridge(
+    private val bridge: BackendBridge,
+    private val scope: CoroutineScope
+) {
+    data class Progress(
+        val content: String,
+        val isToolHint: Boolean = false,
+        val isToolResult: Boolean = false,
+        val toolName: String? = null,
+        val toolCallId: String? = null,
+        val isReasoning: Boolean = false
+    )
+
+    fun initialize(onReady: () -> Unit) {
+        scope.launch(Dispatchers.IO) {
+            bridge.initialize()
+            scope.launch(Dispatchers.Main) { onReady() }
+        }
+    }
+
+    fun sendMessage(
+        text: String,
+        mediaPaths: List<String>? = null,
+        onProgress: (Progress) -> Unit,
+        onResponse: (String) -> Unit,
+        onError: (String) -> Unit
+    ) {
+        val progressAdapter = java.util.function.Consumer<BackendBridge.ProgressEvent> { event ->
+            scope.launch(Dispatchers.Main) {
+                onProgress(Progress(
+                    content = event.content(),
+                    isToolHint = event.isToolHint(),
+                    isToolResult = event.isToolResult(),
+                    toolName = event.toolName(),
+                    toolCallId = event.toolCallId(),
+                    isReasoning = event.isReasoning()
+                ))
+            }
+        }
+        val responseAdapter = java.util.function.Consumer<String> { resp ->
+            scope.launch(Dispatchers.Main) { onResponse(resp) }
+        }
+        val errorAdapter = java.util.function.Consumer<String> { err ->
+            scope.launch(Dispatchers.Main) { onError(err) }
+        }
+
+        scope.launch(Dispatchers.IO) {
+            bridge.sendMessage(text, mediaPaths, progressAdapter, responseAdapter, errorAdapter)
+        }
+    }
+
+    fun stopMessage() = bridge.stopMessage()
+    fun newSession() = bridge.newSession()
+    fun resumeSession(sessionId: String) = bridge.resumeSession(sessionId)
+    fun deleteSession(sessionId: String) = bridge.deleteSession(sessionId)
+    fun ensureFreshSession() = bridge.ensureFreshSession()
+    fun refreshProvider() = bridge.refreshProvider()
+    fun reloadConfigFromDisk() = bridge.reloadConfigFromDisk()
+
+    val config get() = bridge.config
+    val sessionManager get() = bridge.sessionManager
+    val provider get() = bridge.provider
+    val agentLoop get() = bridge.agentLoop
+    val cronService get() = bridge.cronService
+    val skillsLoader get() = bridge.skillsLoader
+    val projectRegistry get() = bridge.projectRegistry
+    val projectDir get() = bridge.projectDir
+    val sessionKey get() = bridge.sessionKey
+
+    val isWaitingForResponse get() = bridge.isWaitingForResponse
+    val currentSession get() = bridge.currentSession
+    fun getSessionHistory(sessionId: String) = bridge.getSessionHistory(sessionId)
+    val lastReasoningContent get() = bridge.lastReasoningContent
+    fun setOnTitleChanged(callback: Runnable?) { bridge.setOnTitleChanged(callback) }
+    fun resetTitleCounter() = bridge.resetTitleCounter()
+}
