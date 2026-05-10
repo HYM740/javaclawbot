@@ -211,7 +211,11 @@ public class BackendBridge {
                     String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
 
                     if (isSystemCommand) {
-                        // 系统命令回复（/stop、/help 等）— 仅转发到进度回调，不清除响应回调和标题生成
+                        // 系统命令回复（/stop、/help 等）
+                        // 重置等待状态，避免 stop 后无法继续对话
+                        waitingForResponse = false;
+                        currentResponseCallback.set(null);
+
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {
@@ -337,6 +341,10 @@ public class BackendBridge {
      */
     public void stopMessage() {
         if (!waitingForResponse) return;
+
+        // 立即重置等待状态，避免 stop 后 always-waiting 导致无法继续对话
+        waitingForResponse = false;
+        currentResponseCallback.set(null);
 
         CompletableFuture.runAsync(() -> {
             try {

@@ -59,6 +59,8 @@ public class ChatPage extends VBox {
     private HBox thinkingPlaceholder;
     /** 思考中动画 */
     private Timeline thinkingAnimation;
+    /** 流式输出期间的进度消息气泡（每次更新替换而非追加，避免 WebView 累积卡死 GUI） */
+    private javafx.scene.Node lastStreamingBubble;
 
     private static final Parser REASONING_PARSER;
     private static final HtmlRenderer REASONING_RENDERER;
@@ -256,12 +258,36 @@ public class ChatPage extends VBox {
     }
 
     public void addAssistantMessage(String content) {
+        addAssistantMessage(content, false);
+    }
+
+    /**
+     * 添加助手消息气泡。
+     * @param replacePrevious 为 true 时替换上一个流式输出气泡（仅用于 LLM 流式进度更新）
+     */
+    public void addAssistantMessage(String content, boolean replacePrevious) {
         // 过滤 LLM API 适配占位符，不显示无意义文本
         if ("(empty)".equals(content) || "（empty）".equals(content)) return;
         MessageBubble bubble = new MessageBubble(MessageBubble.Role.ASSISTANT, content);
         bubble.setOnHeightAdjusted(this::scrollToBottom);
-        messageContainer.getChildren().add(bubble);
+        // replacePrevious=true 且上一个流式气泡还在时替换它，避免 WebView 累积导致 GUI 卡死
+        if (replacePrevious && lastStreamingBubble != null) {
+            int idx = messageContainer.getChildren().indexOf(lastStreamingBubble);
+            if (idx >= 0) {
+                messageContainer.getChildren().set(idx, bubble);
+            } else {
+                messageContainer.getChildren().add(bubble);
+            }
+        } else {
+            messageContainer.getChildren().add(bubble);
+        }
+        lastStreamingBubble = bubble;
         smartScrollToBottom();
+    }
+
+    /** 清除流式气泡追踪（最终回复/推理块到达时调用） */
+    public void clearStreamingBubble() {
+        lastStreamingBubble = null;
     }
 
     /** 添加独立的推理/思考块（可折叠），用于工具调用前展示思考过程 */
@@ -680,6 +706,7 @@ public class ChatPage extends VBox {
         messageContainer.getChildren().clear();
         todoFloatBadge.setVisible(false);
         thinkingPlaceholder = null;
+        lastStreamingBubble = null;
         if (thinkingAnimation != null) {
             thinkingAnimation.stop();
             thinkingAnimation = null;

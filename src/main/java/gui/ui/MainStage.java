@@ -537,6 +537,7 @@ public class MainStage {
                         backendBridge.stopMessage();
                         chatPage.setStatusText("\u25CF 已停止");
                         chatPage.getChatInput().setSending(false);
+                        chatPage.clearStreamingBubble();
                     });
 
                     // 使 chatInput 可以访问历史消息记录
@@ -571,18 +572,20 @@ public class MainStage {
                                 } else if (progress.isReasoning()) {
                                     chatPage.addReasoningBlock(progress.content());
                                 } else {
-                                    chatPage.addAssistantMessage(progress.content());
+                                    // 流式进度文本：替换上一个气泡，避免 WebView 累积卡死 GUI
+                                    chatPage.addAssistantMessage(progress.content(), true);
                                 }
                             },
                             response -> {
                                 chatPage.removeThinkingPlaceholder();
                                 chatPage.getChatInput().setSending(false);
+                                chatPage.clearStreamingBubble();
                                 // 推理+回复合并为一个视觉单元
                                 String reasoning = backendBridge.getLastReasoningContent();
                                 if (reasoning != null && !reasoning.isBlank()) {
                                     chatPage.addAssistantMessageWithReasoning(reasoning, response);
                                 } else {
-                                    chatPage.addAssistantMessage(response);
+                                    chatPage.addAssistantMessage(response, false);
                                 }
                                 chatPage.setStatusText("\u25CF 模型就绪 \u00B7 "
                                     + backendBridge.getConfig().getAgents().getDefaults().getModel());
@@ -592,7 +595,8 @@ public class MainStage {
                             error -> {
                                 chatPage.removeThinkingPlaceholder();
                                 chatPage.getChatInput().setSending(false);
-                                chatPage.addAssistantMessage("\u26A0 " + error);
+                                chatPage.clearStreamingBubble();
+                                chatPage.addAssistantMessage("\u26A0 " + error, false);
                                 chatPage.setStatusText("\u25CF 错误");
                             }
                         );
