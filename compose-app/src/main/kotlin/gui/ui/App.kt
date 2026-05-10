@@ -172,6 +172,7 @@ fun main() = application {
                         val chatMsgs = msgs.mapNotNull { m ->
                             val roleStr = m["role"]?.toString() ?: return@mapNotNull null
                             val content = m["content"]?.toString() ?: ""
+                            val reasoning = m["reasoning_content"]?.toString()
                             val role = when (roleStr) {
                                 "user" -> ChatMessage.Role.USER
                                 "assistant" -> ChatMessage.Role.ASSISTANT
@@ -180,7 +181,8 @@ fun main() = application {
                             ChatMessage(
                                 id = "hist_${System.currentTimeMillis()}_${m.hashCode()}",
                                 role = role,
-                                content = content
+                                content = content,
+                                reasoning = reasoning
                             )
                         }
                         scope.launch(Dispatchers.Main) {
