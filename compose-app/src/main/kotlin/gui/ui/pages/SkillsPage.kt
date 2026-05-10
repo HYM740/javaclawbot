@@ -55,7 +55,7 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
 
         LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 380.dp),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().weight(1f),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
