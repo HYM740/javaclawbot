@@ -10,6 +10,8 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.Line;
 
+import java.awt.Desktop;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
@@ -215,7 +217,10 @@ public class Sidebar extends VBox {
         NavigationItem devItem = new NavigationItem("\uD83D\uDD27", "Dev Console");
         devItem.setOnMouseClicked(e -> notifyPageChange("devconsole"));
 
-        container.getChildren().addAll(settingsItem, devItem);
+        NavigationItem helpItem = new NavigationItem("\u2753", "Help");
+        helpItem.setOnMouseClicked(e -> openHelp());
+
+        container.getChildren().addAll(settingsItem, devItem, helpItem);
         return container;
     }
 
@@ -354,5 +359,14 @@ public class Sidebar extends VBox {
             }
         }
         return null;
+    }
+
+    private void openHelp() {
+        try {
+            String helpUrl = "http://101.68.93.109:9102/releases/help/NexusAi操作配置指南.html";
+            Desktop.getDesktop().browse(new URI(helpUrl));
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 }
