@@ -23,6 +23,7 @@ kotlin {
 
 dependencies {
     implementation(project(":backend"))
+    implementation(project(":java-fx-app"))
     implementation(compose.desktop.currentOs)
     implementation(libs.kotlin.stdlib)
     implementation(libs.kotlinx.coroutines)
