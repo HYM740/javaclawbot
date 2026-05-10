@@ -1,26 +1,71 @@
 package gui.ui
 
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
-import gui.ui.layout.AppShell
-import gui.ui.layout.HistoryGroup
+import gui.ui.layout.*
 import gui.ui.model.*
+import gui.ui.pages.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 fun main() = application {
     val windowState = rememberWindowState(width = 1100.dp, height = 800.dp)
+    val scope = rememberCoroutineScope()
+
+    var bridge by remember { mutableStateOf<Bridge?>(null) }
     var activePage by remember { mutableStateOf("chat") }
     var tabs by remember { mutableStateOf(listOf(ChatTab(id = "default", title = "\u65B0\u5BF9\u8BDD"))) }
     var activeTabId by remember { mutableStateOf("default") }
+    var messagesMap by remember { mutableStateOf(mapOf("default" to emptyList<ChatMessage>())) }
     var history by remember { mutableStateOf(emptyList<HistoryGroup>()) }
     var statusInfo by remember { mutableStateOf(StatusInfo()) }
+    var isLoading by remember { mutableStateOf(false) }
 
-    Window(onCloseRequest = ::exitApplication, title = "NexusAi", state = windowState) {
+    // Init bridge async
+    LaunchedEffect(Unit) {
+        scope.launch(Dispatchers.IO) {
+            val backend = BackendBridge()
+            backend.initialize()
+            val b = Bridge(backend, scope)
+            scope.launch(Dispatchers.Main) {
+                bridge = b
+                statusInfo = StatusInfo(
+                    modelName = b.config?.agents?.defaults?.model ?: "",
+                    mcpTotal = b.config?.tools?.mcpServers?.size ?: 0
+                )
+            }
+        }
+    }
+
+    // Refresh history when bridge is ready
+    LaunchedEffect(bridge) {
+        bridge ?: return@LaunchedEffect
+        scope.launch(Dispatchers.IO) {
+            val sessions = bridge?.sessionManager?.listSessions() ?: emptyList()
+            scope.launch(Dispatchers.Main) {
+                history = groupSessions(sessions)
+            }
+        }
+    }
+
+    Window(
+        onCloseRequest = {
+            bridge?.stopMessage()
+            exitApplication()
+        },
+        title = "NexusAi",
+        state = windowState
+    ) {
         AppShell(
             activePage = activePage,
             onPageSelected = { activePage = it },
@@ -29,20 +74,119 @@ fun main() = application {
             onTabSelected = { activeTabId = it },
             onTabClosed = { id ->
                 tabs = tabs.filter { it.id != id }
+                messagesMap = messagesMap - id
                 if (id == activeTabId && tabs.isNotEmpty()) activeTabId = tabs.first().id
             },
             onNewTab = {
                 val newId = "tab_${System.currentTimeMillis()}"
                 tabs = tabs + ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD")
+                messagesMap = messagesMap + (newId to emptyList())
+                activeTabId = newId
+                bridge?.newSession()
+            },
+            onNewChat = {
+                activePage = "chat"
+                bridge?.ensureFreshSession()
+                val newId = "fresh_${System.currentTimeMillis()}"
+                tabs = listOf(ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD"))
+                messagesMap = mapOf(newId to emptyList())
                 activeTabId = newId
             },
-            onNewChat = { activePage = "chat" },
             history = history,
-            onResume = {},
-            onDelete = {},
+            onResume = { sessionId ->
+                scope.launch(Dispatchers.IO) {
+                    bridge?.resumeSession(sessionId)
+                    val msgs = bridge?.getSessionHistory(sessionId) ?: emptyList()
+                    val chatMsgs = msgs.mapNotNull { m ->
+                        val roleStr = m["role"]?.toString() ?: return@mapNotNull null
+                        val content = m["content"]?.toString() ?: ""
+                        val role = when (roleStr) {
+                            "user" -> ChatMessage.Role.USER
+                            "assistant" -> ChatMessage.Role.ASSISTANT
+                            else -> ChatMessage.Role.SYSTEM
+                        }
+                        ChatMessage(
+                            id = "hist_${System.currentTimeMillis()}_${m.hashCode()}",
+                            role = role,
+                            content = content
+                        )
+                    }
+                    scope.launch(Dispatchers.Main) {
+                        messagesMap = messagesMap + (sessionId to chatMsgs)
+                        activePage = "chat"
+                        tabs = listOf(ChatTab(id = sessionId, title = "\u65B0\u5BF9\u8BDD"))
+                        activeTabId = sessionId
+                    }
+                }
+            },
+            onDelete = { sessionId ->
+                scope.launch(Dispatchers.IO) {
+                    bridge?.deleteSession(sessionId)
+                }
+            },
             statusInfo = statusInfo
         ) {
-            Text("Page: $activePage", modifier = Modifier.fillMaxSize())
+            when (activePage) {
+                "chat" -> ChatPage(
+                    bridge,
+                    messages = messagesMap[activeTabId] ?: emptyList(),
+                    onMessagesChanged = { messagesMap = messagesMap + (activeTabId to it) },
+                    isLoading = isLoading
+                )
+                "models" -> ModelsPage(bridge)
+                "agents" -> AgentsPage(bridge)
+                "channels" -> ChannelsPage(bridge)
+                "skills" -> SkillsPage(bridge)
+                "mcp" -> McpPage(bridge)
+                "databases" -> DatabasesPage(bridge)
+                "crontasks" -> CronPage(bridge)
+                "settings" -> SettingsPage(bridge)
+                "devconsole" -> DevConsolePage(bridge)
+                else -> Text(
+                    "Unknown page: $activePage",
+                    modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
+                )
+            }
         }
     }
+}
+
+// Helper - group sessions by date
+private fun groupSessions(sessions: List<Map<String, Any>>): List<HistoryGroup> {
+    val now = LocalDate.now()
+    val today = mutableListOf<Map<String, Any>>()
+    val yesterday = mutableListOf<Map<String, Any>>()
+    val earlier = mutableListOf<Map<String, Any>>()
+
+    sessions.forEach { s ->
+        val updated = s["updated_at"]?.toString() ?: ""
+        try {
+            val isoInstant = try {
+                LocalDateTime.parse(updated, DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+            } catch (_: Exception) {
+                LocalDateTime.parse(updated, DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'"))
+            }
+            val d = isoInstant.toLocalDate()
+            when {
+                d == now -> today
+                d == now.minusDays(1) -> yesterday
+                else -> earlier
+            }.add(s)
+        } catch (_: Exception) {
+            earlier.add(s)
+        }
+    }
+
+    return listOf(
+        HistoryGroup("\u4ECA\u5929", today.map { toEntry(it) }),
+        HistoryGroup("\u6628\u5929", yesterday.map { toEntry(it) }),
+        HistoryGroup("\u66F4\u65E9", earlier.map { toEntry(it) })
+    ).filter { it.items.isNotEmpty() }
+}
+
+private fun toEntry(s: Map<String, Any>): HistoryEntry {
+    val sid = s["session_id"]?.toString() ?: ""
+    val meta = s["metadata"] as? Map<*, *>
+    val title = meta?.get("title")?.toString() ?: sid
+    return HistoryEntry(sid, title)
 }

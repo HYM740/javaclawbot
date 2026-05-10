@@ -78,4 +78,20 @@ class Bridge(
     val lastReasoningContent get() = bridge.lastReasoningContent
     fun setOnTitleChanged(callback: Runnable?) { bridge.setOnTitleChanged(callback) }
     fun resetTitleCounter() = bridge.resetTitleCounter()
+
+    // MCP server management
+    fun addMcpServer(name: String, command: String) = bridge.addMcpServer(name, command)
+    fun deleteMcpServer(name: String) = bridge.deleteMcpServer(name)
+    fun getMcpStatus(name: String): String = bridge.getMcpStatus(name).toString()
+    fun refreshMcpTools() = bridge.refreshMcpTools()
+
+    // Data source management
+    fun addDataSource(
+        name: String, jdbcUrl: String, username: String, password: String,
+        driverClass: String, maxPoolSize: Int, connectionTimeout: Long
+    ) = bridge.addDataSource(name, jdbcUrl, username, password, driverClass, maxPoolSize, connectionTimeout)
+
+    fun deleteDataSource(name: String) = bridge.deleteDataSource(name)
+    fun testDataSourceConnection(jdbcUrl: String, username: String, password: String, driverClass: String): String? =
+        bridge.testDataSourceConnection(jdbcUrl, username, password, driverClass)
 }
