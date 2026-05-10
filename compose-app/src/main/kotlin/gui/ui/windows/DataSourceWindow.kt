@@ -18,9 +18,25 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowState
+import androidx.compose.ui.window.rememberWindowState
 import gui.ui.Bridge
+import gui.ui.components.ErrorDialog
 import gui.ui.theme.AppColors
 import gui.ui.theme.CjkFontResolver
+
+private val DRIVER_MAP = mapOf(
+    "jdbc:mysql:" to "com.mysql.cj.jdbc.Driver",
+    "jdbc:postgresql:" to "org.postgresql.Driver",
+    "jdbc:mariadb:" to "org.mariadb.jdbc.Driver",
+    "jdbc:oracle:thin:" to "oracle.jdbc.OracleDriver",
+    "jdbc:sqlserver:" to "com.microsoft.sqlserver.jdbc.SQLServerDriver",
+    "jdbc:h2:" to "org.h2.Driver",
+    "jdbc:sqlite:" to "org.sqlite.JDBC"
+)
+
+private fun inferDriverClass(jdbcUrl: String): String? =
+    DRIVER_MAP.entries.firstOrNull { (prefix) -> jdbcUrl.startsWith(prefix) }?.value
 
 data class DataSourceEditData(
     val oldName: String,
@@ -50,13 +66,21 @@ fun DataSourceWindow(
     var driverClass by remember { mutableStateOf(editData?.driverClass ?: "") }
     var maxPoolSize by remember { mutableStateOf((editData?.maxPoolSize ?: 5).toString()) }
     var connectionTimeout by remember { mutableStateOf((editData?.connectionTimeout ?: 30000L).toString()) }
-    var error by remember { mutableStateOf<String?>(null) }
     var testing by remember { mutableStateOf(false) }
     var testResult by remember { mutableStateOf<String?>(null) }
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+
+    val windowState = rememberWindowState(
+        width = 520.dp,
+        height = 600.dp
+    )
 
     Window(
         onCloseRequest = onDismiss,
-        title = title
+        title = title,
+        state = windowState,
+        enabled = errorDialogMessage == null
     ) {
         Column(
             Modifier.width(520.dp).heightIn(min = 500.dp, max = 700.dp)
@@ -70,18 +94,19 @@ fun DataSourceWindow(
 
             // Scrollable form area
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-                fieldInput("名称", name, "例如: my-db") { name = it; error = null }
-                fieldInput("JDBC URL", jdbcUrl, "jdbc:postgresql://localhost:5432/mydb") { jdbcUrl = it; error = null }
-                fieldInput("用户名", username, "root") { username = it; error = null }
-                fieldInput("密码", password, if (isEdit) "留空则保留原密码" else "****") { password = it; error = null }
-                fieldInput("驱动类", driverClass, "自动推断") { driverClass = it; error = null }
-                fieldInput("连接池大小", maxPoolSize, "5") { maxPoolSize = it; error = null }
-                fieldInput("连接超时 (ms)", connectionTimeout, "30000") { connectionTimeout = it; error = null }
-
-                if (error != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(error!!, color = AppColors.StatusError, fontSize = 13.sp)
+                fieldInput("名称", name, "例如: my-db") { name = it }
+                fieldInput("JDBC URL", jdbcUrl, "jdbc:postgresql://localhost:5432/mydb") {
+                    jdbcUrl = it
+                    val inferred = inferDriverClass(it.trim())
+                    if (inferred != null) {
+                        driverClass = inferred
+                    }
                 }
+                fieldInput("用户名", username, "root") { username = it }
+                fieldInput("密码", password, if (isEdit) "留空则保留原密码" else "****") { password = it }
+                fieldInput("驱动类", driverClass, "自动推断") { driverClass = it }
+                fieldInput("连接池大小", maxPoolSize, "5") { maxPoolSize = it }
+                fieldInput("连接超时 (ms)", connectionTimeout, "30000") { connectionTimeout = it }
             }
 
             // Fixed bottom action bar
@@ -94,13 +119,20 @@ fun DataSourceWindow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(
                         onClick = {
-                            if (bridge == null) { testResult = "连接失败: 后端未初始化"; return@TextButton }
+                            if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@TextButton }
                             testing = true; testResult = null
+                            val effectiveDriver = driverClass.trim().ifEmpty {
+                                inferDriverClass(jdbcUrl.trim()) ?: ""
+                            }
                             val msg = bridge.testDataSourceConnection(
-                                jdbcUrl.trim(), username.trim(), password, driverClass.trim()
+                                jdbcUrl.trim(), username.trim(), password, effectiveDriver
                             )
                             testing = false
-                            testResult = if (msg == null) "连接成功" else "连接失败: $msg"
+                            if (msg == null) {
+                                testResult = "连接成功"
+                            } else {
+                                errorDialogMessage = "连接失败: $msg"
+                            }
                         },
                         enabled = !testing && jdbcUrl.isNotBlank()
                     ) {
@@ -109,7 +141,7 @@ fun DataSourceWindow(
                     if (testResult != null) {
                         Spacer(Modifier.width(4.dp))
                         Text(testResult!!,
-                            color = if (testResult!!.startsWith("连接成功")) AppColors.StatusOK else AppColors.StatusError,
+                            color = AppColors.StatusOK,
                             fontSize = 12.sp)
                     }
                 }
@@ -117,25 +149,34 @@ fun DataSourceWindow(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onDismiss) { Text("取消") }
                     Button(
+                        enabled = !saving,
                         onClick = {
                             when {
-                                name.isBlank() -> error = "请输入名称"
-                                jdbcUrl.isBlank() -> error = "请输入 JDBC URL"
+                                name.isBlank() -> errorDialogMessage = "请输入名称"
+                                jdbcUrl.isBlank() -> errorDialogMessage = "请输入 JDBC URL"
                                 else -> {
-                                    if (bridge == null) { error = "后端未初始化，请重启应用"; return@Button }
+                                    if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@Button }
+                                    saving = true
                                     try {
                                         val pool = maxPoolSize.toIntOrNull() ?: 5
                                         val timeout = connectionTimeout.toLongOrNull() ?: 30000L
                                         val pwd = if (isEdit && password.isBlank()) "******" else password
+                                        val effectiveDriver = driverClass.trim().ifEmpty {
+                                            inferDriverClass(jdbcUrl.trim()) ?: ""
+                                        }
                                         if (isEdit) {
                                             bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
-                                                username.trim(), pwd, driverClass.trim(), pool, timeout)
+                                                username.trim(), pwd, effectiveDriver, pool, timeout)
                                         } else {
                                             bridge.addDataSource(name.trim(), jdbcUrl.trim(), username.trim(),
-                                                pwd, driverClass.trim(), pool, timeout)
+                                                pwd, effectiveDriver, pool, timeout)
                                         }
-                                        onSaved()
-                                    } catch (e: Exception) { error = e.message ?: "操作失败" }
+                                        onSaved(); onDismiss()
+                                    } catch (e: Exception) {
+                                        errorDialogMessage = e.message ?: "操作失败"
+                                    } finally {
+                                        saving = false
+                                    }
                                 }
                             }
                         }
@@ -143,6 +184,15 @@ fun DataSourceWindow(
                 }
             }
         }
+    }
+
+    // Error dialog as independent window
+    errorDialogMessage?.let { msg ->
+        ErrorDialog(
+            title = "错误",
+            message = msg,
+            onDismiss = { errorDialogMessage = null }
+        )
     }
 }
 

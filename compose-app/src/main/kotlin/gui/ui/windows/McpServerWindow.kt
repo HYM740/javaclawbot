@@ -18,7 +18,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowState
+import androidx.compose.ui.window.rememberWindowState
 import gui.ui.Bridge
+import gui.ui.components.ErrorDialog
 import gui.ui.theme.AppColors
 import gui.ui.theme.CjkFontResolver
 import org.slf4j.LoggerFactory
@@ -49,11 +52,19 @@ fun McpServerWindow(
     var command by remember { mutableStateOf(editData?.command ?: "") }
     var rawJson by remember { mutableStateOf(editData?.json ?: "") }
     var mode by remember { mutableStateOf(McpInputMode.FORM) }
-    var error by remember { mutableStateOf<String?>(null) }
+    var errorDialogMessage by remember { mutableStateOf<String?>(null) }
+    var saving by remember { mutableStateOf(false) }
+
+    val windowState = rememberWindowState(
+        width = 520.dp,
+        height = 500.dp
+    )
 
     Window(
         onCloseRequest = onDismiss,
-        title = title
+        title = title,
+        state = windowState,
+        enabled = errorDialogMessage == null
     ) {
         Column(
             Modifier.width(520.dp).heightIn(min = 400.dp, max = 650.dp)
@@ -88,7 +99,7 @@ fun McpServerWindow(
                         Spacer(Modifier.height(4.dp))
                         BasicTextField(
                             value = name,
-                            onValueChange = { name = it; error = null },
+                            onValueChange = { name = it },
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                                 .background(AppColors.HoverBg).padding(12.dp),
                             textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
@@ -105,7 +116,7 @@ fun McpServerWindow(
                         Spacer(Modifier.height(4.dp))
                         BasicTextField(
                             value = command,
-                            onValueChange = { command = it; error = null },
+                            onValueChange = { command = it },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(8.dp))
                                 .background(AppColors.HoverBg).padding(12.dp),
                             textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
@@ -123,7 +134,7 @@ fun McpServerWindow(
                         Spacer(Modifier.height(4.dp))
                         BasicTextField(
                             value = name,
-                            onValueChange = { name = it; error = null },
+                            onValueChange = { name = it },
                             modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                                 .background(AppColors.HoverBg).padding(12.dp),
                             textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
@@ -140,7 +151,7 @@ fun McpServerWindow(
                         Spacer(Modifier.height(4.dp))
                         BasicTextField(
                             value = rawJson,
-                            onValueChange = { rawJson = it; error = null },
+                            onValueChange = { rawJson = it },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).clip(RoundedCornerShape(8.dp))
                                 .background(AppColors.HoverBg).padding(12.dp),
                             textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
@@ -155,10 +166,15 @@ fun McpServerWindow(
                     }
                 }
 
-                if (error != null) {
-                    Spacer(Modifier.height(8.dp))
-                    Text(error!!, color = AppColors.StatusError, fontSize = 13.sp)
-                }
+            }
+
+            // Error dialog as independent window
+            errorDialogMessage?.let { msg ->
+                ErrorDialog(
+                    title = "错误",
+                    message = msg,
+                    onDismiss = { errorDialogMessage = null }
+                )
             }
 
             // Fixed bottom action bar
@@ -170,13 +186,15 @@ fun McpServerWindow(
                 OutlinedButton(onClick = onDismiss) { Text("取消") }
                 Spacer(Modifier.width(8.dp))
                 Button(
+                    enabled = !saving,
                     onClick = {
                         when {
-                            name.isBlank() -> error = "请输入服务器名称"
-                            mode == McpInputMode.FORM && command.isBlank() -> error = "请输入启动命令"
-                            mode == McpInputMode.RAW && rawJson.isBlank() -> error = "请输入 JSON 配置"
-                            bridge == null -> error = "后端未初始化，请重启应用"
+                            name.isBlank() -> errorDialogMessage = "请输入服务器名称"
+                            mode == McpInputMode.FORM && command.isBlank() -> errorDialogMessage = "请输入启动命令"
+                            mode == McpInputMode.RAW && rawJson.isBlank() -> errorDialogMessage = "请输入 JSON 配置"
+                            bridge == null -> errorDialogMessage = "后端未初始化，请重启应用"
                             else -> {
+                                saving = true
                                 try {
                                     when {
                                         mode == McpInputMode.RAW && isEdit ->
@@ -189,10 +207,12 @@ fun McpServerWindow(
                                             bridge.addMcpServer(name.trim(), command.trim())
                                     }
                                     log.info("MCP server saved: {}", name.trim())
-                                    onSaved()
+                                    onSaved(); onDismiss()
                                 } catch (e: Exception) {
                                     log.warn("MCP server operation failed", e)
-                                    error = e.message ?: "操作失败"
+                                    errorDialogMessage = e.message ?: "操作失败"
+                                } finally {
+                                    saving = false
                                 }
                             }
                         }

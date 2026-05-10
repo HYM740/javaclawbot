@@ -28,7 +28,7 @@ import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
 fun main() = application {
-    val windowState = rememberWindowState(width = 1100.dp, height = 800.dp)
+    val windowState = rememberWindowState(width = 1000.dp, height = 700.dp)
     val scope = rememberCoroutineScope()
 
     var bridge by remember { mutableStateOf<Bridge?>(null) }
