@@ -84,13 +84,14 @@ fun ChatPage(
             sending = isLoading,
             statusText = statusText,
             contextUsage = contextUsage,
-            onSend = { text ->
+            messages = messages.filter { it.role == ChatMessage.Role.USER }.map { it.content },
+            onSend = { text, mediaPaths ->
                 val model = bridge?.config?.agents?.defaults?.model ?: ""
                 statusText = "● 思考中..."
                 contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
                 bridge?.sendMessage(
                     text = text,
-                    mediaPaths = null,
+                    mediaPaths = mediaPaths,
                     onProgress = { /* handled externally */ },
                     onResponse = { response ->
                         statusText = "● 模型就绪 · $model"
