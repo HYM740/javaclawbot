@@ -2,6 +2,8 @@ package gui.ui.pages
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
@@ -36,7 +38,8 @@ fun SettingsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         Spacer(Modifier.height(32.dp))
 
         Column(
-            Modifier.widthIn(max = 800.dp).fillMaxWidth(),
+            Modifier.widthIn(max = 800.dp).fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Model section
