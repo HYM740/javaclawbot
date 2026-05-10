@@ -18,6 +18,7 @@ object AppColors {
     val CodeBackground = Color(0x0A000000)
     val HoverBg = Color(0x0D000000)
     val ActiveBg = Color(0x1A000000)
+    val OnAccent = Color.White
     val White = Color.White
     val Black = Color.Black
 }

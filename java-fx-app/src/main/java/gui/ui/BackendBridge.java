@@ -52,7 +52,7 @@ import java.util.Properties;
  * 职责：
  * 1. 初始化 Config / SessionManager / LLMProvider / MessageBus / AgentLoop / CronService
  * 2. 启动 bus adapter（busTask + outboundTask）
- * 3. 提供异步消息收发接口（Platform.runLater 回调）
+ * 3. 提供异步消息收发接口（可配置 UI 线程调度器）
  * 4. 提供各页面所需的后端组件 getter
  */
 @Slf4j
@@ -92,6 +92,13 @@ public class BackendBridge {
     private static final String CLI_CHANNEL = "cli";
     private static final String CLI_CHAT_ID = "direct";
     private final String sessionKey = CLI_CHANNEL + ":" + CLI_CHAT_ID;
+
+    // ── UI 线程调度器（JavaFX 默认 Platform.runLater，Compose 可替换）──
+    private volatile Consumer<Runnable> uiDispatcher = Platform::runLater;
+
+    public void setUiDispatcher(Consumer<Runnable> dispatcher) {
+        this.uiDispatcher = dispatcher != null ? dispatcher : Runnable::run;
+    }
 
     // ── 当前消息回调（一次只处理一条消息）──
     private final AtomicReference<Consumer<ProgressEvent>> currentProgressCallback = new AtomicReference<>();
@@ -186,7 +193,7 @@ public class BackendBridge {
             try {
                 agentLoop.run();
             } catch (Exception e) {
-                Platform.runLater(() -> System.err.println("AgentLoop 异常: " + e.getMessage()));
+                uiDispatcher.accept(() -> System.err.println("AgentLoop 异常: " + e.getMessage()));
             }
         }, executor);
 
@@ -214,14 +221,14 @@ public class BackendBridge {
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {
-                            Platform.runLater(() -> cb.accept(
+                            uiDispatcher.accept(() -> cb.accept(
                                 new ProgressEvent(content, false)));
                         }
                     } else if (isProgress) {
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {
-                            Platform.runLater(() -> cb.accept(
+                            uiDispatcher.accept(() -> cb.accept(
                                 new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId, isReasoning)));
                         }
                     } else {
@@ -246,7 +253,7 @@ public class BackendBridge {
                             triggerTitleGeneration(false);
                         }
 
-                        Platform.runLater(() -> {
+                        uiDispatcher.accept(() -> {
                             if (cb != null) {
                                 cb.accept(content);
                             }
@@ -296,7 +303,7 @@ public class BackendBridge {
                             Consumer<String> onError) {
         if (text == null || text.isBlank()) return;
         if (bus == null || agentLoop == null) {
-            if (onError != null) Platform.runLater(() -> onError.accept("bus 或 agentLoop 未初始化"));
+            if (onError != null) uiDispatcher.accept(() -> onError.accept("bus 或 agentLoop 未初始化"));
             return;
         }
 
@@ -313,7 +320,7 @@ public class BackendBridge {
                 waitingForResponse = false;
                 currentResponseCallback.set(null);
                 if (onError != null) {
-                    Platform.runLater(() -> onError.accept(e.getMessage()));
+                    uiDispatcher.accept(() -> onError.accept(e.getMessage()));
                 }
             }
         }, executor);
@@ -535,7 +542,7 @@ public class BackendBridge {
             }
             // 通知 UI 刷新侧栏标题
             if (onTitleChanged != null) {
-                Platform.runLater(onTitleChanged);
+                uiDispatcher.accept(onTitleChanged);
             }
         }, executor);
     }

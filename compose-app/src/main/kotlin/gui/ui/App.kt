@@ -1,17 +1,23 @@
 package gui.ui
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.Button
+import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import gui.ui.layout.*
 import gui.ui.model.*
 import gui.ui.pages.*
+import gui.ui.theme.AppColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -30,19 +36,31 @@ fun main() = application {
     var history by remember { mutableStateOf(emptyList<HistoryGroup>()) }
     var statusInfo by remember { mutableStateOf(StatusInfo()) }
     var isLoading by remember { mutableStateOf(false) }
+    var initError by remember { mutableStateOf<String?>(null) }
 
     // Init bridge async
     LaunchedEffect(Unit) {
         scope.launch(Dispatchers.IO) {
-            val backend = BackendBridge()
-            backend.initialize()
-            val b = Bridge(backend, scope)
-            scope.launch(Dispatchers.Main) {
-                bridge = b
-                statusInfo = StatusInfo(
-                    modelName = b.config?.agents?.defaults?.model ?: "",
-                    mcpTotal = b.config?.tools?.mcpServers?.size ?: 0
-                )
+            try {
+                val backend = BackendBridge()
+                backend.setUiDispatcher { r ->
+                    try {
+                        scope.launch(Dispatchers.Main) { r.run() }
+                    } catch (_: Exception) {}
+                }
+                backend.initialize()
+                val b = Bridge(backend, scope)
+                scope.launch(Dispatchers.Main) {
+                    bridge = b
+                    statusInfo = StatusInfo(
+                        modelName = b.config?.agents?.defaults?.model ?: "",
+                        mcpTotal = b.config?.tools?.mcpServers?.size ?: 0
+                    )
+                }
+            } catch (e: Exception) {
+                scope.launch(Dispatchers.Main) {
+                    initError = e.message ?: "初始化失败（未知错误）"
+                }
             }
         }
     }
@@ -66,86 +84,141 @@ fun main() = application {
         title = "NexusAi",
         state = windowState
     ) {
-        AppShell(
-            activePage = activePage,
-            onPageSelected = { activePage = it },
-            tabs = tabs,
-            activeTabId = activeTabId,
-            onTabSelected = { activeTabId = it },
-            onTabClosed = { id ->
-                tabs = tabs.filter { it.id != id }
-                messagesMap = messagesMap - id
-                if (id == activeTabId && tabs.isNotEmpty()) activeTabId = tabs.first().id
-            },
-            onNewTab = {
-                val newId = "tab_${System.currentTimeMillis()}"
-                tabs = tabs + ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD")
-                messagesMap = messagesMap + (newId to emptyList())
-                activeTabId = newId
-                bridge?.newSession()
-            },
-            onNewChat = {
-                activePage = "chat"
-                bridge?.ensureFreshSession()
-                val newId = "fresh_${System.currentTimeMillis()}"
-                tabs = listOf(ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD"))
-                messagesMap = mapOf(newId to emptyList())
-                activeTabId = newId
-            },
-            history = history,
-            onResume = { sessionId ->
-                scope.launch(Dispatchers.IO) {
-                    bridge?.resumeSession(sessionId)
-                    val msgs = bridge?.getSessionHistory(sessionId) ?: emptyList()
-                    val chatMsgs = msgs.mapNotNull { m ->
-                        val roleStr = m["role"]?.toString() ?: return@mapNotNull null
-                        val content = m["content"]?.toString() ?: ""
-                        val role = when (roleStr) {
-                            "user" -> ChatMessage.Role.USER
-                            "assistant" -> ChatMessage.Role.ASSISTANT
-                            else -> ChatMessage.Role.SYSTEM
+        if (initError != null) {
+            // Show initialization error
+            Box(
+                Modifier.fillMaxSize().background(AppColors.Background),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("\u26A0", fontSize = 48.sp)
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        "\u521D\u59CB\u5316\u5931\u8D25",
+                        color = AppColors.TextPrimary,
+                        fontSize = 20.sp
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        initError ?: "",
+                        color = AppColors.TextSecondary,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(horizontal = 32.dp)
+                    )
+                    Spacer(Modifier.height(24.dp))
+                    Button(
+                        onClick = {
+                            initError = null
+                            scope.launch(Dispatchers.IO) {
+                                try {
+                                    val backend = BackendBridge()
+                                    backend.setUiDispatcher { r ->
+                                        try { scope.launch(Dispatchers.Main) { r.run() } } catch (_: Exception) {}
+                                    }
+                                    backend.initialize()
+                                    val b = Bridge(backend, scope)
+                                    scope.launch(Dispatchers.Main) {
+                                        bridge = b
+                                        statusInfo = StatusInfo(
+                                            modelName = b.config?.agents?.defaults?.model ?: "",
+                                            mcpTotal = b.config?.tools?.mcpServers?.size ?: 0
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    scope.launch(Dispatchers.Main) {
+                                        initError = e.message ?: "\u91CD\u8BD5\u5931\u8D25"
+                                    }
+                                }
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(backgroundColor = AppColors.Accent)
+                    ) {
+                        Text("\u91CD\u8BD5", color = AppColors.OnAccent)
+                    }
+                }
+            }
+        } else {
+            AppShell(
+                activePage = activePage,
+                onPageSelected = { activePage = it },
+                tabs = tabs,
+                activeTabId = activeTabId,
+                onTabSelected = { activeTabId = it },
+                onTabClosed = { id ->
+                    tabs = tabs.filter { it.id != id }
+                    messagesMap = messagesMap - id
+                    if (id == activeTabId && tabs.isNotEmpty()) activeTabId = tabs.first().id
+                },
+                onNewTab = {
+                    val newId = "tab_${System.currentTimeMillis()}"
+                    tabs = tabs + ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD")
+                    messagesMap = messagesMap + (newId to emptyList())
+                    activeTabId = newId
+                    bridge?.newSession()
+                },
+                onNewChat = {
+                    activePage = "chat"
+                    bridge?.ensureFreshSession()
+                    val newId = "fresh_${System.currentTimeMillis()}"
+                    tabs = listOf(ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD"))
+                    messagesMap = mapOf(newId to emptyList())
+                    activeTabId = newId
+                },
+                history = history,
+                onResume = { sessionId ->
+                    scope.launch(Dispatchers.IO) {
+                        bridge?.resumeSession(sessionId)
+                        val msgs = bridge?.getSessionHistory(sessionId) ?: emptyList()
+                        val chatMsgs = msgs.mapNotNull { m ->
+                            val roleStr = m["role"]?.toString() ?: return@mapNotNull null
+                            val content = m["content"]?.toString() ?: ""
+                            val role = when (roleStr) {
+                                "user" -> ChatMessage.Role.USER
+                                "assistant" -> ChatMessage.Role.ASSISTANT
+                                else -> ChatMessage.Role.SYSTEM
+                            }
+                            ChatMessage(
+                                id = "hist_${System.currentTimeMillis()}_${m.hashCode()}",
+                                role = role,
+                                content = content
+                            )
                         }
-                        ChatMessage(
-                            id = "hist_${System.currentTimeMillis()}_${m.hashCode()}",
-                            role = role,
-                            content = content
-                        )
+                        scope.launch(Dispatchers.Main) {
+                            messagesMap = messagesMap + (sessionId to chatMsgs)
+                            activePage = "chat"
+                            tabs = listOf(ChatTab(id = sessionId, title = "\u65B0\u5BF9\u8BDD"))
+                            activeTabId = sessionId
+                        }
                     }
-                    scope.launch(Dispatchers.Main) {
-                        messagesMap = messagesMap + (sessionId to chatMsgs)
-                        activePage = "chat"
-                        tabs = listOf(ChatTab(id = sessionId, title = "\u65B0\u5BF9\u8BDD"))
-                        activeTabId = sessionId
+                },
+                onDelete = { sessionId ->
+                    scope.launch(Dispatchers.IO) {
+                        bridge?.deleteSession(sessionId)
                     }
+                },
+                statusInfo = statusInfo
+            ) {
+                when (activePage) {
+                    "chat" -> ChatPage(
+                        bridge,
+                        messages = messagesMap[activeTabId] ?: emptyList(),
+                        onMessagesChanged = { messagesMap = messagesMap + (activeTabId to it) },
+                        isLoading = isLoading
+                    )
+                    "models" -> ModelsPage(bridge)
+                    "agents" -> AgentsPage(bridge)
+                    "channels" -> ChannelsPage(bridge)
+                    "skills" -> SkillsPage(bridge)
+                    "mcp" -> McpPage(bridge)
+                    "databases" -> DatabasesPage(bridge)
+                    "crontasks" -> CronPage(bridge)
+                    "settings" -> SettingsPage(bridge)
+                    "devconsole" -> DevConsolePage(bridge)
+                    else -> Text(
+                        "Unknown page: $activePage",
+                        modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
+                    )
                 }
-            },
-            onDelete = { sessionId ->
-                scope.launch(Dispatchers.IO) {
-                    bridge?.deleteSession(sessionId)
-                }
-            },
-            statusInfo = statusInfo
-        ) {
-            when (activePage) {
-                "chat" -> ChatPage(
-                    bridge,
-                    messages = messagesMap[activeTabId] ?: emptyList(),
-                    onMessagesChanged = { messagesMap = messagesMap + (activeTabId to it) },
-                    isLoading = isLoading
-                )
-                "models" -> ModelsPage(bridge)
-                "agents" -> AgentsPage(bridge)
-                "channels" -> ChannelsPage(bridge)
-                "skills" -> SkillsPage(bridge)
-                "mcp" -> McpPage(bridge)
-                "databases" -> DatabasesPage(bridge)
-                "crontasks" -> CronPage(bridge)
-                "settings" -> SettingsPage(bridge)
-                "devconsole" -> DevConsolePage(bridge)
-                else -> Text(
-                    "Unknown page: $activePage",
-                    modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
-                )
             }
         }
     }
