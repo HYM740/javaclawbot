@@ -6,6 +6,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.Button
+import androidx.compose.material.OutlinedButton
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.runtime.*
@@ -54,126 +56,120 @@ fun McpServerWindow(
         title = title
     ) {
         Column(
-            Modifier.width(520.dp).heightIn(max = 520.dp)
+            Modifier.width(520.dp).heightIn(min = 400.dp, max = 650.dp)
+                .fillMaxSize()
                 .background(AppColors.Surface)
                 .padding(24.dp)
-                .verticalScroll(rememberScrollState())
         ) {
             Text(title, fontSize = 20.sp, color = AppColors.TextPrimary)
 
             Spacer(Modifier.height(16.dp))
 
-            // Mode tabs
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(0.dp)) {
-                TextButton(onClick = { mode = McpInputMode.FORM }) {
-                    Text(
-                        "表单模式",
-                        color = if (mode == McpInputMode.FORM) AppColors.Accent else AppColors.TextSecondary,
-                        fontSize = 14.sp
-                    )
+            // Scrollable form area
+            Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                // Mode tabs
+                Row(Modifier.fillMaxWidth()) {
+                    TextButton(onClick = { mode = McpInputMode.FORM }) {
+                        Text("表单模式",
+                            color = if (mode == McpInputMode.FORM) AppColors.Accent else AppColors.TextSecondary,
+                            fontSize = 14.sp)
+                    }
+                    TextButton(onClick = { mode = McpInputMode.RAW }) {
+                        Text("RAW 模式",
+                            color = if (mode == McpInputMode.RAW) AppColors.Accent else AppColors.TextSecondary,
+                            fontSize = 14.sp)
+                    }
                 }
-                TextButton(onClick = { mode = McpInputMode.RAW }) {
-                    Text(
-                        "RAW 模式",
-                        color = if (mode == McpInputMode.RAW) AppColors.Accent else AppColors.TextSecondary,
-                        fontSize = 14.sp
-                    )
+                Spacer(Modifier.height(12.dp))
+
+                when (mode) {
+                    McpInputMode.FORM -> {
+                        Text("服务器名称", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
+                        Spacer(Modifier.height(4.dp))
+                        BasicTextField(
+                            value = name,
+                            onValueChange = { name = it; error = null },
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                                .background(AppColors.HoverBg).padding(12.dp),
+                            textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
+                            singleLine = true,
+                            decorationBox = { inner ->
+                                if (name.isEmpty()) {
+                                    Text("例如: my-server", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
+                                }
+                                inner()
+                            }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("启动命令", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
+                        Spacer(Modifier.height(4.dp))
+                        BasicTextField(
+                            value = command,
+                            onValueChange = { command = it; error = null },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(8.dp))
+                                .background(AppColors.HoverBg).padding(12.dp),
+                            textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
+                            decorationBox = { inner ->
+                                if (command.isEmpty()) {
+                                    Text("例如: npx -y @modelcontextprotocol/server-filesystem /tmp",
+                                        style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
+                                }
+                                inner()
+                            }
+                        )
+                    }
+                    McpInputMode.RAW -> {
+                        Text("服务器名称", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
+                        Spacer(Modifier.height(4.dp))
+                        BasicTextField(
+                            value = name,
+                            onValueChange = { name = it; error = null },
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                                .background(AppColors.HoverBg).padding(12.dp),
+                            textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
+                            singleLine = true,
+                            decorationBox = { inner ->
+                                if (name.isEmpty()) {
+                                    Text("例如: my-server", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
+                                }
+                                inner()
+                            }
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        Text("MCPServerConfig JSON", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
+                        Spacer(Modifier.height(4.dp))
+                        BasicTextField(
+                            value = rawJson,
+                            onValueChange = { rawJson = it; error = null },
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).clip(RoundedCornerShape(8.dp))
+                                .background(AppColors.HoverBg).padding(12.dp),
+                            textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
+                            decorationBox = { inner ->
+                                if (rawJson.isEmpty()) {
+                                    Text("""{"command": "...", "env": {...}, "transport_type": "stdio"}""",
+                                        style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
+                                }
+                                inner()
+                            }
+                        )
+                    }
+                }
+
+                if (error != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(error!!, color = AppColors.StatusError, fontSize = 13.sp)
                 }
             }
 
-            Spacer(Modifier.height(12.dp))
-
-            when (mode) {
-                McpInputMode.FORM -> {
-                    Text("服务器名称", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
-                    Spacer(Modifier.height(4.dp))
-                    BasicTextField(
-                        value = name,
-                        onValueChange = { name = it; error = null },
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                            .background(AppColors.HoverBg).padding(12.dp),
-                        textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
-                        singleLine = true,
-                        decorationBox = { inner ->
-                            if (name.isEmpty()) {
-                                Text("例如: my-server", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
-                            }
-                            inner()
-                        }
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Text("启动命令", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
-                    Spacer(Modifier.height(4.dp))
-                    BasicTextField(
-                        value = command,
-                        onValueChange = { command = it; error = null },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp).clip(RoundedCornerShape(8.dp))
-                            .background(AppColors.HoverBg).padding(12.dp),
-                        textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
-                        decorationBox = { inner ->
-                            if (command.isEmpty()) {
-                                Text("例如: npx -y @modelcontextprotocol/server-filesystem /tmp",
-                                    style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
-                            }
-                            inner()
-                        }
-                    )
-                }
-
-                McpInputMode.RAW -> {
-                    Text("服务器名称", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
-                    Spacer(Modifier.height(4.dp))
-                    BasicTextField(
-                        value = name,
-                        onValueChange = { name = it; error = null },
-                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                            .background(AppColors.HoverBg).padding(12.dp),
-                        textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
-                        singleLine = true,
-                        decorationBox = { inner ->
-                            if (name.isEmpty()) {
-                                Text("例如: my-server", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
-                            }
-                            inner()
-                        }
-                    )
-
-                    Spacer(Modifier.height(12.dp))
-
-                    Text("MCPServerConfig JSON", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
-                    Spacer(Modifier.height(4.dp))
-                    BasicTextField(
-                        value = rawJson,
-                        onValueChange = { rawJson = it; error = null },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp).clip(RoundedCornerShape(8.dp))
-                            .background(AppColors.HoverBg).padding(12.dp),
-                        textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
-                        decorationBox = { inner ->
-                            if (rawJson.isEmpty()) {
-                                Text("""{"command": "...", "env": {...}, "transport_type": "stdio"}""",
-                                    style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
-                            }
-                            inner()
-                        }
-                    )
-                }
-            }
-
-            if (error != null) {
-                Spacer(Modifier.height(8.dp))
-                Text(error!!, color = AppColors.StatusError, fontSize = 13.sp)
-            }
-
-            Spacer(Modifier.height(16.dp))
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) {
-                    Text("取消", color = AppColors.TextSecondary)
-                }
+            // Fixed bottom action bar
+            Row(
+                Modifier.fillMaxWidth().padding(top = 16.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(onClick = onDismiss) { Text("取消") }
                 Spacer(Modifier.width(8.dp))
-                TextButton(
+                Button(
                     onClick = {
                         when {
                             name.isBlank() -> error = "请输入服务器名称"
@@ -183,23 +179,16 @@ fun McpServerWindow(
                             else -> {
                                 try {
                                     when {
-                                        mode == McpInputMode.RAW && isEdit -> {
+                                        mode == McpInputMode.RAW && isEdit ->
                                             bridge.updateMcpServerRaw(editData!!.oldName, name.trim(), rawJson.trim())
-                                            log.info("Updated MCP server (RAW): {} -> {}", editData!!.oldName, name.trim())
-                                        }
-                                        mode == McpInputMode.RAW && !isEdit -> {
+                                        mode == McpInputMode.RAW && !isEdit ->
                                             bridge.addMcpServerRaw(name.trim(), rawJson.trim())
-                                            log.info("Added MCP server (RAW): {}", name.trim())
-                                        }
-                                        isEdit -> {
+                                        isEdit ->
                                             bridge.updateMcpServer(editData!!.oldName, name.trim(), command.trim())
-                                            log.info("Updated MCP server: {} -> {}", editData!!.oldName, name.trim())
-                                        }
-                                        else -> {
+                                        else ->
                                             bridge.addMcpServer(name.trim(), command.trim())
-                                            log.info("Added MCP server: {}", name.trim())
-                                        }
                                     }
+                                    log.info("MCP server saved: {}", name.trim())
                                     onSaved()
                                 } catch (e: Exception) {
                                     log.warn("MCP server operation failed", e)
@@ -208,9 +197,7 @@ fun McpServerWindow(
                             }
                         }
                     }
-                ) {
-                    Text(confirmLabel, color = AppColors.Accent)
-                }
+                ) { Text(confirmLabel) }
             }
         }
     }
