@@ -1,9 +1,9 @@
 [versions]
 kotlin = "2.1.0"
 compose = "1.7.1"
-logback = "1.2.11"
+logback = "1.4.14"
 lombok = "1.18.42"
-slf4j = "1.7.36"
+slf4j = "2.0.17"
 cronutils = "9.2.1"
 picocli = "4.7.6"
 jline = "3.25.1"
