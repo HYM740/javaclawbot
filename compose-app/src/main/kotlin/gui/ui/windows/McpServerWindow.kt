@@ -26,7 +26,8 @@ private val log = LoggerFactory.getLogger("McpServerWindow")
 data class McpEditData(
     val oldName: String,
     val name: String,
-    val command: String
+    val command: String,
+    val json: String? = null
 )
 
 enum class McpInputMode { FORM, RAW }
@@ -44,7 +45,7 @@ fun McpServerWindow(
 
     var name by remember { mutableStateOf(editData?.name ?: "") }
     var command by remember { mutableStateOf(editData?.command ?: "") }
-    var rawJson by remember { mutableStateOf("") }
+    var rawJson by remember { mutableStateOf(editData?.json ?: "") }
     var mode by remember { mutableStateOf(McpInputMode.FORM) }
     var error by remember { mutableStateOf<String?>(null) }
 
