@@ -42,14 +42,14 @@ fun Sidebar(
     val width = if (expanded) 256.dp else 64.dp
 
     val navItems = listOf(
-        NavItem("💬", "Chat", "chat"),
-        NavItem("🤖", "Models", "models"),
-        NavItem("👤", "Agents", "agents"),
-        NavItem("📡", "Channels", "channels"),
-        NavItem("⚡", "Skills", "skills"),
-        NavItem("🔌", "MCP", "mcp"),
-        NavItem("🗄", "Databases", "databases"),
-        NavItem("⏰", "Cron Tasks", "crontasks")
+        NavItem("💬", "对话", "chat"),
+        NavItem("🤖", "模型", "models"),
+        NavItem("👤", "代理", "agents"),
+        NavItem("📡", "通道", "channels"),
+        NavItem("⚡", "技能", "skills"),
+        NavItem("🔌", "MCP 服务器", "mcp"),
+        NavItem("🗄", "数据源", "databases"),
+        NavItem("⏰", "定时任务", "crontasks")
     )
 
     Column(
@@ -144,8 +144,8 @@ fun Sidebar(
         }
 
         // Bottom: Settings + DevConsole
-        rowNav("⚙️", "Settings", "settings", activePage, expanded, onPageSelected)
-        rowNav("🔧", "Dev Console", "devconsole", activePage, expanded, onPageSelected)
+        rowNav("⚙️", "设置", "settings", activePage, expanded, onPageSelected)
+        rowNav("🔧", "开发控制台", "devconsole", activePage, expanded, onPageSelected)
     }
 }
 
