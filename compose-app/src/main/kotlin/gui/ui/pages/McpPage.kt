@@ -35,7 +35,8 @@ fun McpPage(bridge: Bridge?, modifier: Modifier = Modifier) {
     val mcpServers = remember(bridge, refreshKey) {
         try {
             bridge?.config?.tools?.mcpServers ?: emptyMap()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            log.warn("Failed to read MCP servers config", e)
             emptyMap()
         }
     }
@@ -67,7 +68,7 @@ fun McpPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         ) {
             mcpServers.forEach { (name, cfg) ->
                 item {
-                    val cmd = try { cfg.command } catch (_: Exception) { null } ?: ""
+                    val cmd = try { cfg.command } catch (e: Exception) { log.debug("Failed to read command for MCP server: $name", e); null } ?: ""
                     val status = bridge?.getMcpStatus(name) ?: "?"
                     val isConnected = status.contains("connected", ignoreCase = true) || status.contains("READY", ignoreCase = true)
                     val isError = status.contains("error", ignoreCase = true) || status.contains("FAILED", ignoreCase = true)
