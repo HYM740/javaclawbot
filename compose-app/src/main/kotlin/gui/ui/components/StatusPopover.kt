@@ -24,23 +24,23 @@ fun StatusPopover(detail: StatusDetail, status: StatusInfo, onDismiss: () -> Uni
     ) {
         when (detail) {
             StatusDetail.MODEL -> Column {
-                Text("\u6A21\u578B\u72B6\u6001", fontWeight = FontWeight.Bold)
-                Text("\u5F53\u524D: ${status.modelName}", style = AppTheme.typography.caption)
+                Text("模型状态", fontWeight = FontWeight.Bold)
+                Text("当前: ${status.modelName}", style = AppTheme.typography.caption)
             }
             StatusDetail.AGENT -> Column {
                 Text("Agent", fontWeight = FontWeight.Bold)
-                Text("\u540D\u79F0: ${status.agentName}", style = AppTheme.typography.caption)
+                Text("名称: ${status.agentName}", style = AppTheme.typography.caption)
             }
             StatusDetail.SHELL -> Column {
                 Text("Shell", fontWeight = FontWeight.Bold)
                 Text(
-                    if (status.shellConnected) "\u5DF2\u8FDE\u63A5" else "\u672A\u8FDE\u63A5",
+                    if (status.shellConnected) "已连接" else "未连接",
                     style = AppTheme.typography.caption
                 )
             }
             StatusDetail.MCP -> Column {
                 Text("MCP", fontWeight = FontWeight.Bold)
-                Text("\u5728\u7EBF: ${status.mcpOnline}/${status.mcpTotal}", style = AppTheme.typography.caption)
+                Text("在线: ${status.mcpOnline}/${status.mcpTotal}", style = AppTheme.typography.caption)
             }
             else -> {}
         }

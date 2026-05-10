@@ -34,19 +34,19 @@ fun StatusBar(status: StatusInfo, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically
         ) {
             segment(
-                "\u25CF", "\u6A21\u578B ${status.modelName}", StatusDetail.MODEL, detail,
+                "●", "模型 ${status.modelName}", StatusDetail.MODEL, detail,
                 { detail = if (detail == StatusDetail.MODEL) StatusDetail.NONE else StatusDetail.MODEL }
             )
             segment(
-                "\u2593", "Agent ${status.agentName}", StatusDetail.AGENT, detail,
+                "▓", "Agent ${status.agentName}", StatusDetail.AGENT, detail,
                 { detail = if (detail == StatusDetail.AGENT) StatusDetail.NONE else StatusDetail.AGENT }
             )
             segment(
-                "\u26A1", "Shell", StatusDetail.SHELL, detail,
+                "⚡", "Shell", StatusDetail.SHELL, detail,
                 { detail = if (detail == StatusDetail.SHELL) StatusDetail.NONE else StatusDetail.SHELL }
             )
             segment(
-                "\uD83D\uDEE0", "MCP ${status.mcpOnline}/${status.mcpTotal}",
+                "🛠", "MCP ${status.mcpOnline}/${status.mcpTotal}",
                 StatusDetail.MCP, detail,
                 { detail = if (detail == StatusDetail.MCP) StatusDetail.NONE else StatusDetail.MCP }
             )

@@ -56,7 +56,7 @@ private fun RenderMarkdownNode(node: Node) {
             CodeBlock(text)
         }
         is BulletListItem -> Row(modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 2.dp)) {
-            Text("\u2022 ", style = AppTheme.typography.body)
+            Text("• ", style = AppTheme.typography.body)
             Column { node.children.forEach { RenderMarkdownNode(it) } }
         }
         is OrderedListItem -> Row(modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 2.dp)) {

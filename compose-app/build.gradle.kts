@@ -25,6 +25,7 @@ dependencies {
     implementation(project(":backend"))
     implementation(project(":java-fx-app"))
     implementation(compose.desktop.currentOs)
+    implementation(libs.slf4j.api)
     implementation(libs.kotlin.stdlib)
     implementation(libs.kotlinx.coroutines)
     implementation(libs.kotlinx.coroutines.swing)

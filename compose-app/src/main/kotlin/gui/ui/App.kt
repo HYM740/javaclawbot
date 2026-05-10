@@ -6,8 +6,10 @@ import androidx.compose.material.Button
 import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
+import androidx.compose.material.ProvideTextStyle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -18,6 +20,7 @@ import gui.ui.layout.*
 import gui.ui.model.*
 import gui.ui.pages.*
 import gui.ui.theme.AppColors
+import gui.ui.theme.CjkFontResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -30,7 +33,7 @@ fun main() = application {
 
     var bridge by remember { mutableStateOf<Bridge?>(null) }
     var activePage by remember { mutableStateOf("chat") }
-    var tabs by remember { mutableStateOf(listOf(ChatTab(id = "default", title = "\u65B0\u5BF9\u8BDD"))) }
+    var tabs by remember { mutableStateOf(listOf(ChatTab(id = "default", title = "新对话"))) }
     var activeTabId by remember { mutableStateOf("default") }
     var messagesMap by remember { mutableStateOf(mapOf("default" to emptyList<ChatMessage>())) }
     var history by remember { mutableStateOf(emptyList<HistoryGroup>()) }
@@ -84,6 +87,7 @@ fun main() = application {
         title = "NexusAi",
         state = windowState
     ) {
+        ProvideTextStyle(TextStyle(fontFamily = CjkFontResolver.get())) {
         if (initError != null) {
             // Show initialization error
             Box(
@@ -91,10 +95,10 @@ fun main() = application {
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("\u26A0", fontSize = 48.sp)
+                    Text("⚠", fontSize = 48.sp)
                     Spacer(Modifier.height(16.dp))
                     Text(
-                        "\u521D\u59CB\u5316\u5931\u8D25",
+                        "初始化失败",
                         color = AppColors.TextPrimary,
                         fontSize = 20.sp
                     )
@@ -126,14 +130,14 @@ fun main() = application {
                                     }
                                 } catch (e: Exception) {
                                     scope.launch(Dispatchers.Main) {
-                                        initError = e.message ?: "\u91CD\u8BD5\u5931\u8D25"
+                                        initError = e.message ?: "重试失败"
                                     }
                                 }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(backgroundColor = AppColors.Accent)
                     ) {
-                        Text("\u91CD\u8BD5", color = AppColors.OnAccent)
+                        Text("重试", color = AppColors.OnAccent)
                     }
                 }
             }
@@ -151,7 +155,7 @@ fun main() = application {
                 },
                 onNewTab = {
                     val newId = "tab_${System.currentTimeMillis()}"
-                    tabs = tabs + ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD")
+                    tabs = tabs + ChatTab(id = newId, title = "新对话")
                     messagesMap = messagesMap + (newId to emptyList())
                     activeTabId = newId
                     bridge?.newSession()
@@ -160,7 +164,7 @@ fun main() = application {
                     activePage = "chat"
                     bridge?.ensureFreshSession()
                     val newId = "fresh_${System.currentTimeMillis()}"
-                    tabs = listOf(ChatTab(id = newId, title = "\u65B0\u5BF9\u8BDD"))
+                    tabs = listOf(ChatTab(id = newId, title = "新对话"))
                     messagesMap = mapOf(newId to emptyList())
                     activeTabId = newId
                 },
@@ -188,7 +192,7 @@ fun main() = application {
                         scope.launch(Dispatchers.Main) {
                             messagesMap = messagesMap + (sessionId to chatMsgs)
                             activePage = "chat"
-                            tabs = listOf(ChatTab(id = sessionId, title = "\u65B0\u5BF9\u8BDD"))
+                            tabs = listOf(ChatTab(id = sessionId, title = "新对话"))
                             activeTabId = sessionId
                         }
                     }
@@ -223,6 +227,7 @@ fun main() = application {
                 }
             }
         }
+        }
     }
 }
 
@@ -253,9 +258,9 @@ private fun groupSessions(sessions: List<Map<String, Any>>): List<HistoryGroup> 
     }
 
     return listOf(
-        HistoryGroup("\u4ECA\u5929", today.map { toEntry(it) }),
-        HistoryGroup("\u6628\u5929", yesterday.map { toEntry(it) }),
-        HistoryGroup("\u66F4\u65E9", earlier.map { toEntry(it) })
+        HistoryGroup("今天", today.map { toEntry(it) }),
+        HistoryGroup("昨天", yesterday.map { toEntry(it) }),
+        HistoryGroup("更早", earlier.map { toEntry(it) })
     ).filter { it.items.isNotEmpty() }
 }
 

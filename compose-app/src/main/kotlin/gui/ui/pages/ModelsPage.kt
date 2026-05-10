@@ -20,9 +20,9 @@ fun ModelsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         Modifier.fillMaxSize().background(AppColors.Background).padding(40.dp, 24.dp, 24.dp, 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("\u6A21\u578B\u7BA1\u7406", style = AppTheme.typography.title)
+        Text("模型管理", style = AppTheme.typography.title)
         Text(
-            "\u7BA1\u7406\u53EF\u7528\u7684 AI \u6A21\u578B\u63D0\u4F9B\u5546",
+            "管理可用的 AI 模型提供商",
             style = AppTheme.typography.caption,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -46,7 +46,7 @@ fun ModelsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                     ) {
                         Text(labelFor(pn), fontWeight = FontWeight.Bold)
                         Text(
-                            if (pc.apiKey?.isNotBlank() == true) "\u5DF2\u914D\u7F6E" else "\u672A\u914D\u7F6E Key",
+                            if (pc.apiKey?.isNotBlank() == true) "已配置" else "未配置 Key",
                             style = AppTheme.typography.caption
                         )
                         Spacer(Modifier.height(8.dp))
@@ -57,7 +57,7 @@ fun ModelsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                             ) {
                                 Text("$pn/${mc.model}", style = AppTheme.typography.caption)
                                 if (mc.model == bridge?.config?.agents?.defaults?.model) {
-                                    Text("\u2605", color = AppColors.Accent)
+                                    Text("★", color = AppColors.Accent)
                                 }
                             }
                         }
@@ -74,14 +74,14 @@ private fun labelFor(name: String) = when (name) {
     "deepseek" -> "DeepSeek"
     "openrouter" -> "OpenRouter"
     "groq" -> "Groq"
-    "zhipu" -> "\u667A\u8C31 GLM"
-    "dashscope" -> "\u963F\u91CC\u4E91 DashScope"
+    "zhipu" -> "智谱 GLM"
+    "dashscope" -> "阿里云 DashScope"
     "gemini" -> "Google Gemini"
     "moonshot" -> "Moonshot"
     "minimax" -> "MiniMax"
     "aihubmix" -> "AIHubMix"
     "siliconflow" -> "SiliconFlow"
-    "volcengine" -> "\u706B\u5C71\u5F15\u64CE"
+    "volcengine" -> "火山引擎"
     "vllm" -> "vLLM"
     "githubCopilot" -> "GitHub Copilot"
     else -> name

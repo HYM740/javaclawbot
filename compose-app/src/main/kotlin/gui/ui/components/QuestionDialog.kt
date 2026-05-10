@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.gson.Gson
 import gui.ui.theme.AppColors
+import gui.ui.theme.CjkFontResolver
 import gui.ui.theme.AppTheme
 
 @Composable
@@ -29,7 +30,7 @@ fun QuestionDialog(
 
     Column(Modifier.width(500.dp).clip(RoundedCornerShape(16.dp))
         .background(AppColors.Surface).padding(24.dp)) {
-        Text("AI \u63D0\u95EE", fontWeight = FontWeight.Bold, style = AppTheme.typography.body)
+        Text("AI 提问", fontWeight = FontWeight.Bold, style = AppTheme.typography.body)
         Spacer(Modifier.height(16.dp))
 
         questions.forEach { q ->
@@ -38,7 +39,7 @@ fun QuestionDialog(
             when (q.type) {
                 "single" -> q.options.forEach { opt ->
                     Row(Modifier.fillMaxWidth().clickable { answers[q.key] = opt }.padding(8.dp)) {
-                        Text(if (answers[q.key] == opt) "\u25CF" else "\u25CB", modifier = Modifier.padding(end = 8.dp))
+                        Text(if (answers[q.key] == opt) "●" else "○", modifier = Modifier.padding(end = 8.dp))
                         Text(opt)
                     }
                 }
@@ -49,7 +50,7 @@ fun QuestionDialog(
                         if (opt in cur) cur.remove(opt) else cur.add(opt)
                         answers[q.key] = cur.joinToString(",")
                     }.padding(8.dp)) {
-                        Text(if (selected) "\u2611" else "\u2610", modifier = Modifier.padding(end = 8.dp))
+                        Text(if (selected) "☑" else "☐", modifier = Modifier.padding(end = 8.dp))
                         Text(opt)
                     }
                 }
@@ -59,7 +60,7 @@ fun QuestionDialog(
                         value = currentValue,
                         onValueChange = { answers[q.key] = it },
                         modifier = Modifier.fillMaxWidth(),
-                        textStyle = TextStyle(fontSize = 15.sp, color = AppColors.TextPrimary)
+                        textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 15.sp, color = AppColors.TextPrimary)
                     )
                 }
             }
@@ -68,11 +69,11 @@ fun QuestionDialog(
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
             Box(Modifier.clip(RoundedCornerShape(8.dp)).background(AppColors.HoverBg).clickable { onDismiss() }.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("\u53D6\u6D88")
+                Text("取消")
             }
             Spacer(Modifier.width(8.dp))
             Box(Modifier.clip(RoundedCornerShape(8.dp)).background(AppColors.Accent).clickable { onAnswer(answers.toMap()) }.padding(horizontal = 16.dp, vertical = 8.dp)) {
-                Text("\u63D0\u4EA4", color = Color.White)
+                Text("提交", color = Color.White)
             }
         }
     }

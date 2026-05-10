@@ -23,10 +23,10 @@ fun ChannelsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         val ch = bridge?.config?.channels ?: return@remember emptyList<ChannelEntry>()
         listOf(
             ChannelEntry("Telegram", try { ch.telegram.isEnabled } catch (_: Exception) { false }),
-            ChannelEntry("\u98DE\u4E66", try { ch.feishu.isEnabled } catch (_: Exception) { false }),
-            ChannelEntry("\u4F01\u4E1A\u5FAE\u4FE1", try { ch.mochat.isEnabled } catch (_: Exception) { false }),
+            ChannelEntry("飞书", try { ch.feishu.isEnabled } catch (_: Exception) { false }),
+            ChannelEntry("企业微信", try { ch.mochat.isEnabled } catch (_: Exception) { false }),
             ChannelEntry("Discord", try { ch.discord.isEnabled } catch (_: Exception) { false }),
-            ChannelEntry("\u7535\u5B50\u90AE\u4EF6", try { ch.email.isEnabled } catch (_: Exception) { false }),
+            ChannelEntry("电子邮件", try { ch.email.isEnabled } catch (_: Exception) { false }),
             ChannelEntry("DingTalk", try { ch.dingtalk.isEnabled } catch (_: Exception) { false }),
             ChannelEntry("Slack", try { ch.slack.isEnabled } catch (_: Exception) { false }),
             ChannelEntry("QQ", try { ch.qq.isEnabled } catch (_: Exception) { false }),
@@ -39,9 +39,9 @@ fun ChannelsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         Modifier.fillMaxSize().background(AppColors.Background).padding(40.dp, 24.dp, 24.dp, 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("\u6E20\u9053\u7BA1\u7406", style = AppTheme.typography.title)
+        Text("渠道管理", style = AppTheme.typography.title)
         Text(
-            "\u7BA1\u7406\u6D88\u606F\u6E20\u9053\u914D\u7F6E",
+            "管理消息渠道配置",
             style = AppTheme.typography.caption,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -63,7 +63,7 @@ fun ChannelsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                     ) {
                         Text(entry.label, fontWeight = FontWeight.Bold, style = AppTheme.typography.body)
                         Text(
-                            if (entry.enabled) "\u5DF2\u542F\u7528" else "\u672A\u542F\u7528",
+                            if (entry.enabled) "已启用" else "未启用",
                             style = AppTheme.typography.caption,
                             color = if (entry.enabled) AppColors.StatusOK else AppColors.TextSecondary
                         )

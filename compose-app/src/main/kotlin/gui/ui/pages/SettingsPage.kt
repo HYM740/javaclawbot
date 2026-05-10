@@ -19,9 +19,9 @@ fun SettingsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         Modifier.fillMaxSize().background(AppColors.Background).padding(40.dp, 24.dp, 24.dp, 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("\u8BBE\u7F6E", style = AppTheme.typography.title)
+        Text("设置", style = AppTheme.typography.title)
         Text(
-            "\u5E94\u7528\u914D\u7F6E\u4E0E\u72B6\u6001",
+            "应用配置与状态",
             style = AppTheme.typography.caption,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -32,31 +32,31 @@ fun SettingsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             // Model section
-            SectionCard("\u6A21\u578B\u914D\u7F6E") {
-                val model = bridge?.config?.agents?.defaults?.model ?: "\u672A\u914D\u7F6E"
-                InfoRow("\u9ED8\u8BA4\u6A21\u578B", model)
+            SectionCard("模型配置") {
+                val model = bridge?.config?.agents?.defaults?.model ?: "未配置"
+                InfoRow("默认模型", model)
                 val provider = bridge?.config?.let {
                     try { it.getProviderName(model) } catch (_: Exception) { null }
                 } ?: "auto"
-                InfoRow("\u63D0\u4F9B\u65B9", provider)
+                InfoRow("提供方", provider)
             }
 
             // API Key section
-            SectionCard("API \u5BC6\u94A5") {
+            SectionCard("API 密钥") {
                 val providers = listOf("anthropic", "openai", "deepseek")
                 providers.forEach { pn ->
                     val pc = bridge?.config?.providers?.getByName(pn)
                     val hasKey = try { pc?.apiKey?.isNotBlank() == true } catch (_: Exception) { false }
-                    InfoRow(labelFor(pn), if (hasKey) "\u2605 \u5DF2\u914D\u7F6E" else "\u672A\u914D\u7F6E")
+                    InfoRow(labelFor(pn), if (hasKey) "★ 已配置" else "未配置")
                 }
             }
 
             // Channel status section
-            SectionCard("\u6E20\u9053\u72B6\u6001") {
+            SectionCard("渠道状态") {
                 val channels = bridge?.config?.channels
                 InfoRow("Telegram", statusText(try { channels?.telegram?.isEnabled } catch (_: Exception) { false }))
-                InfoRow("\u98DE\u4E66", statusText(try { channels?.feishu?.isEnabled } catch (_: Exception) { false }))
-                InfoRow("\u7535\u5B50\u90AE\u4EF6", statusText(try { channels?.email?.isEnabled } catch (_: Exception) { false }))
+                InfoRow("飞书", statusText(try { channels?.feishu?.isEnabled } catch (_: Exception) { false }))
+                InfoRow("电子邮件", statusText(try { channels?.email?.isEnabled } catch (_: Exception) { false }))
             }
         }
     }
@@ -92,4 +92,4 @@ private fun labelFor(name: String) = when (name) {
     else -> name
 }
 
-private fun statusText(enabled: Boolean?) = if (enabled == true) "\u5DF2\u542F\u7528" else "\u672A\u542F\u7528"
+private fun statusText(enabled: Boolean?) = if (enabled == true) "已启用" else "未启用"

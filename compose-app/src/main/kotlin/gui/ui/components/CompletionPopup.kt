@@ -56,8 +56,8 @@ fun CompletionPopup(
 }
 
 private fun commandItems(query: String) = listOf(
-    "/stop" to "\u505C\u6B62", "/help" to "\u5E2E\u52A9", "/clear" to "\u6E05\u7A7A\u4E0A\u4E0B\u6587",
-    "/memory" to "\u8BB0\u5FC6", "/cc" to "\u538B\u7F29", "/config" to "\u914D\u7F6E"
+    "/stop" to "停止", "/help" to "帮助", "/clear" to "清空上下文",
+    "/memory" to "记忆", "/cc" to "压缩", "/config" to "配置"
 ).filter { it.first.startsWith(query, ignoreCase = true) }
  .map { CompletionItem(it.first, it.second, CompletionItem.Kind.COMMAND) }
 

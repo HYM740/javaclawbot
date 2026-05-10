@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
+import gui.ui.theme.CjkFontResolver
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -59,13 +60,13 @@ fun ChatInput(
                         else -> false
                     }
                 },
-                textStyle = TextStyle(fontSize = 15.sp, color = AppColors.TextPrimary),
+                textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 15.sp, color = AppColors.TextPrimary),
                 decorationBox = { innerTextField ->
                     Box {
                         if (text.isEmpty()) {
                             Text(
-                                "\u8F93\u5165\u4F60\u7684\u95EE\u9898...",
-                                style = TextStyle(fontSize = 15.sp, color = AppColors.TextSecondary),
+                                "输入你的问题...",
+                                style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 15.sp, color = AppColors.TextSecondary),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )

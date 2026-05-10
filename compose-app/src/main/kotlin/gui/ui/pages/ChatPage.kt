@@ -15,6 +15,7 @@ import gui.ui.Bridge
 import gui.ui.components.*
 import gui.ui.model.*
 import gui.ui.theme.AppColors
+import gui.ui.theme.CjkFontResolver
 
 enum class ViewMode { BUBBLE, LIST }
 
@@ -41,16 +42,16 @@ fun ChatPage(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                if (viewMode == ViewMode.BUBBLE) "\u2601 \u6C14\u6CE1" else "\u2630 \u5217\u8868",
+                if (viewMode == ViewMode.BUBBLE) "☁ 气泡" else "☰ 列表",
                 color = AppColors.TextSecondary,
-                style = TextStyle(fontSize = 13.sp),
+                style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp),
                 modifier = Modifier.padding(end = 8.dp)
             )
             androidx.compose.material.TextButton(onClick = {
                 viewMode = if (viewMode == ViewMode.BUBBLE) ViewMode.LIST else ViewMode.BUBBLE
             }) {
                 Text(
-                    if (viewMode == ViewMode.BUBBLE) "\u2630 \u5217\u8868" else "\u2601 \u6C14\u6CE1",
+                    if (viewMode == ViewMode.BUBBLE) "☰ 列表" else "☁ 气泡",
                     color = AppColors.Accent
                 )
             }
@@ -89,7 +90,7 @@ fun ChatPage(
                         onMessagesChanged(messages + ChatMessage(
                             id = "err_${System.currentTimeMillis()}",
                             role = ChatMessage.Role.SYSTEM,
-                            content = "\u26A0 $error"
+                            content = "⚠ $error"
                         ))
                     }
                 )

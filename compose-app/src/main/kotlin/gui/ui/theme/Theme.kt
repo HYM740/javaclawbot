@@ -28,10 +28,12 @@ data class AppTypography(
         color = AppColors.TextPrimary
     ),
     val body: TextStyle = TextStyle(
+        fontFamily = CjkFontResolver.get(),
         fontSize = 15.sp,
         color = AppColors.TextPrimary
     ),
     val caption: TextStyle = TextStyle(
+        fontFamily = CjkFontResolver.get(),
         fontSize = 13.sp,
         color = AppColors.TextSecondary
     ),
@@ -40,6 +42,7 @@ data class AppTypography(
         fontSize = 13.sp
     ),
     val bold: TextStyle = TextStyle(
+        fontFamily = CjkFontResolver.get(),
         fontSize = 15.sp,
         fontWeight = FontWeight.Bold,
         color = AppColors.TextPrimary

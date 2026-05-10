@@ -35,9 +35,9 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             Modifier.widthIn(max = 800.dp).fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("\u6570\u636E\u6E90\u7BA1\u7406", style = AppTheme.typography.title)
+            Text("数据源管理", style = AppTheme.typography.title)
             Text(
-                "+ \u6DFB\u52A0",
+                "+ 添加",
                 color = AppColors.Accent,
                 style = AppTheme.typography.body,
                 modifier = Modifier.clickable { showAddDialog = true }
@@ -46,7 +46,7 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             )
         }
         Text(
-            "\u7BA1\u7406 JDBC \u6570\u636E\u6E90\u8FDE\u63A5",
+            "管理 JDBC 数据源连接",
             style = AppTheme.typography.caption,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -76,7 +76,7 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             }
             if (datasources.isEmpty()) {
                 item {
-                    Text("\u6682\u65E0\u6570\u636E\u6E90", style = AppTheme.typography.caption,
+                    Text("暂无数据源", style = AppTheme.typography.caption,
                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
                 }
             }

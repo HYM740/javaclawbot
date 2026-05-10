@@ -32,7 +32,7 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
             Box(Modifier.widthIn(max = maxWidth).clip(RoundedCornerShape(8.dp))
                 .background(AppColors.CodeBackground).clickable { expanded = !expanded }.padding(8.dp)) {
                 Column {
-                    Text("\u63A8\u7406", style = AppTheme.typography.caption)
+                    Text("推理", style = AppTheme.typography.caption)
                     if (expanded) MarkdownContent(message.reasoning)
                 }
             }

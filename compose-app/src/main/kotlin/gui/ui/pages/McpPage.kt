@@ -32,9 +32,9 @@ fun McpPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Row(Modifier.widthIn(max = 800.dp).fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("MCP \u670D\u52A1\u5668", style = AppTheme.typography.title)
+            Text("MCP 服务器", style = AppTheme.typography.title)
             Text(
-                "+ \u6DFB\u52A0",
+                "+ 添加",
                 color = AppColors.Accent,
                 style = AppTheme.typography.body,
                 modifier = Modifier.clickable { showAddDialog = true }
@@ -42,7 +42,7 @@ fun McpPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             )
         }
         Text(
-            "\u7BA1\u7406 MCP \u670D\u52A1\u5668\u8FDE\u63A5",
+            "管理 MCP 服务器连接",
             style = AppTheme.typography.caption,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -73,7 +73,7 @@ fun McpPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             }
             if (mcpServers.isEmpty()) {
                 item {
-                    Text("\u6682\u65E0 MCP \u670D\u52A1\u5668", style = AppTheme.typography.caption,
+                    Text("暂无 MCP 服务器", style = AppTheme.typography.caption,
                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
                 }
             }

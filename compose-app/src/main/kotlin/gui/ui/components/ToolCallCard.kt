@@ -25,22 +25,22 @@ fun ToolCallCard(toolCall: ToolCall, modifier: Modifier = Modifier) {
         .clip(RoundedCornerShape(12.dp)).background(AppColors.Surface)) {
         Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(12.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text("\uD83D\uDEE0", fontSize = 14.sp)
+            Text("🛠", fontSize = 14.sp)
             Spacer(Modifier.width(8.dp))
             Text(toolCall.name, style = AppTheme.typography.body)
             Spacer(Modifier.weight(1f))
             Text(when (toolCall.status) {
-                ToolStatus.RUNNING -> "\u231B"; ToolStatus.COMPLETED -> "\u2713"; ToolStatus.ERROR -> "\u2717"
+                ToolStatus.RUNNING -> "⌛"; ToolStatus.COMPLETED -> "✓"; ToolStatus.ERROR -> "✗"
             }, fontSize = 14.sp)
         }
         AnimatedVisibility(expanded) {
             Column(Modifier.padding(12.dp)) {
                 if (toolCall.params != null) {
-                    Text("\u53C2\u6570", style = AppTheme.typography.caption)
+                    Text("参数", style = AppTheme.typography.caption)
                     Text(toolCall.params, style = AppTheme.typography.mono, modifier = Modifier.padding(bottom = 8.dp))
                 }
                 if (toolCall.result != null) {
-                    Text("\u7ED3\u679C", style = AppTheme.typography.caption)
+                    Text("结果", style = AppTheme.typography.caption)
                     MarkdownContent(toolCall.result)
                 }
             }

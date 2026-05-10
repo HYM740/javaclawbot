@@ -27,9 +27,9 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         Modifier.fillMaxSize().background(AppColors.Background).padding(40.dp, 24.dp, 24.dp, 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("\u6280\u80FD\u7BA1\u7406", style = AppTheme.typography.title)
+        Text("技能管理", style = AppTheme.typography.title)
         Text(
-            "\u5DF2\u5B89\u88C5\u7684\u6280\u80FD\u5217\u8868",
+            "已安装的技能列表",
             style = AppTheme.typography.caption,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -40,7 +40,7 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             skills.forEach { skill ->
-                val name = skill["name"] ?: "\u672A\u77E5"
+                val name = skill["name"] ?: "未知"
                 val desc = skill["description"] ?: ""
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp))
@@ -53,7 +53,7 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                 }
             }
             if (skills.isEmpty()) {
-                Text("\u6682\u65E0\u5DF2\u5B89\u88C5\u7684\u6280\u80FD", style = AppTheme.typography.caption,
+                Text("暂无已安装的技能", style = AppTheme.typography.caption,
                     modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
             }
         }

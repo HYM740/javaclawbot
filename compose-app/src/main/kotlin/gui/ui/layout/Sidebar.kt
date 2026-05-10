@@ -42,14 +42,14 @@ fun Sidebar(
     val width = if (expanded) 256.dp else 64.dp
 
     val navItems = listOf(
-        NavItem("\uD83D\uDCAC", "Chat", "chat"),
-        NavItem("\uD83E\uDD16", "Models", "models"),
-        NavItem("\uD83D\uDC64", "Agents", "agents"),
-        NavItem("\uD83D\uDCE1", "Channels", "channels"),
-        NavItem("\u26A1", "Skills", "skills"),
-        NavItem("\uD83D\uDD0C", "MCP", "mcp"),
-        NavItem("\uD83D\uDDC4", "Databases", "databases"),
-        NavItem("\u23F0", "Cron Tasks", "crontasks")
+        NavItem("💬", "Chat", "chat"),
+        NavItem("🤖", "Models", "models"),
+        NavItem("👤", "Agents", "agents"),
+        NavItem("📡", "Channels", "channels"),
+        NavItem("⚡", "Skills", "skills"),
+        NavItem("🔌", "MCP", "mcp"),
+        NavItem("🗄", "Databases", "databases"),
+        NavItem("⏰", "Cron Tasks", "crontasks")
     )
 
     Column(
@@ -88,7 +88,7 @@ fun Sidebar(
                 .padding(horizontal = 12.dp, vertical = 10.dp)
         ) {
             Text(
-                if (expanded) "+ \u65B0\u5BF9\u8BDD" else "+",
+                if (expanded) "+ 新对话" else "+",
                 style = AppTheme.typography.body
             )
         }
@@ -134,7 +134,7 @@ fun Sidebar(
                                 modifier = Modifier.weight(1f)
                             )
                             Text(
-                                "\u00D7", Modifier.clickable { onDelete(entry.sessionId) },
+                                "×", Modifier.clickable { onDelete(entry.sessionId) },
                                 color = AppColors.TextSecondary
                             )
                         }
@@ -144,8 +144,8 @@ fun Sidebar(
         }
 
         // Bottom: Settings + DevConsole
-        rowNav("\u2699\uFE0F", "Settings", "settings", activePage, expanded, onPageSelected)
-        rowNav("\uD83D\uDD27", "Dev Console", "devconsole", activePage, expanded, onPageSelected)
+        rowNav("⚙️", "Settings", "settings", activePage, expanded, onPageSelected)
+        rowNav("🔧", "Dev Console", "devconsole", activePage, expanded, onPageSelected)
     }
 }
 

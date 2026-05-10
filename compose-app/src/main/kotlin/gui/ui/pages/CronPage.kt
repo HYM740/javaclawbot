@@ -28,9 +28,9 @@ fun CronPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         Modifier.fillMaxSize().background(AppColors.Background).padding(40.dp, 24.dp, 24.dp, 24.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Text("\u5B9A\u65F6\u4EFB\u52A1", style = AppTheme.typography.title)
+        Text("定时任务", style = AppTheme.typography.title)
         Text(
-            "\u7BA1\u7406 Cron \u5B9A\u65F6\u4EFB\u52A1",
+            "管理 Cron 定时任务",
             style = AppTheme.typography.caption,
             modifier = Modifier.padding(top = 8.dp)
         )
@@ -55,7 +55,7 @@ fun CronPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(name, fontWeight = FontWeight.Bold, style = AppTheme.typography.body)
                             Text(
-                                if (enabled) "\u5DF2\u542F\u7528" else "\u5DF2\u7981\u7528",
+                                if (enabled) "已启用" else "已禁用",
                                 style = AppTheme.typography.caption,
                                 color = if (enabled) AppColors.StatusOK else AppColors.TextSecondary
                             )
@@ -67,7 +67,7 @@ fun CronPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                         )
                         if (nextRun != null && nextRun > 0) {
                             Text(
-                                "\u4E0B\u6B21\u6267\u884C: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date(nextRun))}",
+                                "下次执行: ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(java.util.Date(nextRun))}",
                                 style = AppTheme.typography.caption
                             )
                         }
@@ -76,7 +76,7 @@ fun CronPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             }
             if (jobs.isEmpty()) {
                 item {
-                    Text("\u6682\u65E0\u5B9A\u65F6\u4EFB\u52A1", style = AppTheme.typography.caption,
+                    Text("暂无定时任务", style = AppTheme.typography.caption,
                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
                 }
             }

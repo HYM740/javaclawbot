@@ -24,7 +24,7 @@ fun DevConsolePage(bridge: Bridge?, modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(32.dp))
         Text(
-            "\u5F00\u53D1\u8005\u63A7\u5236\u53F0 \u2014 \u5F00\u53D1\u4E2D",
+            "开发者控制台 — 开发中",
             style = AppTheme.typography.body,
             color = AppColors.TextSecondary,
             modifier = Modifier.align(Alignment.CenterHorizontally)
