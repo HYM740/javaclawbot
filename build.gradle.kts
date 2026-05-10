@@ -7,10 +7,12 @@ plugins {
 subprojects {
     repositories {
         mavenCentral()
+        google()
         maven { url = uri("https://repo.spring.io/milestone") }
         maven { url = uri("https://repo.spring.io/snapshot") }
         maven { url = uri("https://oss.sonatype.org/content/groups/public/") }
         maven { url = uri("https://maven.aliyun.com/repository/public") }
+        maven { url = uri("https://maven.aliyun.com/repository/google") }
         maven { url = uri("https://maven.pkg.jetbrains.space/public/p/compose/dev") }
     }
 }
