@@ -1,6 +1,8 @@
 package gui.ui.pages
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
@@ -31,6 +33,7 @@ fun AgentsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
 
         Column(
             Modifier.widthIn(max = 800.dp).fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .clip(RoundedCornerShape(12.dp)).background(AppColors.Surface).padding(16.dp)
         ) {
             Text("default", fontWeight = FontWeight.Bold, style = AppTheme.typography.body)
