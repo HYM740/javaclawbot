@@ -2,16 +2,26 @@ package gui.ui.pages;
 
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.Line;
+import javafx.stage.Modality;
+import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.function.Consumer;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public class SettingsPage extends VBox {
 
@@ -406,6 +416,160 @@ public class SettingsPage extends VBox {
 
         modelRow.getChildren().addAll(infoBox, modelCombo);
         HBox.setHgrow(infoBox, Priority.ALWAYS);
+        infoBox.setMinWidth(220);
+
+        // ---- 快速模型选择 ----
+        String currentFast = cfg.getAgents().getDefaults().getFastModel();
+        HBox fastRow = new HBox(16);
+        fastRow.setAlignment(Pos.CENTER_LEFT);
+
+        VBox fastInfoBox = new VBox(4);
+        Label fastTitleLabel = new Label("快速模型");
+        fastTitleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500;");
+        Label fastDescLabel = new Label("标题生成等轻量级任务，留空则回退到默认模型");
+        fastDescLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
+        fastInfoBox.getChildren().addAll(fastTitleLabel, fastDescLabel);
+
+        // 构建 fast model ComboBox（含 "无 (回退默认)" 选项）
+        // "无" 使用空字符串 modelName，与 null 等效（getFastModel isBlank 检查）
+        java.util.List<ModelItem> fastItems = new java.util.ArrayList<>();
+        fastItems.add(new ModelItem("  无 (使用默认模型)", "", ""));
+        fastItems.addAll(items.stream().filter(mi -> !mi.isHeader() && mi.modelName != null
+            && !mi.modelName.isBlank()).toList());
+
+        // 保留完整列表供搜索
+        java.util.List<ModelItem> allFastItems = new java.util.ArrayList<>(fastItems);
+
+        ComboBox<ModelItem> fastCombo = new ComboBox<>();
+        fastCombo.getItems().addAll(fastItems);
+        // 选中当前 fast model
+        String fastMatch = (currentFast != null && !currentFast.isBlank()) ? currentFast : "";
+        for (ModelItem mi : fastItems) {
+            if (mi.modelName != null && mi.modelName.equals(fastMatch)) {
+                fastCombo.setValue(mi);
+                break;
+            }
+        }
+        if (fastCombo.getValue() == null && !fastItems.isEmpty()) {
+            fastCombo.setValue(fastItems.get(0));
+        }
+        fastCombo.setEditable(true);
+        fastCombo.setStyle("-fx-background-color: rgba(0, 0, 0, 0.03); -fx-background-radius: 12px;"
+            + " -fx-border-color: transparent; -fx-font-size: 13px;");
+        fastCombo.setPrefHeight(40);
+        fastCombo.setMaxWidth(350);
+
+        // 自定义单元格渲染："无" 项特殊样式，提供商标题不可选
+        fastCombo.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(ModelItem item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setText(null); setDisable(false); return; }
+                setText(item.text);
+                if (item.isHeader()) {
+                    setDisable(true);
+                    setStyle("-fx-text-fill: rgba(0,0,0,0.4); -fx-font-weight: 700;"
+                        + " -fx-font-size: 11px; -fx-font-family: sans-serif;");
+                } else {
+                    setDisable(false);
+                    setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
+                }
+            }
+        });
+
+        fastCombo.setButtonCell(new javafx.scene.control.ListCell<>() {
+            @Override protected void updateItem(ModelItem item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) { setText(null); return; }
+                setText(item.modelName != null && !item.modelName.isEmpty() ? item.modelName : "无");
+                setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
+            }
+        });
+
+        // ---- 快速模型搜索过滤 Popup ----
+        javafx.stage.Popup fastSearchPopup = new javafx.stage.Popup();
+        fastSearchPopup.setAutoHide(true);
+        VBox fastSearchList = new VBox(2);
+        fastSearchList.setStyle("-fx-background-color: rgba(255,255,255,0.97); -fx-background-radius: 10px;"
+            + " -fx-border-color: rgba(0,0,0,0.08); -fx-border-radius: 10px; -fx-border-width: 1px;");
+        fastSearchList.setPadding(new Insets(4));
+        fastSearchPopup.getContent().add(fastSearchList);
+
+        fastCombo.getEditor().textProperty().addListener((obs, old, text) -> {
+            fastSearchPopup.hide();
+            if (text == null || text.isBlank()) return;
+            String lower = text.toLowerCase().trim();
+            if (lower.isEmpty()) return;
+
+            java.util.List<ModelItem> filtered = new java.util.ArrayList<>();
+            for (ModelItem mi : allFastItems) {
+                if (mi.isHeader()) {
+                    filtered.add(mi);
+                } else if (mi.modelName != null && mi.modelName.toLowerCase().contains(lower)) {
+                    filtered.add(mi);
+                } else if (mi.modelName != null && mi.modelName.isEmpty() && "无".contains(lower)) {
+                    // 搜索"无"时显示"使用默认模型"选项
+                    filtered.add(mi);
+                }
+            }
+            // Clean orphan headers
+            java.util.List<ModelItem> clean = new java.util.ArrayList<>();
+            for (int i = 0; i < filtered.size(); i++) {
+                ModelItem mi = filtered.get(i);
+                if (mi.isHeader()) {
+                    if (i + 1 < filtered.size() && !filtered.get(i + 1).isHeader()) {
+                        clean.add(mi);
+                    }
+                } else {
+                    clean.add(mi);
+                }
+            }
+            if (clean.isEmpty()) return;
+
+            fastCombo.hide();
+
+            fastSearchList.getChildren().clear();
+            for (ModelItem mi : clean) {
+                javafx.scene.control.Label row = new javafx.scene.control.Label(mi.text);
+                row.setPadding(new Insets(4, 10, 4, 10));
+                row.setPrefHeight(24);
+                if (mi.isHeader()) {
+                    row.setStyle("-fx-text-fill: rgba(0,0,0,0.4); -fx-font-weight: 700;"
+                        + " -fx-font-size: 11px; -fx-font-family: sans-serif;");
+                    row.setDisable(true);
+                } else {
+                    row.setStyle("-fx-font-family: monospace; -fx-font-size: 13px;"
+                        + " -fx-cursor: hand;");
+                    row.setOnMouseClicked(ev -> {
+                        fastSearchPopup.hide();
+                        fastCombo.setValue(mi);
+                        fastCombo.getEditor().setText(
+                            mi.modelName != null && !mi.modelName.isEmpty() ? mi.modelName : "无");
+                    });
+                }
+                fastSearchList.getChildren().add(row);
+            }
+            if (!fastSearchList.getChildren().isEmpty()) {
+                var bounds = fastCombo.localToScreen(fastCombo.getBoundsInLocal());
+                fastSearchPopup.show(fastCombo.getScene().getWindow(),
+                    bounds.getMinX(), bounds.getMaxY() + 2);
+            }
+        });
+
+        fastCombo.setOnShowing(e -> fastSearchPopup.hide());
+
+        fastCombo.setOnAction(e -> {
+            Object value = fastCombo.getValue();
+            if (!(value instanceof ModelItem)) return;
+            ModelItem sel = (ModelItem) value;
+            if (sel.isHeader()) return;
+            cfg.getAgents().getDefaults().setFastModel(
+                sel.modelName != null && !sel.modelName.isEmpty() ? sel.modelName : null);
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            refresh();
+        });
+
+        fastRow.getChildren().addAll(fastInfoBox, fastCombo);
+        HBox.setHgrow(fastInfoBox, Priority.ALWAYS);
 
         // API Key 显示
         String apiKey = "";
@@ -420,7 +584,17 @@ public class SettingsPage extends VBox {
             : (apiKey.isBlank() ? "未配置" : "\u2022\u2022\u2022");
         HBox apiKeyRow = createSettingRow("API 密钥", "用于认证模型服务", maskedKey);
 
-        section.getChildren().addAll(sectionTitle, modelRow, apiKeyRow);
+        section.getChildren().addAll(sectionTitle, modelRow, fastRow, apiKeyRow);
+
+        // 打开配置文件 — 内置 JSON 编辑器
+        Button openConfigBtn = new Button("\uD83D\uDCC4 编辑配置文件");
+        openConfigBtn.getStyleClass().add("pill-button");
+        openConfigBtn.setPrefHeight(36);
+        openConfigBtn.setOnAction(e -> showEditorChoiceDialog());
+        HBox btnBox = new HBox(openConfigBtn);
+        btnBox.setAlignment(Pos.CENTER);
+        section.getChildren().add(btnBox);
+
         return section;
     }
 
@@ -463,5 +637,154 @@ public class SettingsPage extends VBox {
         row.getChildren().addAll(iconLabel, infoBox);
         HBox.setHgrow(infoBox, Priority.ALWAYS);
         box.getChildren().add(row);
+    }
+
+    /** 编辑器选择对话框：系统默认编辑器 or 内置编辑器 */
+    private void showEditorChoiceDialog() {
+        Path configPath = config.ConfigIO.getConfigPath();
+        if (!Files.exists(configPath)) return;
+
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.setTitle("选择编辑器");
+
+        VBox root = new VBox(20);
+        root.setPadding(new Insets(28));
+        root.setAlignment(Pos.CENTER);
+        root.setStyle("-fx-background-color: #ffffff;"
+            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 12px; -fx-border-width: 1px;");
+
+        Label title = new Label("\uD83D\uDCC4 选择编辑器");
+        title.setStyle("-fx-font-family: Georgia; -fx-font-size: 20px; -fx-text-fill: rgba(0,0,0,0.7); -fx-font-weight: 600;");
+
+        Label desc = new Label("请选择使用哪种编辑器打开配置文件");
+        desc.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.45);");
+
+        Button systemBtn = new Button("\uD83D\uDDA5 系统默认编辑器");
+        systemBtn.setStyle("-fx-background-color: #f8f8f8; -fx-text-fill: #333;"
+            + " -fx-background-radius: 10px; -fx-padding: 12px 24px;"
+            + " -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand;"
+            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 10px; -fx-border-width: 1px;");
+        systemBtn.setPrefWidth(240);
+        systemBtn.setOnAction(e -> {
+            dialog.close();
+            try {
+                java.awt.Desktop.getDesktop().edit(configPath.toFile());
+            } catch (IOException ex) {
+                // 如果 edit 不支持，回退到 open
+                try {
+                    java.awt.Desktop.getDesktop().open(configPath.toFile());
+                } catch (IOException ex2) {
+                    // 最终回退到内置编辑器
+                    javafx.application.Platform.runLater(this::showJsonEditor);
+                }
+            }
+        });
+
+        Button builtinBtn = new Button("\uD83D\uDCDD 本项目内置编辑器");
+        builtinBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white;"
+            + " -fx-background-radius: 10px; -fx-padding: 12px 24px;"
+            + " -fx-font-size: 14px; -fx-font-weight: 600; -fx-cursor: hand;");
+        builtinBtn.setPrefWidth(240);
+        builtinBtn.setOnAction(e -> {
+            dialog.close();
+            javafx.application.Platform.runLater(this::showJsonEditor);
+        });
+
+        Button cancelBtn = new Button("取消");
+        cancelBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888;"
+            + " -fx-font-size: 13px; -fx-cursor: hand; -fx-padding: 6px 16px;");
+        cancelBtn.setOnAction(e -> dialog.close());
+
+        root.getChildren().addAll(title, desc, systemBtn, builtinBtn, cancelBtn);
+
+        Scene scene = new Scene(root);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        dialog.setScene(scene);
+        dialog.showAndWait();
+    }
+
+    /** 内置 JSON 编辑对话框：语法高亮 + 格式化 + 保存 */
+    private void showJsonEditor() {
+        Path configPath = config.ConfigIO.getConfigPath();
+        if (!Files.exists(configPath)) return;
+
+        String originalContent;
+        try {
+            originalContent = Files.readString(configPath);
+        } catch (IOException e) {
+            return;
+        }
+
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.setTitle("编辑配置文件");
+
+        VBox root = new VBox(12);
+        root.setPadding(new Insets(20));
+        root.setStyle("-fx-background-color: #ffffff;"
+            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 12px; -fx-border-width: 1px;");
+        root.setMinWidth(700);
+        root.setMinHeight(500);
+
+        Label title = new Label("📄 " + configPath.getFileName().toString());
+        title.setStyle("-fx-font-size: 15px; -fx-text-fill: rgba(0,0,0,0.7); -fx-font-weight: 500;");
+
+        TextArea editor = new TextArea(originalContent);
+        editor.setStyle("-fx-font-family: 'JetBrains Mono','Fira Code',monospace;"
+            + " -fx-font-size: 13px; -fx-text-fill: #333;"
+            + " -fx-background-color: #fafafa; -fx-control-inner-background: #fafafa;"
+            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 8px;");
+        editor.setWrapText(false);
+        VBox.setVgrow(editor, Priority.ALWAYS);
+
+        HBox btnRow = new HBox(10);
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+
+        Button formatBtn = new Button("格式化");
+        formatBtn.setStyle("-fx-background-color: #f0f0f0; -fx-text-fill: #555;"
+            + " -fx-background-radius: 8px; -fx-padding: 6px 16px; -fx-cursor: hand;"
+            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 8px; -fx-border-width: 1px;");
+        formatBtn.setOnAction(e -> {
+            try {
+                ObjectMapper mapper = new ObjectMapper();
+                Object json = mapper.readValue(editor.getText(), Object.class);
+                String pretty = mapper.writerWithDefaultPrettyPrinter().writeValueAsString(json);
+                editor.setText(pretty);
+            } catch (Exception ex) {
+                editor.setStyle(editor.getStyle() + "; -fx-control-inner-background: #fff0f0;");
+            }
+        });
+
+        Button saveBtn = new Button("保存");
+        saveBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white;"
+            + " -fx-background-radius: 8px; -fx-padding: 6px 20px; -fx-font-weight: 600; -fx-cursor: hand;");
+        saveBtn.setOnAction(e -> {
+            try {
+                new ObjectMapper().readValue(editor.getText(), Object.class);
+                Files.writeString(configPath, editor.getText());
+                backendBridge.reloadConfigFromDisk();
+                refresh();
+                dialog.close();
+            } catch (Exception ex) {
+                editor.setStyle(editor.getStyle().replace("-fx-control-inner-background: #fafafa;",
+                    "-fx-control-inner-background: #fff0f0;"));
+            }
+        });
+
+        Button cancelBtn = new Button("取消");
+        cancelBtn.setStyle("-fx-background-color: #f0f0f0; -fx-text-fill: #888;"
+            + " -fx-background-radius: 8px; -fx-padding: 6px 16px; -fx-cursor: hand;"
+            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 8px; -fx-border-width: 1px;");
+        cancelBtn.setOnAction(e -> dialog.close());
+
+        btnRow.getChildren().addAll(formatBtn, cancelBtn, saveBtn);
+
+        root.getChildren().addAll(title, editor, btnRow);
+
+        Scene scene = new Scene(root);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        dialog.setScene(scene);
+        dialog.showAndWait();
     }
 }

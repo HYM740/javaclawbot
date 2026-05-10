@@ -16,6 +16,8 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.web.WebView;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
 import java.util.List;
 
 public class MessageBubble extends HBox {
@@ -39,7 +41,7 @@ public class MessageBubble extends HBox {
             + "<head><meta charset='UTF-8'><style>"
             + "html,body{overflow:hidden;}"
             + "html{height:100%;}body{min-height:100%;}"
-            + "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+            + "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif;"
             + "font-size:14px;line-height:1.6;color:#1c1c1e;background:transparent;margin:0;padding:12px 16px;}"
             + "pre{background:rgba(0,0,0,0.04);border:1px solid rgba(0,0,0,0.08);border-radius:8px;"
             + "padding:12px 16px;overflow-x:auto;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;line-height:1.5;}"
@@ -61,7 +63,7 @@ public class MessageBubble extends HBox {
             + ".copy-btn{position:absolute;top:6px;right:8px;display:flex;align-items:center;gap:4px;"
             + "background:rgba(0,0,0,0.06);border:1px solid rgba(0,0,0,0.08);border-radius:6px;"
             + "padding:4px 10px;cursor:pointer;font-size:12px;color:rgba(0,0,0,0.4);"
-            + "opacity:0;transition:opacity 0.2s;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}"
+            + "opacity:0;transition:opacity 0.2s;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif;}"
             + "pre:hover .copy-btn,.copy-btn.copied{opacity:1;}"
             + ".copy-btn:hover{background:rgba(0,0,0,0.1);color:rgba(0,0,0,0.7);}"
             + ".copy-btn.copied{color:#16a34a;}"
@@ -128,7 +130,7 @@ public class MessageBubble extends HBox {
                                 javafx.scene.Scene oldScene, javafx.scene.Scene newScene) {
                 if (newScene != null) {
                     bubble.sceneProperty().removeListener(this);
-                    Platform.runLater(() -> webView.getEngine().loadContent(html));
+                    Platform.runLater(() -> webView.getEngine().load(toDataUri(html)));
                 }
             }
         });
@@ -217,7 +219,7 @@ public class MessageBubble extends HBox {
             sceneProperty().addListener((obs, o, s) -> {
                 if (s != null) {
                     updateBubbleWidth(webView, bubble, s.getWidth(), content);
-                    Platform.runLater(() -> webView.getEngine().loadContent(html));
+                    Platform.runLater(() -> webView.getEngine().load(toDataUri(html)));
                     s.widthProperty().addListener((wObs, wOld, wNew) -> {
                         updateBubbleWidth(webView, bubble, wNew.doubleValue(), content);
                         Platform.runLater(() -> adjustWebViewHeight(webView));
@@ -245,6 +247,13 @@ public class MessageBubble extends HBox {
         wv.setPrefWidth(contentW);
         wv.setMaxWidth(contentW);
         bubble.setMaxWidth(available);
+    }
+
+    /** 用 data URI 加载 HTML，确保非 BMP 字符（emoji）被 WebView 正确解码 */
+    private static String toDataUri(String html) {
+        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+        String b64 = Base64.getEncoder().encodeToString(bytes);
+        return "data:text/html;charset=UTF-8;base64," + b64;
     }
 
     public void setOnHeightAdjusted(Runnable callback) {

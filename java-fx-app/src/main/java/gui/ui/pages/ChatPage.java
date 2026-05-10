@@ -4,6 +4,7 @@ import com.vladsch.flexmark.ext.tables.TablesExtension;
 import com.vladsch.flexmark.html.HtmlRenderer;
 import com.vladsch.flexmark.parser.Parser;
 import com.vladsch.flexmark.util.data.MutableDataSet;
+import gui.ui.BackendBridge;
 import gui.ui.components.ChatInput;
 import gui.ui.components.MessageBubble;
 import gui.ui.components.ProjectPopover;
@@ -11,7 +12,9 @@ import gui.ui.components.ProjectStatusBadge;
 import gui.ui.components.TodoFloatBadge;
 import gui.ui.components.ToolCallCard;
 import providers.cli.ProjectRegistry;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Base64;
 import javafx.animation.Animation;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
@@ -56,6 +59,8 @@ public class ChatPage extends VBox {
     private HBox thinkingPlaceholder;
     /** 思考中动画 */
     private Timeline thinkingAnimation;
+    /** 流式输出期间的进度消息气泡（每次更新替换而非追加，避免 WebView 累积卡死 GUI） */
+    private javafx.scene.Node lastStreamingBubble;
 
     private static final Parser REASONING_PARSER;
     private static final HtmlRenderer REASONING_RENDERER;
@@ -69,7 +74,7 @@ public class ChatPage extends VBox {
 
         REASONING_HTML_TEMPLATE = "<!DOCTYPE html><html style='height:100%;background:rgba(0,0,0,0.03);'>"
             + "<head><meta charset='UTF-8'><style>"
-            + "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+            + "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif;"
             + "font-size:13px;line-height:1.6;color:rgba(0,0,0,0.5);"
             + "background:rgba(0,0,0,0.03);margin:0;padding:8px 16px;overflow:hidden;}"
             + "pre{background:rgba(0,0,0,0.03);border:1px solid rgba(0,0,0,0.06);border-radius:6px;"
@@ -87,7 +92,7 @@ public class ChatPage extends VBox {
         setSpacing(0);
         setStyle("-fx-background-color: #f1ede1;");
 
-        // 悬浮 Todo 浮标
+        // 悬浮
         todoFloatBadge = new TodoFloatBadge();
 
         // 消息区域
@@ -253,12 +258,36 @@ public class ChatPage extends VBox {
     }
 
     public void addAssistantMessage(String content) {
+        addAssistantMessage(content, false);
+    }
+
+    /**
+     * 添加助手消息气泡。
+     * @param replacePrevious 为 true 时替换上一个流式输出气泡（仅用于 LLM 流式进度更新）
+     */
+    public void addAssistantMessage(String content, boolean replacePrevious) {
         // 过滤 LLM API 适配占位符，不显示无意义文本
-        if ("(empty)".equals(content)) return;
+        if ("(empty)".equals(content) || "（empty）".equals(content)) return;
         MessageBubble bubble = new MessageBubble(MessageBubble.Role.ASSISTANT, content);
         bubble.setOnHeightAdjusted(this::scrollToBottom);
-        messageContainer.getChildren().add(bubble);
+        // replacePrevious=true 且上一个流式气泡还在时替换它，避免 WebView 累积导致 GUI 卡死
+        if (replacePrevious && lastStreamingBubble != null) {
+            int idx = messageContainer.getChildren().indexOf(lastStreamingBubble);
+            if (idx >= 0) {
+                messageContainer.getChildren().set(idx, bubble);
+            } else {
+                messageContainer.getChildren().add(bubble);
+            }
+        } else {
+            messageContainer.getChildren().add(bubble);
+        }
+        lastStreamingBubble = bubble;
         smartScrollToBottom();
+    }
+
+    /** 清除流式气泡追踪（最终回复/推理块到达时调用） */
+    public void clearStreamingBubble() {
+        lastStreamingBubble = null;
     }
 
     /** 添加独立的推理/思考块（可折叠），用于工具调用前展示思考过程 */
@@ -354,7 +383,7 @@ public class ChatPage extends VBox {
                     reasoningWv.setMaxWidth(w);
                 }
             }
-            reasoningWv.getEngine().loadContent(reasoningHtml);
+            reasoningWv.getEngine().load(toDataUri(reasoningHtml));
         });
     }
 
@@ -536,7 +565,7 @@ public class ChatPage extends VBox {
         smartScrollToBottom();
 
         // 延迟加载推理内容：等场景布局完成后，WebView 已有正确宽度
-        Platform.runLater(() -> reasoningWv.getEngine().loadContent(reasoningHtml));
+        Platform.runLater(() -> reasoningWv.getEngine().load(toDataUri(reasoningHtml)));
     }
 
 
@@ -614,6 +643,13 @@ public class ChatPage extends VBox {
         } catch (Exception ignored) {}
     }
 
+    /** 用 data URI 加载 HTML，确保非 BMP 字符（emoji）被 WebView 正确解码 */
+    private static String toDataUri(String html) {
+        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+        String b64 = Base64.getEncoder().encodeToString(bytes);
+        return "data:text/html;charset=UTF-8;base64," + b64;
+    }
+
     private void clearWelcomeIfNeeded() {
         if (!messageContainer.getChildren().isEmpty()
             && messageContainer.getChildren().get(0) instanceof VBox) {
@@ -659,10 +695,18 @@ public class ChatPage extends VBox {
         chatInput.setStatusText(text);
     }
 
+    /**
+     * 更新上下文使用率展示，转发到 ChatInput。
+     */
+    public void setContextUsage(double ratio) {
+        chatInput.setContextUsage(ratio);
+    }
+
     public void clearMessages() {
         messageContainer.getChildren().clear();
         todoFloatBadge.setVisible(false);
         thinkingPlaceholder = null;
+        lastStreamingBubble = null;
         if (thinkingAnimation != null) {
             thinkingAnimation.stop();
             thinkingAnimation = null;
@@ -838,6 +882,12 @@ public class ChatPage extends VBox {
     private ProjectPopover projectPopover;
     private ProjectRegistry projectRegistry;
     private Path workspacePath;
+    private BackendBridge backendBridge;
+
+    /** 设置后端桥接引用 */
+    public void setBackendBridge(BackendBridge backendBridge) {
+        this.backendBridge = backendBridge;
+    }
 
     /** 设置项目注册信息并初始化 Popover */
     public void setProjectInfo(ProjectRegistry registry, Path workspacePath) {
@@ -870,7 +920,10 @@ public class ChatPage extends VBox {
 
     /** 刷新项目徽标 */
     public void refreshProjectBadge() {
-        if (projectRegistry != null) {
+        if (projectRegistry != null && backendBridge != null) {
+            // 从 backendBridge 获取最新的 ProjectRegistry 引用
+            this.projectRegistry = backendBridge.getProjectRegistry();
+            this.workspacePath = backendBridge.getConfig().getWorkspacePath();
             chatInput.refreshProjectBadge(projectRegistry, workspacePath);
         }
     }

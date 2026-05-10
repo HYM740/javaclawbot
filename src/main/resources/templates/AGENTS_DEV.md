@@ -114,6 +114,8 @@
 - Shell：{shell}
 - 操作系统版本：{os_version}
 - 你由 {model} 模型驱动。
+- 你的配置文件目录：{config}
+- 你的技能空间：{skill_home}
   在构建应用时应该使用强大的模型（{model}） 而不是快速模型
   <fast_mode_info>
   快速模式可以使用 {fast_model} 模型，输出更快。它不会切到不同的型号。适合探索，快速得到答案 不适合构建

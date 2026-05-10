@@ -11,6 +11,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -18,6 +19,8 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+
+import java.util.Map;
 
 public class ModelsPage extends VBox {
 
@@ -121,6 +124,26 @@ public class ModelsPage extends VBox {
     private String fieldStyle() {
         return "-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 12px;"
             + " -fx-border-color: transparent; -fx-font-size: 14px; -fx-padding: 10px 14px;";
+    }
+
+    private static String mapToJson(Map<String, Object> map) {
+        if (map == null || map.isEmpty()) return "";
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(map);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static Map<String, Object> jsonToMap(String json) {
+        if (json == null || json.isBlank()) return new java.util.HashMap<>();
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> result = new com.fasterxml.jackson.databind.ObjectMapper().readValue(json, Map.class);
+            return result;
+        } catch (Exception e) {
+            return new java.util.HashMap<>();
+        }
     }
 
     private void showModelDialog(String providerName) {
@@ -279,6 +302,22 @@ public class ModelsPage extends VBox {
                 Label tokensLabel = new Label("max: " + (mc.getMaxTokens() != null ? mc.getMaxTokens() : "-"));
                 tokensLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.4);");
 
+                // 检查 think 配置
+                if (mc.getThink() != null && !mc.getThink().isEmpty()) {
+                    Label thinkBadge = new Label("思考");
+                    thinkBadge.setStyle("-fx-background-color: rgba(59,130,246,0.1); -fx-background-radius: 6px;"
+                        + " -fx-font-size: 10px; -fx-padding: 2px 6px; -fx-text-fill: #3b82f6;");
+                    row.getChildren().add(thinkBadge);
+                }
+
+                // 检查 extraBody 配置
+                if (mc.getExtraBody() != null && !mc.getExtraBody().isEmpty()) {
+                    Label extraBadge = new Label("Extra");
+                    extraBadge.setStyle("-fx-background-color: rgba(16,185,129,0.1); -fx-background-radius: 6px;"
+                        + " -fx-font-size: 10px; -fx-padding: 2px 6px; -fx-text-fill: #10b981;");
+                    row.getChildren().add(extraBadge);
+                }
+
                 HBox spacer = new HBox(); HBox.setHgrow(spacer, Priority.ALWAYS);
 
                 Button editBtn = new Button("✎");
@@ -340,6 +379,22 @@ public class ModelsPage extends VBox {
         ctxField.setPromptText("Context Window"); ctxField.setStyle(fieldStyle()); ctxField.setPrefHeight(36); ctxField.setPrefWidth(140);
         numRow.getChildren().addAll(maxTokensField, tempField, topPField, ctxField);
 
+        TextArea thinkArea = new TextArea();
+        thinkArea.setPromptText("{\"type\": \"enabled\", ...}");
+        thinkArea.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; "
+            + "-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 8px; "
+            + "-fx-border-color: transparent; -fx-padding: 8px;");
+        thinkArea.setPrefRowCount(3);
+        thinkArea.setWrapText(true);
+
+        TextArea extraArea = new TextArea();
+        extraArea.setPromptText("{\"custom_param\": \"value\"}");
+        extraArea.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; "
+            + "-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 8px; "
+            + "-fx-border-color: transparent; -fx-padding: 8px;");
+        extraArea.setPrefRowCount(3);
+        extraArea.setWrapText(true);
+
         HBox btnRow = new HBox(8);
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
@@ -369,6 +424,14 @@ public class ModelsPage extends VBox {
             if (ctxField.getText() != null && !ctxField.getText().isBlank()) {
                 try { mc.setContextWindow(Integer.parseInt(ctxField.getText())); } catch (Exception ignored) {}
             }
+            String thinkJson = thinkArea.getText();
+            if (thinkJson != null && !thinkJson.isBlank()) {
+                mc.setThink(jsonToMap(thinkJson));
+            }
+            String extraJson = extraArea.getText();
+            if (extraJson != null && !extraJson.isBlank()) {
+                mc.setExtraBody(jsonToMap(extraJson));
+            }
             if (pc.getModelConfigs() == null) pc.setModelConfigs(new java.util.ArrayList<>());
             pc.getModelConfigs().add(mc);
             try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
@@ -381,6 +444,8 @@ public class ModelsPage extends VBox {
             newLabel("别名"), aliasField,
             newLabel("类型"), typeCombo,
             newLabel("参数"), numRow,
+            newLabel("思考配置 (JSON)"), thinkArea,
+            newLabel("Extra Body (JSON)"), extraArea,
             btnRow);
         box.getChildren().add(form);
     }
@@ -422,6 +487,22 @@ public class ModelsPage extends VBox {
         ctxField.setPromptText("Context Window"); ctxField.setStyle(fieldStyle()); ctxField.setPrefHeight(36); ctxField.setPrefWidth(140);
         numRow.getChildren().addAll(maxTokensField, tempField, topPField, ctxField);
 
+        TextArea thinkArea = new TextArea(mapToJson(mc.getThink()));
+        thinkArea.setPromptText("{\"type\": \"enabled\", ...}");
+        thinkArea.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; "
+            + "-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 8px; "
+            + "-fx-border-color: transparent; -fx-padding: 8px;");
+        thinkArea.setPrefRowCount(3);
+        thinkArea.setWrapText(true);
+
+        TextArea extraArea = new TextArea(mapToJson(mc.getExtraBody()));
+        extraArea.setPromptText("{\"custom_param\": \"value\"}");
+        extraArea.setStyle("-fx-font-family: monospace; -fx-font-size: 12px; "
+            + "-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 8px; "
+            + "-fx-border-color: transparent; -fx-padding: 8px;");
+        extraArea.setPrefRowCount(3);
+        extraArea.setWrapText(true);
+
         HBox btnRow = new HBox(8);
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
@@ -450,6 +531,18 @@ public class ModelsPage extends VBox {
             if (ctxField.getText() != null && !ctxField.getText().isBlank()) {
                 try { mc.setContextWindow(Integer.parseInt(ctxField.getText())); } catch (Exception ignored) {}
             } else { mc.setContextWindow(null); }
+            String thinkJson = thinkArea.getText();
+            if (thinkJson != null && !thinkJson.isBlank()) {
+                mc.setThink(jsonToMap(thinkJson));
+            } else {
+                mc.setThink(new java.util.HashMap<>());
+            }
+            String extraJson = extraArea.getText();
+            if (extraJson != null && !extraJson.isBlank()) {
+                mc.setExtraBody(jsonToMap(extraJson));
+            } else {
+                mc.setExtraBody(new java.util.HashMap<>());
+            }
             try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
             rebuildModelList(box, pc, cfg, dialog);
         });
@@ -460,6 +553,8 @@ public class ModelsPage extends VBox {
             newLabel("别名"), aliasField,
             newLabel("类型"), typeCombo,
             newLabel("参数"), numRow,
+            newLabel("思考配置 (JSON)"), thinkArea,
+            newLabel("Extra Body (JSON)"), extraArea,
             btnRow);
         box.getChildren().add(insertIdx, form);
     }

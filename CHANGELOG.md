@@ -2,6 +2,13 @@
 
 All notable changes to JavaClawBot will be documented in this file.
 
+## [2.2.8] - 2026-05-10
+
+### Fixed
+- **修复点击停止后无法继续对话的 bug**：`BackendBridge.stopMessage()` 发送 `/stop` 后未重置 `waitingForResponse` 标志，导致 `isWaitingForResponse()` 持续返回 true，新消息被静默丢弃。现在在 `/stop` 发送时和系统命令回复到达时均重置等待状态
+- **修复 AI 批量读取文件时 GUI 卡死的问题**：LLM 流式输出期间每次进度事件都创建新的 MessageBubble(WebView) 且永不清理，多文件读取时大量 WebView 累积导致 JavaFX 线程卡死。现在流式进度使用替换式更新（而非追加），最终回复后清除追踪
+- **修复多工具调用链在第一个工具执行后中止的问题**：commit `4c7b711` 将 `awaiting_response` 检测从仅 `AskUserQuestionTool` 扩展到所有工具（用于支持 DbTool 确认流程），但使用简单的 `String.contains("awaiting_response")` 判断。当 `read_file` 读取包含 "awaiting_response" 字符串的源文件（如 `MainStage.java`）时，文件内容误触发用户问答暂停流程，后续工具调用被永久阻塞。修复：将判断改为 JSON 解析 + `status`/`questions` 字段验证，避免文件内容误匹配
+
 ## [2.2.7] - 2026-05-08
 
 ### Added
