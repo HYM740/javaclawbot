@@ -36,7 +36,8 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
     val skills = remember(bridge, refreshTrigger) {
         try {
             bridge?.skillsLoader?.listSkills(true) ?: emptyList()
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            log.warn("无法列出技能", e)
             emptyList()
         }
     }
@@ -65,7 +66,10 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                 val status = if (source == "builtin") "内置" else "工作区"
                 val enabled = try {
                     bridge?.skillsLoader?.isSkillEnabled(name) ?: true
-                } catch (_: Exception) { true }
+                } catch (e: Exception) {
+                    log.warn("检查技能启用状态失败: $name", e)
+                    true
+                }
 
                 Card(
                     name = name,
