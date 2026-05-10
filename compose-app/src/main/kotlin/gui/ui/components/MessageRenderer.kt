@@ -14,6 +14,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.runtime.*
 import com.vladsch.flexmark.ast.*
 import com.vladsch.flexmark.ast.util.TextCollectingVisitor
 import com.vladsch.flexmark.parser.Parser
@@ -25,9 +27,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
-import androidx.compose.material.Dialog
 import androidx.compose.ui.Alignment
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 
 private val MARKDOWN_PARSER: Parser = Parser.builder()
