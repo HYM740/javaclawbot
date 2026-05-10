@@ -147,6 +147,7 @@ private fun TableNode(node: TableBlock) {
                             when (child) {
                                 is TableHead -> TableHeaderRow(child)
                                 is TableBody -> TableBodyContent(child)
+                                is TableSeparator -> { /* skip separator row */ }
                                 else -> RenderMarkdownNode(child)
                             }
                         }
@@ -205,6 +206,7 @@ private fun TableNode(node: TableBlock) {
                                     when (child) {
                                         is TableHead -> TableHeaderRow(child)
                                         is TableBody -> TableBodyContent(child)
+                                        is TableSeparator -> { /* skip separator row */ }
                                         else -> RenderMarkdownNode(child)
                                     }
                                 }
