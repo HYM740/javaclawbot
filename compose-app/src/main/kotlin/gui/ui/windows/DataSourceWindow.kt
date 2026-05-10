@@ -17,9 +17,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.WindowState
-import androidx.compose.ui.window.rememberWindowState
+import androidx.compose.ui.window.rememberDialogState
 import gui.ui.Bridge
 import gui.ui.components.ErrorDialog
 import gui.ui.theme.AppColors
@@ -71,25 +71,32 @@ fun DataSourceWindow(
     var errorDialogMessage by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
-    val windowState = rememberWindowState(
+    val windowState = rememberDialogState(
         width = 520.dp,
         height = 600.dp
     )
 
-    Window(
+    // Keep a ref to the AWT frame for focus management
+    var frameRef by remember { mutableStateOf<java.awt.Frame?>(null) }
+
+    DialogWindow(
         onCloseRequest = onDismiss,
         title = title,
         state = windowState,
         enabled = errorDialogMessage == null
     ) {
+        SideEffect {
+            val f = window as? java.awt.Frame
+            f?.isResizable = false
+            f?.isUndecorated = false
+            frameRef = f
+        }
         Column(
             Modifier.width(520.dp).heightIn(min = 500.dp, max = 700.dp)
                 .fillMaxSize()
                 .background(AppColors.Surface)
                 .padding(24.dp)
         ) {
-            Text(title, fontSize = 20.sp, color = AppColors.TextPrimary)
-
             Spacer(Modifier.height(16.dp))
 
             // Scrollable form area
@@ -102,11 +109,48 @@ fun DataSourceWindow(
                         driverClass = inferred
                     }
                 }
+                fieldInput("驱动类", driverClass, "自动推断") { driverClass = it }
                 fieldInput("用户名", username, "root") { username = it }
                 fieldInput("密码", password, if (isEdit) "留空则保留原密码" else "****") { password = it }
-                fieldInput("驱动类", driverClass, "自动推断") { driverClass = it }
-                fieldInput("连接池大小", maxPoolSize, "5") { maxPoolSize = it }
-                fieldInput("连接超时 (ms)", connectionTimeout, "30000") { connectionTimeout = it }
+                // 连接池大小和超时共用一行
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.weight(1f)) {
+                        fieldLabel("连接池大小")
+                        Spacer(Modifier.height(4.dp))
+                        BasicTextField(
+                            value = maxPoolSize,
+                            onValueChange = { maxPoolSize = it },
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                                .background(AppColors.HoverBg).padding(12.dp),
+                            textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
+                            singleLine = true,
+                            decorationBox = { inner ->
+                                if (maxPoolSize.isEmpty()) {
+                                    Text("5", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
+                                }
+                                inner()
+                            }
+                        )
+                    }
+                    Column(Modifier.weight(1f)) {
+                        fieldLabel("连接超时 (ms)")
+                        Spacer(Modifier.height(4.dp))
+                        BasicTextField(
+                            value = connectionTimeout,
+                            onValueChange = { connectionTimeout = it },
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                                .background(AppColors.HoverBg).padding(12.dp),
+                            textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
+                            singleLine = true,
+                            decorationBox = { inner ->
+                                if (connectionTimeout.isEmpty()) {
+                                    Text("30000", style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextSecondary))
+                                }
+                                inner()
+                            }
+                        )
+                    }
+                }
             }
 
             // Fixed bottom action bar
@@ -191,9 +235,17 @@ fun DataSourceWindow(
         ErrorDialog(
             title = "错误",
             message = msg,
-            onDismiss = { errorDialogMessage = null }
+            onDismiss = {
+                errorDialogMessage = null
+                frameRef?.requestFocus()
+            }
         )
     }
+}
+
+@Composable
+private fun fieldLabel(label: String) {
+    Text(label, style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 13.sp, color = AppColors.TextSecondary))
 }
 
 @Composable

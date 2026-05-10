@@ -13,9 +13,11 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
+import java.awt.Dimension
 import gui.ui.layout.*
 import gui.ui.model.*
 import gui.ui.pages.*
@@ -87,6 +89,9 @@ fun main() = application {
         title = "NexusAi",
         state = windowState
     ) {
+        SideEffect {
+            (window as? java.awt.Window)?.minimumSize = Dimension(900, 600)
+        }
         ProvideTextStyle(TextStyle(fontFamily = CjkFontResolver.get())) {
         if (initError != null) {
             // Show initialization error

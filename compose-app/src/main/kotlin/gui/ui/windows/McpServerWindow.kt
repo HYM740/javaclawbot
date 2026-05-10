@@ -17,9 +17,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.DialogWindow
 import androidx.compose.ui.window.WindowState
-import androidx.compose.ui.window.rememberWindowState
+import androidx.compose.ui.window.rememberDialogState
 import gui.ui.Bridge
 import gui.ui.components.ErrorDialog
 import gui.ui.theme.AppColors
@@ -55,25 +55,30 @@ fun McpServerWindow(
     var errorDialogMessage by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
-    val windowState = rememberWindowState(
+    val windowState = rememberDialogState(
         width = 520.dp,
         height = 500.dp
     )
 
-    Window(
+    var frameRef by remember { mutableStateOf<java.awt.Frame?>(null) }
+
+    DialogWindow(
         onCloseRequest = onDismiss,
         title = title,
         state = windowState,
         enabled = errorDialogMessage == null
     ) {
+        SideEffect {
+            val f = window as? java.awt.Frame
+            f?.isResizable = false
+            frameRef = f
+        }
         Column(
             Modifier.width(520.dp).heightIn(min = 400.dp, max = 650.dp)
                 .fillMaxSize()
                 .background(AppColors.Surface)
                 .padding(24.dp)
         ) {
-            Text(title, fontSize = 20.sp, color = AppColors.TextPrimary)
-
             Spacer(Modifier.height(16.dp))
 
             // Scrollable form area
@@ -173,7 +178,10 @@ fun McpServerWindow(
                 ErrorDialog(
                     title = "错误",
                     message = msg,
-                    onDismiss = { errorDialogMessage = null }
+                    onDismiss = {
+                        errorDialogMessage = null
+                        frameRef?.requestFocus()
+                    }
                 )
             }
 
