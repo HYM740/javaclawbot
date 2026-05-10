@@ -384,11 +384,67 @@ public class ContextBuilder {
                  
                  %s
                  
-                 **重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。**
-                 `memory/YYYY-MM-dd.md` 格式文件为原始相关记忆，切勿直接使用`read_file`阅读整个文件，优先使用memory_search 搜索最近上下文，再根据获取的行数阅读详细上下文
-                 **已学习的经验(memory_search 无法搜索到 必须使用read_file 工具才能阅读)**：
-                 1. **语义记忆**（`{工作空间}/memory/semantic-patterns.json`）
-                 2. **情景记忆**（`{工作空间}/memory/episodic/YYYY-MM-DD-{skill}.json`）
+
+
+                 <important-notice>**重要提示：这个上下文可能与你的任务相关，也可能无关。除非这与你的任务高度相关，否则不应回复此语境。**
+
+                 **已学习的经验(memory_search 无法搜索到 必须使用read_file 工具才能阅读)**,记忆中只会存在自我进化索引，具体文件请查看：
+                 1. **语义记忆**（`{工作空间}/memory/semantic/patterns.json`）
+                 2. **情景记忆**（`{工作空间}/memory/episodic/yyyy/yyyy-MM-dd-{name}.json`）
+                 # 对应记忆架构和json格式说明：
+                 ## 多记忆架构
+                 使用write_file 工具存储对应记忆文件
+                 ### 1. 语义记忆（`{工作空间}/memory/semantic/patterns.json`）
+                 存储**可跨场景复用的抽象模式与规则**：
+
+                 ```json
+                 {
+                   "patterns": {
+                     "pattern_id": {
+                       "id": "pat-2025-01-11-001",
+                       "name": "模式名称",
+                       "source": "user_feedback|implementation_review|retrospective",
+                       "confidence": 0.95,
+                       "applications": 5,
+                       "created": "2025-01-11",
+                       "category": "prd_structure|react_patterns|async_patterns|...",
+                       "pattern": "一句话总结",
+                       "problem": "这个模式解决什么问题？",
+                       "solution": { },
+                       "quality_rules": [ ],
+                       "target_skills": [ ]
+                     }
+                   }
+                 }
+                 ```
+                 ### 2. 情景记忆（`{工作空间}/memory/episodic/`）
+                 存储**具体经历以及实际发生了什么**：
+
+                 ```text
+                 memory/episodic/
+                 ├── 2025/
+                 │   ├── 2025-01-11-prd-creation.json
+                 │   ├── 2025-01-11-debug-session.json
+                 │   └── 2025-01-12-refactoring.json
+                 ```
+
+                 ```json
+                 {
+                   "id": "ep-2025-01-11-001",
+                   "timestamp": "2025-01-11T10:30:00Z",
+                   "skill": "debugger",
+                   "situation": "用户反馈表单提交后数据没有刷新",
+                   "root_cause": "onRefresh 回调中传入了空函数",
+                   "solution": "在回调中实现真实的刷新逻辑",
+                   "lesson": "始终验证回调函数不是空实现",
+                   "related_pattern": "callback_verification",
+                   "user_feedback": {
+                     "rating": 8,
+                     "comments": "这正是问题所在"
+                   }
+                 }
+                 ```
+                 </important-notice>
                  </system-reminder>
                 """.formatted(LocalDate.now(), mem, projectCtx));
         return sb.toString();

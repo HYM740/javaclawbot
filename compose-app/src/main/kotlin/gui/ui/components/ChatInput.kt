@@ -1,6 +1,7 @@
 package gui.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,11 +26,14 @@ import androidx.compose.ui.unit.sp
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
 import gui.ui.theme.CjkFontResolver
+import kotlin.math.roundToInt
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 fun ChatInput(
     sending: Boolean,
+    statusText: String = "",
+    contextUsage: Float = 0f,
     onSend: (String) -> Unit,
     onStop: () -> Unit,
     modifier: Modifier = Modifier
@@ -38,7 +42,60 @@ fun ChatInput(
     var escCount by remember { mutableStateOf(0) }
     var lastEscTime by remember { mutableStateOf(0L) }
 
-    Box(modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
+    val clamped = contextUsage.coerceIn(0f, 1f)
+    val percent = (clamped * 100).roundToInt()
+    val barColor = when {
+        clamped <= 0.60f -> Color(0xFF22C55E)
+        clamped <= 0.85f -> Color(0xFFEAB308)
+        else -> Color(0xFFEF4444)
+    }
+
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)) {
+        // Status bar row
+        if (statusText.isNotBlank() || contextUsage > 0f) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (statusText.isNotBlank()) {
+                    Text(
+                        statusText,
+                        style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 11.sp, color = AppColors.TextSecondary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+
+                if (contextUsage > 0f) {
+                    Spacer(Modifier.width(8.dp))
+
+                    // Battery-style progress bar
+                    Box(
+                        Modifier.size(46.dp, 4.dp)
+                            .border(1.dp, Color(0xFFD1D5DB), RoundedCornerShape(3.dp)),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Box(
+                            Modifier.padding(1.dp).fillMaxHeight()
+                                .then(Modifier.fillMaxWidth(clamped))
+                                .background(barColor, RoundedCornerShape(1.dp))
+                        )
+                    }
+
+                    Spacer(Modifier.width(4.dp))
+
+                    Text(
+                        "$percent%",
+                        style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 10.sp, color = barColor)
+                    )
+                }
+            }
+        }
+
+        // Input box
         Column(Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(16.dp))
             .clip(RoundedCornerShape(16.dp)).background(Color.White).padding(12.dp)) {
 

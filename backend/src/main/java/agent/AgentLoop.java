@@ -589,7 +589,7 @@ public class AgentLoop {
      * @param messages   当前消息列表（仅在第一轮无真实数据时使用）
      * @return 上下文比例 (0.0 ~ 1.0)
      */
-    private double getContextRatioByUsage(UsageAccumulator usageAcc, List<Map<String, Object>> messages) {
+    public double getContextRatioByUsage(UsageAccumulator usageAcc, List<Map<String, Object>> messages) {
         // 如果有真实数据（后续轮次），用真实的 prompt_tokens，不再乘系数
         if (usageAcc != null && usageAcc.hasData()) {
             long promptTokens = usageAcc.getContextSize();
@@ -2364,8 +2364,9 @@ public class AgentLoop {
                             cliAgentHandler.clearCurrentSessionKey();
                         })
                         .thenCompose(rawResult -> {
-                            // 任意工具返回 awaiting_response 时，进入用户问答暂停流程
-                            if (rawResult != null && rawResult.contains("awaiting_response")) {
+                            // 仅当结果为合法 JSON 且 status="awaiting_response" 时进入暂停流程，
+                            // 避免文件内容中包含 "awaiting_response" 字符串导致误触发
+                            if (rawResult != null && isAwaitingResponse(rawResult)) {
                                 return handleAnyToolAskUserPause(tc, rawResult, msg, messages, toolContext, tools);
                             }
 
@@ -2495,6 +2496,20 @@ public class AgentLoop {
                 return handleNonAskUserToolAnswer(tc, msg, messages, tools, toolContext, questions, answers);
             }
         });
+    }
+
+    /**
+     * 检查工具结果是否为合法的 awaiting_response 格式。
+     * 要求结果为合法 JSON 且 status 字段为 "awaiting_response" 且包含 questions 字段，
+     * 避免文件内容中包含 "awaiting_response" 字符串导致误触发暂停流程。
+     */
+    private boolean isAwaitingResponse(String rawResult) {
+        try {
+            Map<String, Object> map = GsonFactory.getGson().fromJson(rawResult, Map.class);
+            return "awaiting_response".equals(map.get("status")) && map.containsKey("questions");
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     @SuppressWarnings("unchecked")

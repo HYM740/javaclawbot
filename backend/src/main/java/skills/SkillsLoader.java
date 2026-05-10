@@ -1,6 +1,7 @@
 package skills;
 
 import agent.command.CommandQueueManager;
+import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 
 import java.io.File;
@@ -321,11 +322,15 @@ public class SkillsLoader {
         lines.add("<skills>");
 
         for (Map<String, String> s : allSkills) {
-            String name = escapeXml(s.get("name"));
+            String skillName = s.get("name");
+            if (!isSkillEnabled(skillName)) {
+                continue;
+            }
+            String name = escapeXml(skillName);
             String path = s.get("path");
-            String desc = escapeXml(getSkillDescription(s.get("name")));
+            String desc = escapeXml(getSkillDescription(skillName));
 
-            Map<String, Object> skillMeta = getSkillMeta(s.get("name"));
+            Map<String, Object> skillMeta = getSkillMeta(skillName);
             boolean available = checkRequirements(skillMeta);
 
             lines.add("  <skill available=\"" + (available ? "true" : "false") + "\">");
@@ -364,14 +369,18 @@ public class SkillsLoader {
         lines.add("以下为可用技能,其中 available=\"false\" 的技能需要先安装依赖。\n");
 
         for (Map<String, String> s : allSkills) {
+            String skillName = s.get("name");
+            if (!isSkillEnabled(skillName)) {
+                continue;
+            }
             StringBuilder sb = new StringBuilder();
             sb.append("- ");
-            String name = s.get("name");
+            String name = skillName;
             String path = s.get("path");
             sb.append(name).append(", path:").append(path).append(", ");
 
             // 获取元数据
-            Map<String, Object> skillMeta = getSkillMeta(s.get("name"));
+            Map<String, Object> skillMeta = getSkillMeta(skillName);
             boolean available = checkRequirements(skillMeta);
             sb.append("available: ").append(available).append(" :");
 
@@ -419,15 +428,64 @@ public class SkillsLoader {
     }
 
     /**
+     * 检查技能是否启用
+     * @param skillName 技能名称（如 "zjkycode/brainstorming" 或 "brainstorming"）
+     * @return true 如果启用，false 如果禁用。无头信息或无 enable 字段默认返回 true
+     */
+    public boolean isSkillEnabled(String skillName) {
+        Map<String, String> meta = getSkillMetadata(skillName);
+        if (meta == null) return true;
+
+        String enable = meta.get("enable");
+        boolean isEnabled = StrUtil.isEmpty(enable);
+        return isEnabled || "true".equalsIgnoreCase(enable.trim());
+    }
+
+    /**
+     * 按名称查找技能 SKILL.md 文件路径（精确匹配 → 模糊匹配）
+     * @param name 技能名称
+     * @return SKILL.md 文件的 Path；找不到返回 null
+     */
+    private Path findSkillFile(String name) {
+        String normalized = normalizeSkillName(name);
+
+        // 1. 精确匹配 - 工作区
+        Path wsFile = workspaceSkills.resolve(normalized).resolve("SKILL.md");
+        if (Files.exists(wsFile) && Files.isRegularFile(wsFile)) {
+            return wsFile;
+        }
+
+        // 2. 精确匹配 - 内置
+        if (builtinSkills != null) {
+            Path biFile = builtinSkills.resolve(normalized).resolve("SKILL.md");
+            if (Files.exists(biFile) && Files.isRegularFile(biFile)) {
+                return biFile;
+            }
+        }
+
+        // 3. 模糊匹配
+        for (Map<String, String> s : listSkills(false)) {
+            String n = s.get("name");
+            if (normalized.equals(n) || n.endsWith("/" + normalized)) {
+                return Paths.get(s.get("path"));
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * 读取技能文件 YAML 头信息（只支持简单 key: value）
+     * 直接读取原始文件内容，保留 YAML 头信息供解析
      * @param name 技能名称
      * @return 元数据 Map；没有头信息或文件不存在返回 null
      */
     public Map<String, String> getSkillMetadata(String name) {
-        String content = loadSkill(name);
-        if (content == null) {
-            return null;
-        }
+        Path skillFile = findSkillFile(name);
+        if (skillFile == null) return null;
+
+        String content = readUtf8(skillFile);
+        if (content == null) return null;
 
         if (content.startsWith("---")) {
             Pattern p = Pattern.compile("^---\\n(.*?)\\n---", Pattern.DOTALL);

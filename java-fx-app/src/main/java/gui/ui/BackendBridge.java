@@ -1,6 +1,7 @@
 package gui.ui;
 
 import agent.AgentLoop;
+import agent.UsageAccumulator;
 import bus.InboundMessage;
 import bus.MessageBus;
 import bus.OutboundMessage;
@@ -217,7 +218,11 @@ public class BackendBridge {
                     String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
 
                     if (isSystemCommand) {
-                        // 系统命令回复（/stop、/help 等）— 仅转发到进度回调，不清除响应回调和标题生成
+                        // 系统命令回复（/stop、/help 等）
+                        // 重置等待状态，避免 stop 后无法继续对话
+                        waitingForResponse = false;
+                        currentResponseCallback.set(null);
+
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
                         if (cb != null) {
@@ -343,6 +348,10 @@ public class BackendBridge {
      */
     public void stopMessage() {
         if (!waitingForResponse) return;
+
+        // 立即重置等待状态，避免 stop 后 always-waiting 导致无法继续对话
+        waitingForResponse = false;
+        currentResponseCallback.set(null);
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -992,6 +1001,21 @@ public class BackendBridge {
     /** 获取最近一次回复的推理内容（可能为 null） */
     public String getLastReasoningContent() {
         return lastReasoningContent;
+    }
+
+    /**
+     * 获取当前会话的上下文使用率 (0.0 ~ 1.0)。
+     *
+     * 用于状态栏展示。有真实 usage 数据时使用 lastCall 的 prompt tokens；
+     * 首轮无数据时回退到消息字符估算。
+     */
+    public double getContextUsageRatio() {
+        if (agentLoop == null || sessionManager == null) return 0.0;
+        Session session = sessionManager.getOrCreate(sessionKey);
+        if (session == null) return 0.0;
+        UsageAccumulator usageAcc = session.obtainLastUsage();
+        List<Map<String, Object>> messages = session.getMessages();
+        return agentLoop.getContextRatioByUsage(usageAcc, messages);
     }
 
     // ── 资源清理 ──

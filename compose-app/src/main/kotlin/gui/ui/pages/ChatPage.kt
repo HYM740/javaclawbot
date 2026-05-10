@@ -29,6 +29,15 @@ fun ChatPage(
 ) {
     var viewMode by remember { mutableStateOf(ViewMode.BUBBLE) }
     val listState = rememberLazyListState()
+    var statusText by remember { mutableStateOf("") }
+    var contextUsage by remember { mutableStateOf(0f) }
+
+    LaunchedEffect(bridge) {
+        bridge ?: return@LaunchedEffect
+        val model = bridge.config?.agents?.defaults?.model ?: ""
+        statusText = "● 模型就绪 · $model"
+        contextUsage = bridge.getContextUsageRatio().toFloat()
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
@@ -73,20 +82,29 @@ fun ChatPage(
 
         ChatInput(
             sending = isLoading,
+            statusText = statusText,
+            contextUsage = contextUsage,
             onSend = { text ->
+                val model = bridge?.config?.agents?.defaults?.model ?: ""
+                statusText = "● 思考中..."
+                contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
                 bridge?.sendMessage(
                     text = text,
                     mediaPaths = null,
                     onProgress = { /* handled externally */ },
                     onResponse = { response ->
+                        statusText = "● 模型就绪 · $model"
+                        contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
                         onMessagesChanged(messages + ChatMessage(
                             id = "ai_${System.currentTimeMillis()}",
                             role = ChatMessage.Role.ASSISTANT,
                             content = response,
-                            reasoning = bridge.lastReasoningContent
+                            reasoning = bridge?.lastReasoningContent
                         ))
                     },
                     onError = { error ->
+                        statusText = "● 错误"
+                        contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
                         onMessagesChanged(messages + ChatMessage(
                             id = "err_${System.currentTimeMillis()}",
                             role = ChatMessage.Role.SYSTEM,

@@ -38,3 +38,10 @@ build/
 ### Mac OS ###
 .DS_Store
 .gitnexus
+
+.superpowers
+
+docs/superpowers
+docs/zjkycode
+.claude
+.gradle

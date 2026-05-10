@@ -6,6 +6,7 @@ import config.Config;
 import config.ConfigIO;
 import config.plugin.PluginConfig;
 import config.plugin.PluginsConfig;
+import constant.Constant;
 import org.graalvm.polyglot.Context;
 import org.graalvm.polyglot.HostAccess;
 import org.graalvm.polyglot.Value;
@@ -279,6 +280,7 @@ public class BootstrapLoader {
         String osLower = os.toLowerCase(Locale.ROOT);
         if (osLower.contains("win")) {
             platform = "win32";
+            platform = platform + Constant.importantPrompt;
         } else if (osLower.contains("mac") || osLower.contains("darwin")) {
             platform = "darwin";
         } else {
@@ -322,6 +324,8 @@ public class BootstrapLoader {
                 .replace("{os_version}", osVersion)
                 .replace("{is_git}", String.valueOf(isGitRepo))
                 .replace("{is_svn}", String.valueOf(isSvnRepo))
+                .replace("{config}", ConfigIO.getConfigPath(workspace).toAbsolutePath().normalize().toString())
+                .replace("{skill_home}", workspace.resolve("skills").toAbsolutePath().normalize().toString())
                 .replace("{model}", modelName);
         if (isDevMode() && projectRegistrySupplier != null){
             String projectFormat = projectRegistrySupplier.get().formatProject();

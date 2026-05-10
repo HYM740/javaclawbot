@@ -76,6 +76,7 @@ class Bridge(
     val currentSession get() = bridge.currentSession
     fun getSessionHistory(sessionId: String) = bridge.getSessionHistory(sessionId)
     val lastReasoningContent get() = bridge.lastReasoningContent
+    fun getContextUsageRatio(): Double = bridge.getContextUsageRatio()
     fun setOnTitleChanged(callback: Runnable?) { bridge.setOnTitleChanged(callback) }
     fun resetTitleCounter() = bridge.resetTitleCounter()
 

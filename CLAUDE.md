@@ -1,9 +1,4 @@
 # CLAUDE.md
-## 编译命令
-```shell
-"C:\Program Files\Java\jdk-17\bin\java.exe" -Dmaven.multiModuleProjectDirectory=D:\code\ai_project\javaclawbot -Djansi.passthrough=true -Dmaven.home=D:\IDEA20240307\plugins\maven\lib\maven3 -Dclassworlds.conf=D:\IDEA20240307\plugins\maven\lib\maven3\bin\m2.conf -Dmaven.ext.class.path=D:\IDEA20240307\plugins\maven\lib\maven-event-listener.jar -javaagent:D:\IDEA20240307\lib\idea_rt.jar=53924 -Dfile.encoding=UTF-8 -classpath D:\IDEA20240307\plugins\maven\lib\maven3\boot\plexus-classworlds-2.8.0.jar;D:\IDEA20240307\plugins\maven\lib\maven3\boot\plexus-classworlds.license org.codehaus.classworlds.Launcher -Didea.version=2024.3.7 -Dmaven.repo.local=D:\apps\maven\repository compile
-
-```
 
 1. 编码前先思考
 
@@ -69,9 +64,6 @@ if(log.enableDebug) {
         }
 log.info  log.warn log.error
 ```
-
-## 可参考的经验
-[经验.md](%E7%BB%8F%E9%AA%8C.md)
 
 ## 执行顺序（复杂任务）
 
@@ -140,8 +132,7 @@ src/main/java/utils - 通用工具
 
 ## 变动
 版本变动，修复bug 请放入 [CHANGELOG.md](CHANGELOG.md) 中 ,如果该文档中版本新增了，pom.xml中也同步更新，每次版本变动需要同步在git中打上tag和branch
-## git
-由于在中国，github访问不稳定，需要 git -c http.proxy=http://127.0.0.1:7890  你需要检测是否开启代理，如果未开启代理 尝试一次原始提交 失败后提醒用户开启代理 
+
 ## 更新日志
 详情需要放入 [CHANGELOG.md](CHANGELOG.md) 中
 这里需要动态总结，并每次更新，记住 版本每次变动，pom同步变动，规则：
