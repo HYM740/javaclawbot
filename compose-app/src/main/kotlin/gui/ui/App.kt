@@ -55,6 +55,18 @@ fun main() = application {
                 }
                 backend.initialize()
                 val b = Bridge(backend, scope)
+                b.setOnTitleChanged(Runnable {
+                    // Auto-generated title changed: refresh current tab title
+                    val session = backend.currentSession
+                    if (session != null) {
+                        val sid = session.sessionId
+                        val meta = session.metadata
+                        val newTitle = meta?.get("title")?.toString() ?: return@Runnable
+                        scope.launch(Dispatchers.Main) {
+                            tabs = tabs.map { if (it.id == sid) it.copy(title = newTitle) else it }
+                        }
+                    }
+                })
                 scope.launch(Dispatchers.Main) {
                     bridge = b
                     statusInfo = StatusInfo(
@@ -126,6 +138,15 @@ fun main() = application {
                                     }
                                     backend.initialize()
                                     val b = Bridge(backend, scope)
+                                    b.setOnTitleChanged(Runnable {
+                                        val session = backend.currentSession
+                                        if (session != null) {
+                                            val newTitle = session.metadata?.get("title")?.toString() ?: return@Runnable
+                                            scope.launch(Dispatchers.Main) {
+                                                tabs = tabs.map { if (it.id == session.sessionId) it.copy(title = newTitle) else it }
+                                            }
+                                        }
+                                    })
                                     scope.launch(Dispatchers.Main) {
                                         bridge = b
                                         statusInfo = StatusInfo(
