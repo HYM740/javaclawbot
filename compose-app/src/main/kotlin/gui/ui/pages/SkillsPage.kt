@@ -3,6 +3,9 @@ package gui.ui.pages
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
@@ -19,8 +22,11 @@ import gui.ui.Bridge
 import gui.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import org.slf4j.LoggerFactory
 import java.nio.file.Files
 import java.nio.file.Paths
+
+private val log = LoggerFactory.getLogger("SkillsPage")
 
 @Composable
 fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
@@ -47,11 +53,13 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         )
         Spacer(Modifier.height(32.dp))
 
-        Column(
-            Modifier.widthIn(max = 880.dp).fillMaxWidth(),
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 380.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            skills.forEach { skill ->
+            items(skills) { skill ->
                 val name = skill["name"] ?: "未知"
                 val source = skill["source"] ?: ""
                 val status = if (source == "builtin") "内置" else "工作区"
@@ -72,8 +80,10 @@ fun SkillsPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                 )
             }
             if (skills.isEmpty()) {
-                Text("暂无已安装的技能", style = AppTheme.typography.caption,
-                    modifier = Modifier.align(Alignment.CenterHorizontally).padding(top = 24.dp))
+                item {
+                    Text("暂无已安装的技能", style = AppTheme.typography.caption,
+                        modifier = Modifier.padding(top = 24.dp))
+                }
             }
         }
     }
@@ -87,7 +97,7 @@ private fun Card(
     onToggle: (Boolean) -> Unit
 ) {
     Row(
-        Modifier.fillMaxWidth()
+        Modifier
             .shadow(1.dp, RoundedCornerShape(12.dp))
             .clip(RoundedCornerShape(12.dp))
             .background(Color.White)
@@ -161,7 +171,9 @@ private fun toggleSkillEnabled(bridge: Bridge?, skillName: String, enabled: Bool
         var content = Files.readString(path)
         content = updateFrontmatterEnable(content, enabled)
         Files.writeString(path, content)
-    } catch (_: Exception) {}
+    } catch (e: Exception) {
+        log.warn("切换技能状态失败: $skillName -> $enabled", e)
+    }
 }
 
 private fun updateFrontmatterEnable(content: String, enabled: Boolean): String {
