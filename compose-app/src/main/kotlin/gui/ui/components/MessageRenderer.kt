@@ -14,7 +14,10 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberWindowState
 import androidx.compose.runtime.*
 import com.vladsch.flexmark.ast.*
 import com.vladsch.flexmark.ast.util.TextCollectingVisitor
@@ -162,34 +165,30 @@ private fun TableNode(node: TableBlock) {
         }
     }
 
-    // Dialog
+    // Independent window for expanded table view
     if (showDialog) {
-        Dialog(onDismissRequest = { showDialog = false }) {
+        val windowState = rememberWindowState(
+            position = WindowPosition.Aligned(Alignment.Center),
+            width = 800.dp,
+            height = 600.dp
+        )
+
+        Window(
+            onCloseRequest = { showDialog = false },
+            title = "表格预览",
+            state = windowState,
+            resizable = true
+        ) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.85f)
-                    .fillMaxHeight(0.8f)
-                    .clip(RoundedCornerShape(12.dp))
+                    .fillMaxSize()
                     .background(AppColors.Surface)
                     .padding(16.dp)
             ) {
-                // Close button
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(28.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .clickable { showDialog = false },
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("\u2715", fontSize = 14.sp, color = AppColors.TextSecondary)
-                }
-
                 // Table content (scrollable)
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(top = 28.dp)
                         .horizontalScroll(rememberScrollState())
                 ) {
                     Column(
@@ -245,16 +244,30 @@ private fun TableBodyContent(node: TableBody) {
 
 @Composable
 private fun TableCellContent(node: TableCell, isHeader: Boolean) {
+    val align = when (node.alignment) {
+        TableCell.Alignment.LEFT -> Alignment.TopStart
+        TableCell.Alignment.CENTER -> Alignment.TopCenter
+        TableCell.Alignment.RIGHT -> Alignment.TopEnd
+        else -> Alignment.TopStart
+    }
+
     Box(
         modifier = Modifier
             .defaultMinSize(minWidth = 80.dp)
             .border(0.5.dp, AppColors.Border)
-            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = align
     ) {
         if (isHeader) {
             val visitor = TextCollectingVisitor()
             val text = visitor.collectAndGetText(node)
-            Text(text, fontWeight = FontWeight.Bold, style = AppTheme.typography.body)
+            Text(text, fontWeight = FontWeight.Bold, style = AppTheme.typography.body,
+                textAlign = when (node.alignment) {
+                    TableCell.Alignment.LEFT -> TextAlign.Start
+                    TableCell.Alignment.CENTER -> TextAlign.Center
+                    TableCell.Alignment.RIGHT -> TextAlign.End
+                    else -> TextAlign.Start
+                })
         } else {
             Column {
                 node.children.forEach { RenderMarkdownNode(it) }
