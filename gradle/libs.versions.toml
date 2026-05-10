@@ -1,0 +1,41 @@
+[versions]
+kotlin = "2.1.0"
+compose = "1.7.1"
+logback = "1.2.11"
+lombok = "1.18.42"
+slf4j = "1.7.36"
+cronutils = "9.2.1"
+picocli = "4.7.6"
+jline = "3.25.1"
+hutool = "5.7.12"
+flexmark = "0.64.8"
+mapstruct = "1.6.3"
+jackson = "2.16.1"
+
+[libraries]
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+lombok = { module = "org.projectlombok:lombok", version.ref = "lombok" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j" }
+cron-utils = { module = "com.cronutils:cron-utils", version.ref = "cronutils" }
+picocli = { module = "info.picocli:picocli", version.ref = "picocli" }
+jline = { module = "org.jline:jline", version.ref = "jline" }
+hutool-all = { module = "cn.hutool:hutool-all", version.ref = "hutool" }
+flexmark = { module = "com.vladsch.flexmark:flexmark", version.ref = "flexmark" }
+flexmark-tables = { module = "com.vladsch.flexmark:flexmark-ext-tables", version.ref = "flexmark" }
+mapstruct = { module = "org.mapstruct:mapstruct", version.ref = "mapstruct" }
+mapstruct-processor = { module = "org.mapstruct:mapstruct-processor", version.ref = "mapstruct" }
+jackson-databind = { module = "com.fasterxml.jackson.core:jackson-databind", version.ref = "jackson" }
+jackson-yaml = { module = "com.fasterxml.jackson.dataformat:jackson-dataformat-yaml", version.ref = "jackson" }
+
+# Compose Desktop
+compose-desktop = { module = "org.jetbrains.compose.desktop:desktop", version.ref = "compose" }
+
+# Kotlin
+kotlin-stdlib = { module = "org.jetbrains.kotlin:kotlin-stdlib", version.ref = "kotlin" }
+kotlinx-coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version = "1.9.0" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version = "1.9.0" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+compose = { id = "org.jetbrains.compose", version.ref = "compose" }
+kotlin-compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
