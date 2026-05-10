@@ -1,0 +1,427 @@
+package agent.tool.web;
+
+import agent.tool.Tool;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import net.dankito.readability4j.extended.Readability4JExtended;
+import org.jsoup.Jsoup;
+
+import java.net.InetSocketAddress;
+import java.net.ProxySelector;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import lombok.extern.slf4j.Slf4j;
+
+/**
+ * Java port of javaclawbot/agent/tools/web.py -> WebFetchTool
+ *
+ * 对齐 Python:
+ * - proxy 支持
+ * - Readability 内容提取
+ * - 重定向限制
+ */
+@Slf4j
+public class WebFetchTool extends Tool {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    // Shared constants (match Python)
+    private static final String USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36";
+    private static final int MAX_REDIRECTS = 5;
+    private static final int DEFAULT_MAX_CHARS = 50_000;
+
+    private final HttpClient http;
+    private final int defaultMaxChars;
+    private final String proxy;
+
+    public WebFetchTool(Integer maxChars) {
+        this(maxChars, null);
+    }
+
+    public WebFetchTool(Integer maxChars, String proxy) {
+        this.defaultMaxChars = (maxChars == null || maxChars < 100) ? DEFAULT_MAX_CHARS : maxChars;
+        this.proxy = proxy;
+
+        HttpClient.Builder builder = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(30))
+                .followRedirects(HttpClient.Redirect.NEVER); // manual redirect to enforce MAX_REDIRECTS
+
+        if (proxy != null && !proxy.isBlank()) {
+            builder.proxy(createProxySelector(proxy));
+        }
+
+        this.http = builder.build();
+    }
+
+    private static ProxySelector createProxySelector(String proxyUrl) {
+        try {
+            URI uri = URI.create(proxyUrl);
+            String host = uri.getHost();
+            int port = uri.getPort();
+            if (host == null || port <= 0) {
+                // 尝试解析 host:port 格式
+                String[] parts = proxyUrl.split(":");
+                if (parts.length == 2) {
+                    host = parts[0];
+                    port = Integer.parseInt(parts[1]);
+                } else {
+                    throw new IllegalArgumentException("Invalid proxy URL: " + proxyUrl);
+                }
+            }
+            InetSocketAddress addr = new InetSocketAddress(host, port);
+            return ProxySelector.of(addr);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("Failed to parse proxy URL: " + proxyUrl, e);
+        }
+    }
+
+    @Override
+    public String name() {
+        return "web_fetch";
+    }
+
+    @Override
+    public String description() {
+        return "Fetch URL and extract readable content (HTML → markdown/text).";
+    }
+
+    @Override
+    public Map<String, Object> parameters() {
+        Map<String, Object> props = new LinkedHashMap<>();
+        props.put("url", Map.of("type", "string", "description", "URL to fetch"));
+        props.put("extractMode", Map.of(
+                "type", "string",
+                "enum", List.of("markdown", "text"),
+                "default", "markdown"
+        ));
+        props.put("maxChars", Map.of(
+                "type", "integer",
+                "minimum", 100
+        ));
+
+        return Map.of(
+                "type", "object",
+                "properties", props,
+                "required", List.of("url")
+        );
+    }
+
+    @Override
+    public CompletionStage<String> execute(Map<String, Object> args) {
+        String url = String.valueOf(args.getOrDefault("url", "")).trim();
+        String extractMode = String.valueOf(args.getOrDefault("extractMode", "markdown")).trim();
+        int maxChars = defaultMaxChars;
+
+        Object mc = args.get("maxChars");
+        if (mc instanceof Number n) maxChars = n.intValue();
+
+        log.debug("web_fetch url={}, extractMode={}, maxChars={}", url, extractMode, maxChars);
+
+        // validate url first
+        UrlCheck chk = validateUrl(url);
+        if (!chk.ok) {
+            log.warn("URL验证失败: {}, 错误: {}", url, chk.error);
+            ObjectNode out = MAPPER.createObjectNode();
+            out.put("error", "URL validation failed: " + chk.error);
+            out.put("url", url);
+            return CompletableFuture.completedFuture(out.toString());
+        }
+
+        final int finalMaxChars = maxChars;
+        final String finalExtractMode = extractMode;
+
+        return fetchFollowRedirects(url, 0)
+                .thenApply(resp -> {
+                    try {
+                        String finalUrl = resp.finalUrl;
+                        int status = resp.statusCode;
+                        String ctype = resp.contentType == null ? "" : resp.contentType.toLowerCase(Locale.ROOT);
+                        String body = resp.body == null ? "" : resp.body;
+
+                        log.debug("HTTP请求完成: url={}, 状态码={}, 内容类型={}", finalUrl, status, ctype);
+
+                        String extractor;
+                        String text;
+
+                        if (ctype.contains("application/json")) {
+                            extractor = "json";
+                            log.debug("使用JSON解析器处理响应内容");
+                            try {
+                                JsonNode node = MAPPER.readTree(body);
+                                text = MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(node);
+                            } catch (Exception e) {
+                                // fallback raw if invalid json
+                                log.warn("JSON解析失败，使用原始内容作为回退");
+                                text = body;
+                            }
+                        } else if (ctype.contains("text/html") || looksLikeHtml(body)) {
+                            // Readability
+                            log.debug("使用Readability提取页面内容, 模式: {}", finalExtractMode);
+                            Extracted ex = extractReadable(finalUrl, body, finalExtractMode);
+                            extractor = ex.extractor;
+                            text = ex.text;
+                        } else {
+                            extractor = "raw";
+                            text = body;
+                        }
+
+                        boolean truncated = text != null && text.length() > finalMaxChars;
+                        if (truncated) {
+                            log.debug("内容被截断: 原始长度={}, 截断到={}", text.length(), finalMaxChars);
+                            text = text.substring(0, finalMaxChars);
+                        }
+
+                        ObjectNode out = MAPPER.createObjectNode();
+                        out.put("url", url);
+                        out.put("finalUrl", finalUrl);
+                        out.put("status", status);
+                        out.put("extractor", extractor);
+                        out.put("truncated", truncated);
+                        out.put("length", text == null ? 0 : text.length());
+                        out.put("text", text == null ? "" : text);
+
+                        log.debug("工具执行成功: web_fetch, 提取器={}, 内容长度={}", extractor, text == null ? 0 : text.length());
+                        return out.toString();
+                    } catch (Exception e) {
+                        log.error("工具执行失败: web_fetch, 错误: {}", e.getMessage(), e);
+                        ObjectNode out = MAPPER.createObjectNode();
+                        out.put("error", String.valueOf(e.getMessage()));
+                        out.put("url", url);
+                        return out.toString();
+                    }
+                })
+                .exceptionally(ex -> {
+                    log.error("工具执行异常: web_fetch, 错误: {}", ex.getMessage(), ex);
+                    ObjectNode out = MAPPER.createObjectNode();
+                    String msg = rootMessage(ex);
+                    if (msg != null && (msg.contains("proxy") || msg.contains("Proxy"))) {
+                        out.put("error", "Proxy error: " + msg);
+                    } else {
+                        out.put("error", msg);
+                    }
+                    out.put("url", url);
+                    return out.toString();
+                });
+    }
+
+    // -----------------------
+    // Fetch with redirect cap
+    // -----------------------
+
+    private CompletionStage<FetchResp> fetchFollowRedirects(String url, int depth) {
+        if (depth > MAX_REDIRECTS) {
+            CompletableFuture<FetchResp> f = new CompletableFuture<>();
+            f.completeExceptionally(new RuntimeException("Too many redirects (>" + MAX_REDIRECTS + ")"));
+            return f;
+        }
+
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(30))
+                .header("User-Agent", USER_AGENT)
+                .GET()
+                .build();
+
+        return http.sendAsync(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8))
+                .thenCompose(resp -> {
+                    int code = resp.statusCode();
+                    if (code / 100 == 3) {
+                        Optional<String> loc = resp.headers().firstValue("location");
+                        if (loc.isPresent()) {
+                            String next = resolveRedirect(url, loc.get());
+                            return fetchFollowRedirects(next, depth + 1);
+                        }
+                    }
+                    FetchResp fr = new FetchResp();
+                    fr.finalUrl = url;
+                    fr.statusCode = code;
+                    fr.body = resp.body();
+                    fr.contentType = resp.headers().firstValue("content-type").orElse("");
+                    return CompletableFuture.completedFuture(fr);
+                });
+    }
+
+    private static String resolveRedirect(String base, String location) {
+        try {
+            URI baseUri = URI.create(base);
+            URI loc = URI.create(location);
+            if (loc.isAbsolute()) return loc.toString();
+            return baseUri.resolve(loc).toString();
+        } catch (Exception e) {
+            return location;
+        }
+    }
+
+    // -----------------------
+    // Readability extract
+    // -----------------------
+
+    private static Extracted extractReadable(String url, String rawHtml, String extractMode) {
+        try {
+            // Readability4JExtended(baseURL, rawHTML).parse()
+            var article = new Readability4JExtended(url, rawHtml).parse();
+            String title = article != null ? nullToEmpty(article.getTitle()) : "";
+            String contentHtml = article != null ? nullToEmpty(article.getContent()) : "";
+
+            String content;
+            if ("text".equalsIgnoreCase(extractMode)) {
+                content = stripTags(contentHtml);
+            } else {
+                // "markdown": do minimal HTML->MD like Python (links/headings/lists) then strip tags
+                content = toMarkdown(contentHtml);
+            }
+
+            String text = content;
+            if (!title.isBlank()) {
+                text = "# " + title + "\n\n" + content;
+            }
+
+            Extracted out = new Extracted();
+            out.extractor = "readability";
+            out.text = normalize(text);
+            return out;
+        } catch (Exception e) {
+            // If readability fails, fallback to raw stripped text
+            Extracted out = new Extracted();
+            out.extractor = "raw_html_fallback";
+            out.text = normalize(stripTags(rawHtml));
+            return out;
+        }
+    }
+
+    // -----------------------
+    // Helpers (match Python behavior)
+    // -----------------------
+
+    private static boolean looksLikeHtml(String s) {
+        if (s == null) return false;
+        String head = s.length() > 256 ? s.substring(0, 256).toLowerCase(Locale.ROOT) : s.toLowerCase(Locale.ROOT);
+        return head.startsWith("<!doctype") || head.startsWith("<html") || head.contains("<body") || head.contains("<head");
+    }
+
+    private static UrlCheck validateUrl(String url) {
+        try {
+            URI u = new URI(url);
+            String scheme = u.getScheme();
+            if (scheme == null || (!scheme.equals("http") && !scheme.equals("https"))) {
+                return UrlCheck.fail("Only http/https allowed, got '" + (scheme == null ? "none" : scheme) + "'");
+            }
+            String host = u.getHost();
+            // URI.getHost can be null for some valid URLs, fallback to authority parsing
+            if (host == null || host.isBlank()) {
+                String auth = u.getRawAuthority();
+                if (auth == null || auth.isBlank()) return UrlCheck.fail("Missing domain");
+            }
+            return UrlCheck.ok();
+        } catch (URISyntaxException e) {
+            return UrlCheck.fail(e.getMessage());
+        } catch (Exception e) {
+            return UrlCheck.fail(String.valueOf(e.getMessage()));
+        }
+    }
+
+    private static String stripTags(String html) {
+        if (html == null) return "";
+        // Jsoup is the safest here; it also decodes entities.
+        return Jsoup.parse(html).text().trim();
+    }
+
+    private static String normalize(String text) {
+        if (text == null) return "";
+        String t = text.replaceAll("[ \\t]+", " ");
+        t = t.replaceAll("\\n{3,}", "\n\n");
+        return t.trim();
+    }
+
+    private static String toMarkdown(String html) {
+        if (html == null) return "";
+
+        String text = html;
+
+        // links: <a href="...">text</a> -> [text](url)
+        text = replaceAll(text,
+                Pattern.compile("<a\\s+[^>]*href=[\"']([^\"']+)[\"'][^>]*>([\\s\\S]*?)</a>", Pattern.CASE_INSENSITIVE),
+                m -> "[" + stripTags(m.group(2)) + "](" + m.group(1) + ")"
+        );
+
+        // headings: <h1>..</h1> -> # ..
+        text = replaceAll(text,
+                Pattern.compile("<h([1-6])[^>]*>([\\s\\S]*?)</h\\1>", Pattern.CASE_INSENSITIVE),
+                m -> "\n" + "#".repeat(Integer.parseInt(m.group(1))) + " " + stripTags(m.group(2)) + "\n"
+        );
+
+        // list items: <li>..</li> -> - ..
+        text = replaceAll(text,
+                Pattern.compile("<li[^>]*>([\\s\\S]*?)</li>", Pattern.CASE_INSENSITIVE),
+                m -> "\n- " + stripTags(m.group(1))
+        );
+
+        // paragraph-ish breaks
+        text = text.replaceAll("</(p|div|section|article)>", "\n\n");
+        text = text.replaceAll("<(br|hr)\\s*/?>", "\n");
+
+        return normalize(stripTags(text));
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
+    }
+
+    private static String rootMessage(Throwable t) {
+        Throwable cur = t;
+        while (cur.getCause() != null) cur = cur.getCause();
+        return cur.getMessage() != null ? cur.getMessage() : cur.toString();
+    }
+
+    private static String replaceAll(String input, Pattern pattern, Replacer replacer) {
+        Matcher m = pattern.matcher(input);
+        StringBuffer sb = new StringBuffer();
+        while (m.find()) {
+            String rep = replacer.replace(m);
+            m.appendReplacement(sb, Matcher.quoteReplacement(rep));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    @FunctionalInterface
+    private interface Replacer {
+        String replace(Matcher m);
+    }
+
+    private static final class UrlCheck {
+        final boolean ok;
+        final String error;
+
+        private UrlCheck(boolean ok, String error) {
+            this.ok = ok;
+            this.error = error;
+        }
+
+        static UrlCheck ok() { return new UrlCheck(true, ""); }
+        static UrlCheck fail(String err) { return new UrlCheck(false, err == null ? "" : err); }
+    }
+
+    private static final class FetchResp {
+        String finalUrl;
+        int statusCode;
+        String contentType;
+        String body;
+    }
+
+    private static final class Extracted {
+        String extractor;
+        String text;
+    }
+}

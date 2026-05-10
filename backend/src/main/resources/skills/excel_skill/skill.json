@@ -1,0 +1,6 @@
+{
+  "name": "excel_ai_skill_business",
+  "version": "1.1.0",
+  "description": "Progressively disclosed Excel AI skill for structure detection, reading, writing, analysis, pivot-style outputs, and chart generation.",
+  "entry": "SKILL.md"
+}

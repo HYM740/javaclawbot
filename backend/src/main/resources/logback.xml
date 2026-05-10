@@ -1,0 +1,35 @@
+<configuration>
+    <!-- 控制台输出 -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--
+        日志文件：RollingFileAppender + SizeAndTimeBasedRollingPolicy
+        参照生产认证方案，单文件最大 1MB，保留 5 个滚动历史文件
+    -->
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${user.home}/.javaclawbot/logs/app.log</file>
+        <append>true</append>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <!-- 滚动文件命名: app-2026-05-08.0.log, app-2026-05-08.1.log ... -->
+            <fileNamePattern>${user.home}/.javaclawbot/logs/app-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <!-- 单文件达到 1MB 时触发滚动 -->
+            <maxFileSize>1MB</maxFileSize>
+            <!-- 保留最近 5 个滚动文件 -->
+            <maxHistory>5</maxHistory>
+            <!-- 历史文件总大小上限，0 表示不限制 -->
+            <totalSizeCap>0</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </root>
+</configuration>
