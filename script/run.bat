@@ -1,15 +1,15 @@
 # ============================================
-# javaclawbot 应用管理脚本 (PowerShell 版本)
-# 文件名: clawbot.ps1
+# NexusAI 应用管理脚本 (PowerShell 版本)
+# 文件名: nexusai.ps1
 # 使用方法:
-#   1. 命令行: .\clawbot.ps1 {start|stop|restart|status|log|help}
+#   1. 命令行: .\nexusai.ps1 {start|stop|restart|status|log|help}
 #   2. 双击执行: 显示交互式菜单
 # ============================================
 
 # 配置变量
-$APP_NAME = "javaclawbot"
-$APP_HOME = "D:\apps\javaclawbot"
-$JAR_FILE = "javaclawbot.jar"
+$APP_NAME = "NexusAI"
+$APP_HOME = "D:\apps\NexusAI"
+$JAR_FILE = "NexusAI.jar"
 $LOG_FILE = "$APP_HOME\logs\clawbot.log"
 $PID_FILE = "$APP_HOME\clawbot.pid"
 $JAVA_OPTS = "-Xmx512m -Xms256m"
@@ -21,7 +21,7 @@ if (-not (Test-Path "$APP_HOME\logs")) {
 }
 
 # 颜色定义
-$Host.UI.RawUI.WindowTitle = "javaclawbot 管理工具"
+$Host.UI.RawUI.WindowTitle = "NexusAI 管理工具"
 
 function Write-Info {
     param([string]$Message)
@@ -50,7 +50,7 @@ function Get-Pid {
     } else {
         # 通过进程名查找
         $process = Get-Process java -ErrorAction SilentlyContinue |
-                   Where-Object { $_.CommandLine -like "*javaclawbot*" } |
+                   Where-Object { $_.CommandLine -like "*NexusAI*" } |
                    Select-Object -First 1
         if ($process) {
             return $process.Id
@@ -402,7 +402,7 @@ function Show-SystemInfo {
 
 function Show-Help {
     Write-Host "======================================================" -ForegroundColor Cyan
-    Write-Host "                  javaclawbot 管理工具" -ForegroundColor Cyan
+    Write-Host "                  NexusAI 管理工具" -ForegroundColor Cyan
     Write-Host "======================================================" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "使用方法:"
@@ -441,7 +441,7 @@ function Show-Menu {
     do {
         Clear-Host
         Write-Host "======================================================" -ForegroundColor Cyan
-        Write-Host "               javaclawbot 管理工具" -ForegroundColor Cyan
+        Write-Host "               NexusAI 管理工具" -ForegroundColor Cyan
         Write-Host "======================================================" -ForegroundColor Cyan
         Write-Host ""
 

@@ -21,19 +21,19 @@ set "JAVA_CMD=%JAVA_BIN%\java.exe"
 set "JLINK_CMD=%JAVA_BIN%\jlink.exe"
 set "JPACKAGE_CMD=%JAVA_BIN%\jpackage.exe"
 
-set "APP_NAME=JavaClawBot"
-set "APP_VERSION=2.1.0"
-set "VENDOR=JavaClawBot"
-set "DESCRIPTION=JavaClawBot - AI Assistant"
+set "APP_NAME=NexusAI"
+set "APP_VERSION=2.3.0"
+set "VENDOR=NexusAI"
+set "DESCRIPTION=NexusAI - AI Assistant"
 
-set "MAIN_JAR_NAME=javaclawbot.jar"
+set "MAIN_JAR_NAME=NexusAI.jar"
 set "MAIN_CLASS=gui.ui.Launcher"
 
 REM Icon file path (relative to build script: ../icon/app-icon.ico)
 set "ICON_PATH=%~dp0..\..\..\..\src\main\resources\icon\app-icon.ico"
 
 set "BASE_URL=D:\open_code\pkg_exe"
-set "JAR_FILE=%BASE_URL%\javaclawbot.jar"
+set "JAR_FILE=%BASE_URL%\NexusAI.jar"
 set "OUTPUT_DIR=%BASE_URL%\dist"
 set "RUNTIME_DIR=%BASE_URL%\jre"
 set "TEMP_INPUT_DIR=%BASE_URL%\temp_package"

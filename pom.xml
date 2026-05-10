@@ -5,8 +5,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.zjky.ai</groupId>
-    <artifactId>javaclawbot</artifactId>
-    <version>2.2.8</version>
+    <artifactId>nexusai</artifactId>
+    <version>2.3.0</version>
     <packaging>jar</packaging>
 
     <!--  仓库 spring.ai 相关仓库  -->
@@ -403,7 +403,7 @@
 
     <build>
         <!-- 设置构建的 jar 包名 -->
-        <finalName>javaclawbot</finalName>
+        <finalName>NexusAI</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

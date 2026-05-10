@@ -1,8 +1,21 @@
 # Changelog
 
-All notable changes to JavaClawBot will be documented in this file.
+All notable changes to NexusAI will be documented in this file.
+
+## [2.3.0] - 2026-05-10
+
+### Added
+- **一键安装包 (Inno Setup)**：Windows 安装向导 `NexusAI-Setup-2.3.0.exe`，自动检测已有 Git/Python/Node.js/JDK 环境，缺失组件从内网自动下载并配置用户级 PATH
+- **macOS 安装脚本**：`installer/macos/install.sh` 一键检测+下载+配置 PATH
+- **Linux 安装脚本**：`installer/linux/install.sh` 支持 .desktop 快捷方式，一键配置环境
+
+### Changed
+- **项目更名**：javaclawbot → NexusAI（pom.xml artifactId/finalName、脚本全部更新、CHANGELOG 标题）
 
 ## [2.2.8] - 2026-05-10
+
+### Added
+- **首次启动自动创建 config.json**：`ConfigIO.loadConfig()` 在配置文件不存在时自动调用 `saveConfig` 生成完整默认配置（含所有 provider + 内置模型列表 + channels + tools + gateway），写入失败不阻塞启动。解决全新安装用户无 config.json 时修改模型保存失败的问题
 
 ### Fixed
 - **修复点击停止后无法继续对话的 bug**：`BackendBridge.stopMessage()` 发送 `/stop` 后未重置 `waitingForResponse` 标志，导致 `isWaitingForResponse()` 持续返回 true，新消息被静默丢弃。现在在 `/stop` 发送时和系统命令回复到达时均重置等待状态
