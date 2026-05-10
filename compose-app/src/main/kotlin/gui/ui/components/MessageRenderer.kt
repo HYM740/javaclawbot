@@ -26,6 +26,7 @@ import com.vladsch.flexmark.util.ast.Node
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
 import com.vladsch.flexmark.ext.tables.*
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
@@ -136,15 +137,19 @@ private fun TableNode(node: TableBlock) {
             .clip(RoundedCornerShape(8.dp))
             .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
     ) {
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState())
-        ) {
+        SelectionContainer {
             Column {
-                node.children.forEach { child ->
-                    when (child) {
-                        is TableHead -> TableHeaderRow(child)
-                        is TableBody -> TableBodyContent(child)
-                        else -> RenderMarkdownNode(child)
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState())
+                ) {
+                    Column {
+                        node.children.forEach { child ->
+                            when (child) {
+                                is TableHead -> TableHeaderRow(child)
+                                is TableBody -> TableBodyContent(child)
+                                else -> RenderMarkdownNode(child)
+                            }
+                        }
                     }
                 }
             }
@@ -186,19 +191,23 @@ private fun TableNode(node: TableBlock) {
                     .padding(16.dp)
             ) {
                 // Table content (scrollable)
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .horizontalScroll(rememberScrollState())
-                ) {
-                    Column(
-                        modifier = Modifier.verticalScroll(rememberScrollState())
-                    ) {
-                        node.children.forEach { child ->
-                            when (child) {
-                                is TableHead -> TableHeaderRow(child)
-                                is TableBody -> TableBodyContent(child)
-                                else -> RenderMarkdownNode(child)
+                SelectionContainer {
+                    Column {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            Column(
+                                modifier = Modifier.verticalScroll(rememberScrollState())
+                            ) {
+                                node.children.forEach { child ->
+                                    when (child) {
+                                        is TableHead -> TableHeaderRow(child)
+                                        is TableBody -> TableBodyContent(child)
+                                        else -> RenderMarkdownNode(child)
+                                    }
+                                }
                             }
                         }
                     }
