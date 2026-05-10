@@ -85,6 +85,11 @@ class Bridge(
     fun deleteMcpServer(name: String) = bridge.deleteMcpServer(name)
     fun getMcpStatus(name: String): String = bridge.getMcpStatus(name).toString()
     fun refreshMcpTools() = bridge.refreshMcpTools()
+    fun updateMcpServer(oldName: String, newName: String, command: String) =
+        bridge.updateMcpServer(oldName, newName, command)
+    fun updateMcpServerRaw(oldName: String, newName: String, json: String) =
+        bridge.updateMcpServerRaw(oldName, newName, json)
+    fun addMcpServerRaw(name: String, json: String) = bridge.addMcpServerRaw(name, json)
 
     // Data source management
     fun addDataSource(
@@ -95,4 +100,11 @@ class Bridge(
     fun deleteDataSource(name: String) = bridge.deleteDataSource(name)
     fun testDataSourceConnection(jdbcUrl: String, username: String, password: String, driverClass: String): String? =
         bridge.testDataSourceConnection(jdbcUrl, username, password, driverClass)
+    fun updateDataSource(
+        oldName: String, newName: String, jdbcUrl: String, username: String,
+        password: String, driverClass: String, maxPoolSize: Int, connectionTimeout: Long
+    ) = bridge.updateDataSource(oldName, newName, jdbcUrl, username, password, driverClass, maxPoolSize, connectionTimeout)
+    fun reconnectDataSource(name: String): Boolean = bridge.reconnectDataSource(name)
+    fun toggleDataSource(name: String, enable: Boolean): Boolean = bridge.toggleDataSource(name, enable)
+    fun getDataSourceStatus(name: String): String = bridge.getDataSourceStatus(name).toString()
 }
