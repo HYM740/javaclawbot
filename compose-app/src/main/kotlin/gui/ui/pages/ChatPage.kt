@@ -31,6 +31,9 @@ fun ChatPage(
     val listState = rememberLazyListState()
     var statusText by remember { mutableStateOf("") }
     var contextUsage by remember { mutableStateOf(0f) }
+    // 保持最新消息引用，避免异步 lambda 捕获过时值
+    var latestMessages by remember { mutableStateOf(messages) }
+    SideEffect { latestMessages = messages }
 
     LaunchedEffect(bridge) {
         bridge ?: return@LaunchedEffect
@@ -96,7 +99,7 @@ fun ChatPage(
                     onResponse = { response ->
                         statusText = "● 模型就绪 · $model"
                         contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
-                        onMessagesChanged(messages + ChatMessage(
+                        onMessagesChanged(latestMessages + ChatMessage(
                             id = "ai_${System.currentTimeMillis()}",
                             role = ChatMessage.Role.ASSISTANT,
                             content = response,
@@ -106,14 +109,14 @@ fun ChatPage(
                     onError = { error ->
                         statusText = "● 错误"
                         contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
-                        onMessagesChanged(messages + ChatMessage(
+                        onMessagesChanged(latestMessages + ChatMessage(
                             id = "err_${System.currentTimeMillis()}",
                             role = ChatMessage.Role.SYSTEM,
                             content = "⚠ $error"
                         ))
                     }
                 )
-                onMessagesChanged(messages + ChatMessage(
+                onMessagesChanged(latestMessages + ChatMessage(
                     id = "user_${System.currentTimeMillis()}",
                     role = ChatMessage.Role.USER,
                     content = text
