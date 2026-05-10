@@ -14,7 +14,7 @@ repositories {
 }
 
 application {
-    mainClass.set("gui.ui.MainKt")
+    mainClass.set("gui.ui.AppKt")
 }
 
 kotlin {
