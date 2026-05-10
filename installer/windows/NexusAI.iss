@@ -7,7 +7,7 @@
 #define MyAppName "NexusAI"
 #define MyAppVersion "2.3.0"
 #define MyAppPublisher "NexusAI"
-#define RuntimeBaseURL "http://192.168.20.125:9100/releases/2.3.0/windows"
+#define RuntimeBaseURL "http://101.68.93.109:9102/releases/2.3.0/windows"
 
 [Setup]
 AppId={{B3C4D5E6-F7A8-9012-BCDE-F12345678901}

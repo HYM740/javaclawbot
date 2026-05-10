@@ -371,13 +371,14 @@ public class MainStage {
             if (backendBridge != null) {
                 suppressPageResume = true;
                 backendBridge.resetTitleCounter();
-                CompletableFuture.runAsync(() -> backendBridge.newSession())
-                    .thenRun(() -> Platform.runLater(() -> {
-                        chatPage.clearMessages();
-                        chatPage.setContextUsage(backendBridge.getContextUsageRatio());
-                        chatPage.refreshProjectBadge();
-                        sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
-                    }));
+                // 仅清空会话引用和 GUI，不创建新会话（懒创建）
+                backendBridge.newSession();
+                Platform.runLater(() -> {
+                    chatPage.clearMessages();
+                    chatPage.setContextUsage(backendBridge.getContextUsageRatio());
+                    chatPage.refreshProjectBadge();
+                    sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
+                });
             }
         });
         sidebar.addResumeListener(sessionId -> {
@@ -620,9 +621,8 @@ public class MainStage {
                         + backendBridge.getConfig().getAgents().getDefaults().getModel());
                     chatPage.setContextUsage(0.0);
 
-                    // Refresh sidebar history, ensure fresh session for welcome page
+                    // Refresh sidebar history
                     sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
-                    backendBridge.ensureFreshSession();
 
                     // 标题异步生成后自动刷新侧栏
                     backendBridge.setOnTitleChanged(() ->

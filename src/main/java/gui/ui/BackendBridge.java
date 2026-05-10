@@ -93,6 +93,8 @@ public class BackendBridge {
     private static final String CLI_CHANNEL = "cli";
     private static final String CLI_CHAT_ID = "direct";
     private final String sessionKey = CLI_CHANNEL + ":" + CLI_CHAT_ID;
+    /** 当前活跃会话；null 表示无会话（欢迎页状态），仅用户发送消息时懒创建 */
+    private Session currentSession;
 
     // ── 当前消息回调（一次只处理一条消息）──
     private final AtomicReference<Consumer<ProgressEvent>> currentProgressCallback = new AtomicReference<>();
@@ -305,6 +307,9 @@ public class BackendBridge {
             return;
         }
 
+        // 懒创建：如果当前无活跃会话，先创建
+        ensureSession();
+
         currentProgressCallback.set(onProgress);
         currentResponseCallback.set(onResponse);
         waitingForResponse = true;
@@ -361,24 +366,25 @@ public class BackendBridge {
     }
 
     /**
-     * 获取当前会话
+     * 获取当前活跃会话；null 表示无会话（欢迎页状态）。
      */
     public Session getCurrentSession() {
-        if (sessionManager == null) return null;
-        return sessionManager.getOrCreate(sessionKey);
+        return currentSession;
     }
 
     /**
-     * 确保当前为全新会话（用于欢迎页启动），不通过 bus 发送 /clear，直接操作 SessionManager。
+     * 确保当前有一个活跃会话（懒创建）。
+     * 如果 currentSession 为 null（欢迎页状态），则创建新会话。
+     * 在用户发送首条消息时自动调用。
      */
-    public void ensureFreshSession() {
+    private void ensureSession() {
+        if (currentSession != null) return;
         if (sessionManager == null) return;
-        userMessageCount = 0;
-        titleGenerationPending.set(false);
-        titleRegenerationPending.set(false);
 
-        Session newSession = sessionManager.createNew(sessionKey);
-        ProjectRegistry newRegistry = createProjectRegistry(newSession.getSessionId());
+        currentSession = sessionManager.createNew(sessionKey);
+
+        // 为新会话创建独立的 ProjectRegistry
+        ProjectRegistry newRegistry = createProjectRegistry(currentSession.getSessionId());
         this.projectRegistry = newRegistry;
         if (agentLoop != null) {
             agentLoop.updateProjectRegistry(newRegistry);
@@ -386,33 +392,14 @@ public class BackendBridge {
     }
 
     /**
-     * 创建新会话：发送 /clear 命令让 AgentLoop 重置上下文
+     * 进入"新对话"状态：清空当前会话引用，显示欢迎页。
+     * 不创建新会话，不发送 /clear —— 会话在用户发送消息时懒创建。
      */
-    public Session newSession() {
-        if (sessionManager == null || bus == null) return null;
+    public void newSession() {
+        currentSession = null;
         userMessageCount = 0;
         titleGenerationPending.set(false);
         titleRegenerationPending.set(false);
-
-        Session newSession = sessionManager.createNew(sessionKey);
-
-        // 为新会话创建独立的 ProjectRegistry，避免上一轮绑定遗留
-        ProjectRegistry newRegistry = createProjectRegistry(newSession.getSessionId());
-        this.projectRegistry = newRegistry;
-        if (agentLoop != null) {
-            agentLoop.updateProjectRegistry(newRegistry);
-        }
-
-        // 发送 /clear 命令，让 AgentLoop 同时重置 session 和内部状态
-        CompletableFuture.runAsync(() -> {
-            try {
-                InboundMessage clearMsg = new InboundMessage(
-                        CLI_CHANNEL, "user", CLI_CHAT_ID, "/clear", null, null);
-                bus.publishInbound(clearMsg).toCompletableFuture().join();
-            } catch (Exception ignored) {
-            }
-        }, executor);
-        return newSession;
     }
 
     /**
@@ -423,6 +410,9 @@ public class BackendBridge {
         sessionManager.resumeSession(sessionKey, sessionId);
         // 清除缓存，强制下次 getOrCreate 从磁盘加载
         sessionManager.evictFromCache(sessionKey);
+
+        // 将 currentSession 指向恢复的会话
+        this.currentSession = sessionManager.getOrCreate(sessionKey);
 
         // 为恢复的会话加载对应的 ProjectRegistry，避免上一轮绑定遗留
         ProjectRegistry sessionRegistry = createProjectRegistry(sessionId);

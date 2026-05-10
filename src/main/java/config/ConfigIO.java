@@ -109,7 +109,15 @@ public final class ConfigIO {
         }
 
         // 对齐 Python：文件不存在或读取失败则返回默认配置
-        return new Config();
+        // 首次启动自动创建默认 config.json
+        Config defaultConfig = new Config();
+        try {
+            saveConfig(defaultConfig, path);
+        } catch (IOException e) {
+            // 写入失败不阻塞启动，内存中默认配置仍可使用
+            System.out.println("警告: 无法创建默认配置文件 " + path + ": " + e.getMessage());
+        }
+        return defaultConfig;
     }
 
     /**
