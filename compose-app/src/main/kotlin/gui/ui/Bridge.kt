@@ -58,6 +58,7 @@ class Bridge(
     fun newSession() = bridge.newSession()
     fun resumeSession(sessionId: String) = bridge.resumeSession(sessionId)
     fun deleteSession(sessionId: String) = bridge.deleteSession(sessionId)
+    fun renameSession(sessionId: String, newTitle: String) = bridge.renameSession(sessionId, newTitle)
     fun ensureFreshSession() = bridge.ensureFreshSession()
     fun refreshProvider() = bridge.refreshProvider()
     fun reloadConfigFromDisk() = bridge.reloadConfigFromDisk()

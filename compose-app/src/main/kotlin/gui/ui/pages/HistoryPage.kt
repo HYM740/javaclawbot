@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import gui.ui.components.ConfirmDialog
 import gui.ui.model.HistoryGroup
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
@@ -26,10 +27,12 @@ import gui.ui.theme.AppTheme
 @Composable
 fun HistoryPage(
     history: List<HistoryGroup>,
-    onResume: (String) -> Unit,
+    onResume: (sessionId: String, title: String) -> Unit,
     onDelete: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    var confirmDeleteSessionId by remember { mutableStateOf<String?>(null) }
+
     Column(
         Modifier.fillMaxSize().background(AppColors.Background).padding(24.dp)
     ) {
@@ -48,7 +51,6 @@ fun HistoryPage(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             history.forEach { group ->
-                // Section header
                 item(span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         group.label,
@@ -57,17 +59,31 @@ fun HistoryPage(
                         modifier = Modifier.padding(top = 8.dp, bottom = 4.dp)
                     )
                 }
-                // Session cards
                 items(group.items, key = { it.sessionId }) { entry ->
                     HistoryCard(
                         title = entry.title,
                         sessionId = entry.sessionId,
-                        onClick = { onResume(entry.sessionId) },
-                        onDelete = { onDelete(entry.sessionId) }
+                        onClick = { onResume(entry.sessionId, entry.title) },
+                        onDelete = { confirmDeleteSessionId = entry.sessionId }
                     )
                 }
             }
         }
+    }
+
+    // Confirm delete dialog
+    confirmDeleteSessionId?.let { sessionId ->
+        ConfirmDialog(
+            title = "删除会话",
+            message = "确定要删除此会话吗？\n此操作不可恢复。",
+            confirmText = "删除",
+            cancelText = "取消",
+            onConfirm = {
+                onDelete(sessionId)
+                confirmDeleteSessionId = null
+            },
+            onDismiss = { confirmDeleteSessionId = null }
+        )
     }
 }
 
@@ -115,11 +131,21 @@ private fun HistoryCard(
             )
         }
         Spacer(Modifier.width(8.dp))
-        Text(
-            "×",
-            Modifier.clickable { onDelete() },
-            color = AppColors.TextSecondary,
-            fontSize = 14.sp
-        )
+        // Delete button: trash icon + "删除" text
+        Row(
+            Modifier.clickable { onDelete() }
+                .clip(RoundedCornerShape(6.dp))
+                .background(Color(0x0FFF4444))
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("🗑", fontSize = 12.sp)
+            Spacer(Modifier.width(2.dp))
+            Text(
+                "删除",
+                fontSize = 11.sp,
+                color = Color(0xFFDC2626)
+            )
+        }
     }
 }

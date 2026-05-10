@@ -183,14 +183,18 @@ fun main() = application {
                     bridge?.newSession()
                 },
                 onHistorySelected = { activePage = "__history__" },
+                onRename = { tabId, newTitle ->
+                    bridge?.renameSession(tabId, newTitle)
+                    tabs = tabs.map { if (it.id == tabId) it.copy(title = newTitle) else it }
+                },
                 statusInfo = statusInfo
             ) { showTabBar ->
                 when (activePage) {
                     "__history__" -> HistoryPage(
                         history = history,
-                        onResume = { sessionId ->
+                        onResume = { sessionId, title ->
                             if (tabs.none { it.id == sessionId }) {
-                                tabs = tabs + ChatTab(id = sessionId, title = "历史会话")
+                                tabs = tabs + ChatTab(id = sessionId, title = title)
                                 messagesMap = messagesMap + (sessionId to emptyList())
                             }
                             activeTabId = sessionId

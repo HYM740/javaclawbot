@@ -761,6 +761,29 @@ public class BackendBridge {
     }
 
     /**
+     * 重命名指定会话的标题。
+     * @return true 如果 session 存在并更新成功
+     */
+    public boolean renameSession(String sessionId, String newTitle) {
+        if (sessionManager == null || newTitle == null || newTitle.isBlank()) return false;
+        try {
+            sessionManager.resumeSession(sessionKey, sessionId);
+            Session session = sessionManager.getOrCreate(sessionKey);
+            if (session == null) return false;
+            session.getMetadata().put("title", newTitle.trim());
+            sessionManager.save(session);
+            log.info("会话重命名: sessionId=" + sessionId + ", title=" + newTitle.trim());
+            if (onTitleChanged != null) {
+                uiDispatcher.accept(onTitleChanged);
+            }
+            return true;
+        } catch (Exception e) {
+            log.warn("会话重命名失败: sessionId=" + sessionId, e);
+            return false;
+        }
+    }
+
+    /**
      * 重置标题生成计数器（切换会话时调用）
      */
     public void resetTitleCounter() {

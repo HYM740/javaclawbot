@@ -20,6 +20,7 @@ fun AppShell(
     onTabClosed: (String) -> Unit,
     onNewTab: () -> Unit,
     onHistorySelected: () -> Unit,
+    onRename: (tabId: String, newTitle: String) -> Unit,
     statusInfo: StatusInfo,
     modifier: Modifier = Modifier,
     content: @Composable (showTabBar: Boolean) -> Unit
@@ -43,7 +44,8 @@ fun AppShell(
                         onTabSelected = onTabSelected,
                         onTabClosed = onTabClosed,
                         onNewTab = onNewTab,
-                        onHistorySelected = onHistorySelected
+                        onHistorySelected = onHistorySelected,
+                        onRename = onRename
                     )
                 }
                 Box(
