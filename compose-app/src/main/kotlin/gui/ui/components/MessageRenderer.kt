@@ -21,6 +21,7 @@ import com.vladsch.flexmark.util.ast.Node
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
 import com.vladsch.flexmark.ext.tables.*
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.border
@@ -157,7 +158,7 @@ private fun TableNode(node: TableBlock) {
                 .clickable { showDialog = true },
             contentAlignment = Alignment.Center
         ) {
-            Text("\u2BF6", fontSize = 12.sp, color = AppColors.TextSecondary)
+            Text("\u26F6", fontSize = 12.sp, color = AppColors.TextSecondary)
         }
     }
 
@@ -169,7 +170,7 @@ private fun TableNode(node: TableBlock) {
                     .fillMaxWidth(0.85f)
                     .fillMaxHeight(0.8f)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color.White)
+                    .background(AppColors.Surface)
                     .padding(16.dp)
             ) {
                 // Close button
@@ -191,7 +192,9 @@ private fun TableNode(node: TableBlock) {
                         .padding(top = 28.dp)
                         .horizontalScroll(rememberScrollState())
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier.verticalScroll(rememberScrollState())
+                    ) {
                         node.children.forEach { child ->
                             when (child) {
                                 is TableHead -> TableHeaderRow(child)
@@ -211,7 +214,7 @@ private fun TableHeaderRow(node: TableHead) {
     Row {
         node.children.forEach { row ->
             if (row is TableRow) {
-                row.children.forEachIndexed { index, cell ->
+                row.children.forEach { cell ->
                     if (cell is TableCell) {
                         TableCellContent(cell, isHeader = true)
                     }
