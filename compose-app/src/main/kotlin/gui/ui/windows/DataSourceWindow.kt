@@ -310,6 +310,7 @@ fun DataSourceWindow(
                                 if (type == DatabaseType.SQLite) {
                                     dbFilePath = ""; dbName = ""
                                 }
+                                jdbcUrl = buildJdbcUrl(dbType, host, port.toIntOrNull() ?: 0, dbName, dbFilePath)
                             }) {
                                 Text(type.label, style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp))
                             }
@@ -477,8 +478,9 @@ fun DataSourceWindow(
                             if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@TextButton }
                             testing = true; testResult = null
                             val effectiveDriver = dbType.driverClass
+                            val testPassword = if (isEdit && password.isBlank()) "******" else password
                             val msg = bridge.testDataSourceConnection(
-                                jdbcUrl.trim(), username.trim(), password, effectiveDriver
+                                jdbcUrl.trim(), username.trim(), testPassword, effectiveDriver
                             )
                             testing = false
                             if (msg == null) {
