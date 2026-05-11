@@ -25,6 +25,46 @@ import gui.ui.components.ErrorDialog
 import gui.ui.theme.AppColors
 import gui.ui.theme.CjkFontResolver
 
+enum class DatabaseType(
+    val label: String,
+    val defaultHost: String,
+    val defaultPort: Int,
+    val urlTemplate: String,
+    val driverClass: String
+) {
+    MySQL("MySQL", "localhost", 3306,
+        "jdbc:mysql://{host}:{port}/{db}",
+        "com.mysql.cj.jdbc.Driver"),
+    MariaDB("MariaDB", "localhost", 3306,
+        "jdbc:mariadb://{host}:{port}/{db}",
+        "org.mariadb.jdbc.Driver"),
+    PostgreSQL("PostgreSQL", "localhost", 5432,
+        "jdbc:postgresql://{host}:{port}/{db}",
+        "org.postgresql.Driver"),
+    Oracle("Oracle", "localhost", 1521,
+        "jdbc:oracle:thin:@{host}:{port}:{db}",
+        "oracle.jdbc.OracleDriver"),
+    SQLServer("SQL Server", "localhost", 1433,
+        "jdbc:sqlserver://{host}:{port};databaseName={db}",
+        "com.microsoft.sqlserver.jdbc.SQLServerDriver"),
+    H2("H2", "localhost", 9092,
+        "jdbc:h2:tcp://{host}:{port}/{db}",
+        "org.h2.Driver"),
+    SQLite("SQLite", "", 0,
+        "jdbc:sqlite:{path}",
+        "org.sqlite.JDBC");
+}
+
+private val URL_PREFIX_TO_TYPE = mapOf(
+    "jdbc:mysql:" to DatabaseType.MySQL,
+    "jdbc:postgresql:" to DatabaseType.PostgreSQL,
+    "jdbc:mariadb:" to DatabaseType.MariaDB,
+    "jdbc:oracle:thin:" to DatabaseType.Oracle,
+    "jdbc:sqlserver:" to DatabaseType.SQLServer,
+    "jdbc:h2:" to DatabaseType.H2,
+    "jdbc:sqlite:" to DatabaseType.SQLite,
+)
+
 private val DRIVER_MAP = mapOf(
     "jdbc:mysql:" to "com.mysql.cj.jdbc.Driver",
     "jdbc:postgresql:" to "org.postgresql.Driver",
@@ -34,9 +74,6 @@ private val DRIVER_MAP = mapOf(
     "jdbc:h2:" to "org.h2.Driver",
     "jdbc:sqlite:" to "org.sqlite.JDBC"
 )
-
-private fun inferDriverClass(jdbcUrl: String): String? =
-    DRIVER_MAP.entries.firstOrNull { (prefix) -> jdbcUrl.startsWith(prefix) }?.value
 
 data class DataSourceEditData(
     val oldName: String,
@@ -104,7 +141,7 @@ fun DataSourceWindow(
                 fieldInput("名称", name, "例如: my-db") { name = it }
                 fieldInput("JDBC URL", jdbcUrl, "jdbc:postgresql://localhost:5432/mydb") {
                     jdbcUrl = it
-                    val inferred = inferDriverClass(it.trim())
+                    val inferred = URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> it.trim().startsWith(prefix) }?.value?.driverClass
                     if (inferred != null) {
                         driverClass = inferred
                     }
@@ -166,7 +203,7 @@ fun DataSourceWindow(
                             if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@TextButton }
                             testing = true; testResult = null
                             val effectiveDriver = driverClass.trim().ifEmpty {
-                                inferDriverClass(jdbcUrl.trim()) ?: ""
+                                URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value?.driverClass ?: ""
                             }
                             val msg = bridge.testDataSourceConnection(
                                 jdbcUrl.trim(), username.trim(), password, effectiveDriver
@@ -206,7 +243,7 @@ fun DataSourceWindow(
                                         val timeout = connectionTimeout.toLongOrNull() ?: 30000L
                                         val pwd = if (isEdit && password.isBlank()) "******" else password
                                         val effectiveDriver = driverClass.trim().ifEmpty {
-                                            inferDriverClass(jdbcUrl.trim()) ?: ""
+                                            URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value?.driverClass ?: ""
                                         }
                                         if (isEdit) {
                                             bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
