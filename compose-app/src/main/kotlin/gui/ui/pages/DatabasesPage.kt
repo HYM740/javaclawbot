@@ -74,7 +74,6 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             datasources.forEach { (name, cfg) ->
                 item {
                     val jdbcUrl = try { cfg.jdbcUrl } catch (_: Exception) { null } ?: ""
-                    val driver = try { cfg.driverClass } catch (_: Exception) { null } ?: ""
                     val enable = try { cfg.isEnable } catch (_: Exception) { false }
                     val maxPoolSize = try { cfg.maxPoolSize } catch (_: Exception) { 5 }
                     val timeout = try { cfg.connectionTimeout } catch (_: Exception) { 30000L }
@@ -123,9 +122,6 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                             Modifier.padding(top = 2.dp),
                             horizontalArrangement = Arrangement.spacedBy(16.dp)
                         ) {
-                            if (driver.isNotEmpty()) {
-                                Text("Driver: $driver", style = AppTheme.typography.caption, fontSize = 12.sp)
-                            }
                             Text("Pool: $maxPoolSize", style = AppTheme.typography.caption, fontSize = 12.sp)
                             Text("Timeout: ${timeout}ms", style = AppTheme.typography.caption, fontSize = 12.sp)
                         }
@@ -139,7 +135,6 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
                                 editData = DataSourceEditData(
                                     oldName = name, name = name, jdbcUrl = jdbcUrl,
                                     username = try { cfg.username } catch (_: Exception) { "" } ?: "",
-                                    driverClass = driver,
                                     maxPoolSize = maxPoolSize, connectionTimeout = timeout
                                 )
                             }) { Text("编辑", color = AppColors.Accent, fontSize = 13.sp) }

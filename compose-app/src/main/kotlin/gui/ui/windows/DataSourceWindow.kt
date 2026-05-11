@@ -159,7 +159,6 @@ data class DataSourceEditData(
     val name: String,
     val jdbcUrl: String,
     val username: String,
-    val driverClass: String,
     val maxPoolSize: Int,
     val connectionTimeout: Long
 )
@@ -179,7 +178,13 @@ fun DataSourceWindow(
     var jdbcUrl by remember { mutableStateOf(editData?.jdbcUrl ?: "") }
     var username by remember { mutableStateOf(editData?.username ?: "") }
     var password by remember { mutableStateOf("") }
-    var driverClass by remember { mutableStateOf(editData?.driverClass ?: "") }
+    var dbType by remember { mutableStateOf<DatabaseType>(DatabaseType.MySQL) }
+    var host by remember { mutableStateOf("") }
+    var port by remember { mutableStateOf("") }
+    var dbName by remember { mutableStateOf("") }
+    var dbFilePath by remember { mutableStateOf("") }
+    var suppressUrlGeneration by remember { mutableStateOf(false) }
+    var fieldsInitialized by remember { mutableStateOf(false) }
     var maxPoolSize by remember { mutableStateOf((editData?.maxPoolSize ?: 5).toString()) }
     var connectionTimeout by remember { mutableStateOf((editData?.connectionTimeout ?: 30000L).toString()) }
     var testing by remember { mutableStateOf(false) }
@@ -194,6 +199,22 @@ fun DataSourceWindow(
 
     // Keep a ref to the AWT frame for focus management
     var frameRef by remember { mutableStateOf<java.awt.Frame?>(null) }
+
+    // Initialize fields from editData (parse JDBC URL to fill db type, host, port, db name)
+    if (editData != null && !fieldsInitialized) {
+        fieldsInitialized = true
+        val parsed = parseJdbcUrl(editData.jdbcUrl)
+        if (parsed.type != null) {
+            dbType = parsed.type
+            host = parsed.host
+            port = (if (parsed.port > 0) parsed.port.toString() else "")
+            if (parsed.type == DatabaseType.SQLite) {
+                dbFilePath = parsed.filePath
+            } else {
+                dbName = parsed.dbName
+            }
+        }
+    }
 
     DialogWindow(
         onCloseRequest = onDismiss,
@@ -220,9 +241,8 @@ fun DataSourceWindow(
                 fieldInput("名称", name, "例如: my-db") { name = it }
                 fieldInput("JDBC URL", jdbcUrl, "jdbc:postgresql://localhost:5432/mydb") {
                     jdbcUrl = it
-                    inferType(it.trim())?.let { driverClass = it.driverClass }
+                    inferType(it.trim())?.let { dbType = it }
                 }
-                fieldInput("驱动类", driverClass, "自动推断") { driverClass = it }
                 fieldInput("用户名", username, "root") { username = it }
                 fieldInput("密码", password, if (isEdit) "留空则保留原密码" else "****") { password = it }
                 // 连接池大小和超时共用一行
@@ -278,9 +298,7 @@ fun DataSourceWindow(
                         onClick = {
                             if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@TextButton }
                             testing = true; testResult = null
-                            val effectiveDriver = driverClass.trim().ifEmpty {
-                                inferType(jdbcUrl.trim())?.driverClass ?: ""
-                            }
+                            val effectiveDriver = dbType.driverClass
                             val msg = bridge.testDataSourceConnection(
                                 jdbcUrl.trim(), username.trim(), password, effectiveDriver
                             )
@@ -318,9 +336,7 @@ fun DataSourceWindow(
                                         val pool = maxPoolSize.toIntOrNull() ?: 5
                                         val timeout = connectionTimeout.toLongOrNull() ?: 30000L
                                         val pwd = if (isEdit && password.isBlank()) "******" else password
-                                        val effectiveDriver = driverClass.trim().ifEmpty {
-                                            inferType(jdbcUrl.trim())?.driverClass ?: ""
-                                        }
+                                        val effectiveDriver = dbType.driverClass
                                         if (isEdit) {
                                             bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
                                                 username.trim(), pwd, effectiveDriver, pool, timeout)
