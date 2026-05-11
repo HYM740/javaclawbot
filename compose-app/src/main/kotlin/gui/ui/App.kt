@@ -262,7 +262,7 @@ fun main() = application {
                     "databases" -> DatabasesPage(bridge)
                     "crontasks" -> CronPage(bridge)
                     "settings" -> SettingsPage(bridge)
-                    "devconsole" -> DevConsolePage(bridge)
+                    "devconsole" -> DevConsolePage()
                     else -> Text(
                         "Unknown page: $activePage",
                         modifier = Modifier.fillMaxSize().wrapContentSize(Alignment.Center)
