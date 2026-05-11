@@ -96,6 +96,10 @@ public class QuestionDialog extends Dialog<Map<String, String>> {
                 cb.setUserData(label);
                 optionsBox.getChildren().add(cb);
             } else {
+                // 单选按钮 + 说明文字（内联显示，不再依赖 tooltip）
+                VBox optBox = new VBox(2);
+                optBox.setAlignment(Pos.CENTER_LEFT);
+
                 ToggleButton btn = new ToggleButton();
                 btn.setText(label);
                 btn.setToggleGroup(group);
@@ -132,25 +136,27 @@ public class QuestionDialog extends Dialog<Map<String, String>> {
                     }
                 });
 
-                // Description tooltip
+                optBox.getChildren().add(btn);
+
+                // 每个选项下方内联显示说明文字
                 if (desc != null && !desc.isBlank()) {
-                    Tooltip tip = new Tooltip(desc);
-                    tip.setMaxWidth(300);
-                    tip.setWrapText(true);
-                    btn.setTooltip(tip);
+                    Label descLabel = new Label(desc);
+                    descLabel.setWrapText(true);
+                    descLabel.setMaxWidth(280);
+                    descLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.45); "
+                        + "-fx-padding: 0 0 0 2px;");
+                    optBox.getChildren().add(descLabel);
                 }
+
                 optionBtns.add(btn);
-                optionsBox.getChildren().add(btn);
+                optionsBox.getChildren().add(optBox);
             }
         }
 
-        // Wrap options in a FlowPane-like HBox for single select
+        // 单选按钮水平排列（若有说明文字则纵向包裹）
         if (!multiSelect && !optionBtns.isEmpty()) {
-            HBox btnRow = new HBox(8);
-            btnRow.setAlignment(Pos.CENTER_LEFT);
-            btnRow.getChildren().addAll(optionBtns);
-            optionsBox.getChildren().clear();
-            optionsBox.getChildren().add(btnRow);
+            // 改用 VBox 展示带说明的单选选项，不再强制 HBox 水平排列
+            // optionsBox 已经是垂直排列（每个选项的 optBox 已加入）
         }
 
         root.getChildren().add(optionsBox);

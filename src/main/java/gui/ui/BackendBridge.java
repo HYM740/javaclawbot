@@ -110,6 +110,8 @@ public class BackendBridge {
 
     /** 标题生成/更新后回调（MainStage 设置用于刷新侧栏） */
     private volatile Runnable onTitleChanged;
+    /** ProjectRegistry 变更后回调（MainStage 设置用于刷新右下角项目徽标） */
+    private volatile Runnable onRegistryChanged;
 
     /**
      * 初始化所有后端组件（阻塞调用，需在后台线程执行）。
@@ -389,6 +391,7 @@ public class BackendBridge {
         if (agentLoop != null) {
             agentLoop.updateProjectRegistry(newRegistry);
         }
+        notifyRegistryChanged();
     }
 
     /**
@@ -420,6 +423,7 @@ public class BackendBridge {
         if (agentLoop != null) {
             agentLoop.updateProjectRegistry(sessionRegistry);
         }
+        notifyRegistryChanged();
 
         // 根据会话已有消息数初始化标题生成计数器，避免恢复历史后重复触发
         Session session = sessionManager.getOrCreate(sessionKey);
@@ -581,6 +585,17 @@ public class BackendBridge {
 
     public void setOnTitleChanged(Runnable callback) {
         this.onTitleChanged = callback;
+    }
+
+    /** 设置 ProjectRegistry 变更回调（用于 GUI 刷新项目徽标） */
+    public void setOnRegistryChanged(Runnable callback) {
+        this.onRegistryChanged = callback;
+    }
+
+    private void notifyRegistryChanged() {
+        if (onRegistryChanged != null) {
+            Platform.runLater(onRegistryChanged);
+        }
     }
 
     /**

@@ -12,6 +12,9 @@ All notable changes to NexusAI will be documented in this file.
 ### Changed
 - **项目更名**：javaclawbot → NexusAI（pom.xml artifactId/finalName、脚本全部更新、CHANGELOG 标题）
 
+### Fixed
+- **修复 `/projects` 等 CLI Agent 命令触发标题生成的问题**：`CliAgentCommandHandler.reply()` 未在命令回复中标记 `_system_command` 元数据，导致 BackendBridge 将命令回复误判为普通最终回复而触发异步标题生成（LLM 调用）。修复：`reply()` 统一附加 `_system_command: true` 元数据，与 AgentLoop 中 `/stop` 命令处理保持一致
+
 ## [2.2.8] - 2026-05-10
 
 ### Added

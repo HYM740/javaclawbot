@@ -7,7 +7,7 @@
 #define MyAppName "NexusAI"
 #define MyAppVersion "2.3.0"
 #define MyAppPublisher "NexusAI"
-#define RuntimeBaseURL "http://101.68.93.109:9102/releases/2.3.0/windows"
+#define RuntimeBaseURL "http://101.68.93.109:9102/agent/releases/2.3.0/windows"
 
 [Setup]
 AppId={{B3C4D5E6-F7A8-9012-BCDE-F12345678901}
@@ -24,6 +24,9 @@ SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayName={#MyAppName}
 PrivilegesRequired=lowest
+ChangesEnvironment=yes
+SetupIconFile=app-icon.ico
+UninstallDisplayIcon={app}\app-icon.ico
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -38,15 +41,24 @@ Name: "git"; Description: "Git Version Control"; Types: full custom
 Name: "python"; Description: "Python Script Engine"; Types: full custom
 Name: "nodejs"; Description: "Node.js JavaScript Engine"; Types: full custom
 
+[Files]
+Source: "app-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\NexusAI.bat"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\NexusAI.bat"; IconFilename: "{app}\app-icon.ico"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\NexusAI.bat"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\NexusAI.bat"; IconFilename: "{app}\app-icon.ico"
 
 [Registry]
+; 始终将 {app} 加入 PATH，确保 nexusai 命令全局可用
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; \
-  ValueName: "Path"; ValueData: "{olddata};{app}\java17\bin;{app}\git\bin;{app}\python;{app}\node"; \
-  Check: NeedPathUpdate; Flags: preservestringtype
+  ValueName: "Path"; ValueData: "{olddata};{app}"; \
+  Flags: preservestringtype
+
+; 如果安装了 JDK，设置 JAVA_HOME
+Root: HKCU; Subkey: "Environment"; ValueType: string; \
+  ValueName: "JAVA_HOME"; ValueData: "{app}\java17"; \
+  Check: NeedJdkHome; Flags: preservestringtype
 
 [Run]
 Filename: "{app}\NexusAI.bat"; Description: "Launch {#MyAppName}"; \
@@ -114,30 +126,70 @@ begin
 end;
 
 // ========================================================================
-// 内置下载 (DownloadTemporaryFile + 重试)
+// 下载 (BITSAdmin + 详细日志)
 // ========================================================================
 var
   DownloadPage: TOutputProgressWizardPage;
+  LastDownloadError: string;
 
 function DownloadFileRetry(const URL, DestFile: string; MaxRetries: Integer): Boolean;
 var
-  Retry: Integer;
+  Retry, ResultCode: Integer;
+  BatchFile, CmdLine: string;
+  LogFile: string;
+  ErrorLines: AnsiString;
 begin
   Result := False;
+  BatchFile := ExpandConstant('{tmp}\dl.bat');
+  LogFile := ExpandConstant('{tmp}\dl_result.txt');
+
   for Retry := 1 to MaxRetries do
   begin
-    Log(Format('Downloading %s (attempt %d)...', [URL, Retry]));
-    try
-      DownloadTemporaryFile(URL, DestFile, '', '');
+    Log(Format('Downloading %s (attempt %d/%d)...', [URL, Retry, MaxRetries]));
+
+    // BITSAdmin + 输出重定向到日志文件
+    CmdLine :=
+      '@echo off' + #13#10 +
+      'echo [%date% %time%] Downloading: ' + URL + ' > "' + LogFile + '"' + #13#10 +
+      'echo. >> "' + LogFile + '"' + #13#10 +
+      '' + #13#10 +
+      'bitsadmin /transfer "NexusAIDL" /download /priority FOREGROUND "' + URL + '" "' + DestFile + '" >> "' + LogFile + '" 2>&1' + #13#10 +
+      'echo. >> "' + LogFile + '"' + #13#10 +
+      'echo Exit code: %ERRORLEVEL% >> "' + LogFile + '"' + #13#10 +
+      '' + #13#10 +
+      'if exist "' + DestFile + '" (' + #13#10 +
+      '  echo FILE EXISTS: ' + DestFile + ' >> "' + LogFile + '"' + #13#10 +
+      '  exit /b 0' + #13#10 +
+      ') else (' + #13#10 +
+      '  echo FILE NOT FOUND: ' + DestFile + ' >> "' + LogFile + '"' + #13#10 +
+      '  exit /b 1' + #13#10 +
+      ')';
+
+    SaveStringToFile(BatchFile, CmdLine, False);
+
+    if Exec('cmd.exe', '/c "' + BatchFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
+    begin
       if FileExists(DestFile) then
       begin
         Log('Download succeeded.');
         Result := True;
         Exit;
       end;
-    except
-      Log(Format('Download failed (attempt %d).', [Retry]));
     end;
+
+    // 读取错误日志
+    if FileExists(LogFile) then
+    begin
+      if LoadStringFromFile(LogFile, ErrorLines) then
+        LastDownloadError := ErrorLines
+      else
+        LastDownloadError := 'Unable to read log file';
+    end
+    else
+      LastDownloadError := 'Log file not created';
+
+    Log(Format('Download failed (attempt %d), exit: %d', [Retry, ResultCode]));
+
     if Retry < MaxRetries then
       Sleep(2000);
   end;
@@ -177,7 +229,8 @@ begin
   begin
     if not DownloadFileRetry(URL, FileName, 3) then
     begin
-      Result := 'Failed to download NexusAI.jar. Check network.';
+      LastDownloadError := 'Failed: ' + URL + #13#10 + LastDownloadError;
+      Result := LastDownloadError;
       Exit;
     end;
   end;
@@ -300,10 +353,38 @@ begin
       Exec('powershell.exe', '-NoProfile -Command "Expand-Archive -Path ''' + TmpDir + '\node-v22.12.0-win-x64.zip'' -DestinationPath ''' + AppDir + '\node'' -Force"',
         '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
-    // 创建启动批处理
+    // 创建全局命令行启动器 nexusai.cmd
+    SaveStringToFile(AppDir + '\nexusai.cmd',
+      '@echo off' + #13#10 +
+      'set "NX_HOME=' + AppDir + '"' + #13#10 +
+      'java --version 2>&1 | find "17" >nul' + #13#10 +
+      'if %ERRORLEVEL% EQU 0 (' + #13#10 +
+      '  java -jar "%NX_HOME%\NexusAI.jar" %*' + #13#10 +
+      '  goto :eof' + #13#10 +
+      ')' + #13#10 +
+      'if exist "%NX_HOME%\java17\bin\java.exe" (' + #13#10 +
+      '  "%NX_HOME%\java17\bin\java.exe" -jar "%NX_HOME%\NexusAI.jar" %*' + #13#10 +
+      '  goto :eof' + #13#10 +
+      ')' + #13#10 +
+      'echo ERROR: Java 17 not found.' + #13#10 +
+      'pause >nul',
+      False);
+
+    // 创建桌面/开始菜单启动批处理
     SaveStringToFile(AppDir + '\NexusAI.bat',
       '@echo off' + #13#10 +
-      'start "" "' + AppDir + '\java17\bin\javaw.exe" -jar "' + AppDir + '\NexusAI.jar"' + #13#10,
+      'set "NX_HOME=' + AppDir + '"' + #13#10 +
+      'java --version 2>&1 | find "17" >nul' + #13#10 +
+      'if %ERRORLEVEL% EQU 0 (' + #13#10 +
+      '  start "" java -jar "%NX_HOME%\NexusAI.jar"' + #13#10 +
+      '  goto :eof' + #13#10 +
+      ')' + #13#10 +
+      'if exist "%NX_HOME%\java17\bin\java.exe" (' + #13#10 +
+      '  start "" "%NX_HOME%\java17\bin\java.exe" -jar "%NX_HOME%\NexusAI.jar"' + #13#10 +
+      '  goto :eof' + #13#10 +
+      ')' + #13#10 +
+      'echo ERROR: Java 17 not found.' + #13#10 +
+      'pause >nul',
       False);
 
     Log('Extraction complete.');
@@ -313,6 +394,11 @@ end;
 // ========================================================================
 // PATH
 // ========================================================================
+function NeedJdkHome: Boolean;
+begin
+  Result := WizardIsComponentSelected('jdk') and not IsJdk17Installed;
+end;
+
 function NeedPathUpdate: Boolean;
 begin
   Result := WizardIsComponentSelected('jdk') or WizardIsComponentSelected('git')

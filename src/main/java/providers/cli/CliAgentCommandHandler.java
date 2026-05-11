@@ -592,13 +592,17 @@ public class CliAgentCommandHandler {
         return List.of();
     }
 
+    /** CLI Agent 命令回复的元数据（标记为系统命令，避免触发标题生成等非预期逻辑） */
+    private static final Map<String, Object> SYSTEM_COMMAND_META = Map.of("_system_command", true);
+
     /**
      * 回复消息
      */
     private void reply(InboundMessage msg, String content) {
-        // 优先使用带元数据的回调
+        // 优先使用带元数据的回调；所有命令回复都标记为 _system_command，
+        // 避免 BackendBridge 将其误判为普通最终回复而触发标题生成
         if (sendToChannelWithMeta != null) {
-            sendToChannelWithMeta.accept(content, msg.getSessionKey(), null);
+            sendToChannelWithMeta.accept(content, msg.getSessionKey(), SYSTEM_COMMAND_META);
         } else if (sendToChannel != null) {
             sendToChannel.accept(content, msg.getSessionKey());
         }

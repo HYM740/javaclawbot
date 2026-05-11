@@ -70,7 +70,7 @@ public class Sidebar extends VBox {
         logo.setPrefSize(32, 32);
         logo.setAlignment(Pos.CENTER);
 
-        titleLabel = new Label("NexusAi");
+        titleLabel = new Label("NexusAI");
         titleLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 500;");
 
         collapseBtn = new Button("\u25C0");
@@ -363,7 +363,7 @@ public class Sidebar extends VBox {
 
     private void openHelp() {
         try {
-            String helpUrl = "http://101.68.93.109:9102/releases/help/NexusAi操作配置指南.html";
+            String helpUrl = "http://101.68.93.109:9102/agent/releases/help/NexusAi操作配置指南.html";
             Desktop.getDesktop().browse(new URI(helpUrl));
         } catch (Exception e) {
             e.printStackTrace();

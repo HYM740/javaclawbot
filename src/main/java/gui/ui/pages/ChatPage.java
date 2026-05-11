@@ -909,10 +909,11 @@ public class ChatPage extends VBox {
 
             String mode = badge.getCurrentMode();
             if ("workspace".equals(mode)) {
-                showWorkspaceMenu(badge, workspacePath);
+                showWorkspaceMenu(badge, this.workspacePath);
             } else {
-                projectPopover.show(badge, registry, () -> {
-                    chatInput.refreshProjectBadge(registry, workspacePath);
+                // 使用实例字段而非闭包捕获的参数，确保 popover 始终展示最新 registry
+                projectPopover.show(badge, this.projectRegistry, () -> {
+                    chatInput.refreshProjectBadge(this.projectRegistry, this.workspacePath);
                 });
             }
         });

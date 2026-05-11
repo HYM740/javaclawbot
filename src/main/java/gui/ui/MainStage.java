@@ -442,8 +442,9 @@ public class MainStage {
         String content = progress.content();
         if (content == null || content.isBlank()) return;
 
-        // 任意工具返回值包含 awaiting_response 时，弹出 AskUserQuestion 对话框
-        if (content.contains("awaiting_response")) {
+        // 仅当结果为合法 JSON 且 status="awaiting_response" 时进入对话框流程，
+        // 避免文件内容中包含 "awaiting_response" 字符串导致误触发（对齐 AgentLoop.isAwaitingResponse）
+        if (isAwaitingResponse(content)) {
             showAskUserQuestionDialog(content, progress.toolCallId());
         } else if ("AskUserQuestion".equals(tn)) {
             if (content.contains("\"questions\"")) {
@@ -451,6 +452,9 @@ public class MainStage {
                     lastToolCard.setStatus("completed");
                     lastToolCard.addStructuredContent(AskQuestionResultView.build(content));
                 }
+            } else if (lastToolCard != null) {
+                lastToolCard.setStatus("completed");
+                lastToolCard.addResult(content);
             }
         } else if ("TodoWrite".equals(tn)) {
             chatPage.getTodoFloatBadge().updateFromJson(content);
@@ -493,16 +497,37 @@ public class MainStage {
 
             QuestionDialog dialog = new QuestionDialog(questions);
             dialog.initOwner(stage.getScene() != null ? stage.getScene().getWindow() : null);
-            dialog.showAndWait().ifPresent(answers -> {
+
+            dialog.showAndWait().ifPresentOrElse(answers -> {
                 if (!answers.isEmpty() && toolCallId != null) {
                     backendBridge.answerUserQuestion(toolCallId, answers);
                 }
+            }, () -> {
+                // 用户取消/关闭对话框 — 注入空答案解除 AgentLoop 阻塞
+                if (toolCallId != null) {
+                    backendBridge.answerUserQuestion(toolCallId, java.util.Map.of());
+                }
             });
         } catch (Exception e) {
-            // 解析失败则把原始 JSON 作为普通结果展示
+            // 解析失败则把原始 JSON 作为普通结果展示，并标记完成
             if (lastToolCard != null) {
+                lastToolCard.setStatus("completed");
                 lastToolCard.addResult(json);
             }
+        }
+    }
+
+    /**
+     * 检查工具结果是否为合法的 awaiting_response 格式。
+     * 要求结果为合法 JSON 且 status 字段为 "awaiting_response" 且包含 questions 字段，
+     * 避免文件内容中包含 "awaiting_response" 字符串导致误触发（对齐 AgentLoop.isAwaitingResponse）。
+     */
+    private static boolean isAwaitingResponse(String rawResult) {
+        try {
+            Map<String, Object> map = new Gson().fromJson(rawResult, Map.class);
+            return "awaiting_response".equals(map.get("status")) && map.containsKey("questions");
+        } catch (Exception e) {
+            return false;
         }
     }
 
@@ -627,6 +652,9 @@ public class MainStage {
                     // 标题异步生成后自动刷新侧栏
                     backendBridge.setOnTitleChanged(() ->
                         sidebar.refreshHistory(backendBridge.getSessionManager().listSessions()));
+
+                    // ProjectRegistry 变更后自动刷新右下角项目徽标
+                    backendBridge.setOnRegistryChanged(chatPage::refreshProjectBadge);
 
                     // Inject BackendBridge into management pages
                     injectBridgeToPage(pages.get("models"));

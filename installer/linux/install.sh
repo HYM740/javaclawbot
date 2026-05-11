@@ -8,7 +8,7 @@ set -e
 
 APP_NAME="NexusAI"
 APP_VERSION="2.3.0"
-BASE_URL="http://192.168.20.125:9100/releases/${APP_VERSION}"
+BASE_URL="http://101.68.93.109:9102/agent/releases/${APP_VERSION}"
 INSTALL_DIR="$HOME/.local/share/NexusAI"
 ARCH=$(uname -m)
 

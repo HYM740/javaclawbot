@@ -28,7 +28,10 @@ public class AskUserQuestionTool extends Tool {
 
     @Override
     public String description() {
-        return "Asks the user multiple choice questions to gather information, clarify ambiguity, understand preferences, make decisions or offer them choices.";
+        return """
+                Asks the user multiple choice questions to gather information, clarify ambiguity, understand preferences, make decisions or offer them choices.
+                **Important reminder:**  After asking the user a question, please remain silent and do not attempt to call continuously, as the system will pause and wait for the user's response
+                """;
     }
 
     @Override
@@ -137,6 +140,12 @@ public class AskUserQuestionTool extends Tool {
                 }
                 sb.append(". You can now continue with the user's answers in mind.");
                 return CompletableFuture.completedFuture(sb.toString());
+            }
+
+            // 用户取消/跳过（answers 非 null 但为空 map）
+            if (answers != null) {
+                return CompletableFuture.completedFuture(
+                    "User skipped the questions. Continue with the information you have.");
             }
 
             // Return questions to be displayed to user
