@@ -2,6 +2,14 @@
 
 All notable changes to NexusAI will be documented in this file.
 
+## [2.3.2] - 2026-05-11
+
+### Fixed
+- **修复 JavaFX WebView 偶发 NPE 崩溃**：`WCPageBackBufferImpl.validate()` 中 `this.texture` 为 null 导致 `NullPointerException`，是 JavaFX 17.0.2 已知 bug（JDK-8193511）。修复：
+  - 升级 JavaFX 17.0.2 → 17.0.14
+  - `prism.order` 从平台特定（d3d/es2）改为统一 `sw`（软件渲染），避免 GPU 纹理丢失问题
+  - 配套更新 `build-dmg.sh` 脚本中的 `prism.order` 配置
+
 ## [2.3.1] - 2026-05-11
 
 ### Fixed

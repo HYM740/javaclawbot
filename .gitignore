@@ -44,3 +44,4 @@ appsmavenrepository
 docs/plans/*
 docs/zjkycode/*
 installer/*
+/installer/
