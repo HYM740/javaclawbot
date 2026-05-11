@@ -192,6 +192,8 @@ fun DataSourceWindow(
     var dbFilePath by remember { mutableStateOf("") }
     var suppressUrlGeneration by remember { mutableStateOf(false) }
     var fieldsInitialized by remember { mutableStateOf(false) }
+    var forceSave by remember { mutableStateOf(false) }
+    var pendingForceSave by remember { mutableStateOf(false) }
     var maxPoolSize by remember { mutableStateOf((editData?.maxPoolSize ?: 5).toString()) }
     var connectionTimeout by remember { mutableStateOf((editData?.connectionTimeout ?: 30000L).toString()) }
     var testing by remember { mutableStateOf(false) }
@@ -281,22 +283,18 @@ fun DataSourceWindow(
                 Spacer(Modifier.height(4.dp))
                 var typeExpanded by remember { mutableStateOf(false) }
                 Box {
-                    BasicTextField(
-                        value = dbType.label,
-                        onValueChange = {},
-                        readOnly = true,
+                    Box(
                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
                             .background(AppColors.HoverBg).padding(12.dp)
                             .clickable { typeExpanded = true },
-                        textStyle = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary),
-                        singleLine = true,
-                        decorationBox = { inner ->
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.weight(1f)) { inner() }
-                                Text("▼", fontSize = 10.sp, color = AppColors.TextSecondary)
-                            }
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(dbType.label, style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp, color = AppColors.TextPrimary))
+                            Spacer(Modifier.weight(1f))
+                            Text("▼", fontSize = 10.sp, color = AppColors.TextSecondary)
                         }
-                    )
+                    }
                     DropdownMenu(
                         expanded = typeExpanded,
                         onDismissRequest = { typeExpanded = false }
@@ -519,26 +517,39 @@ fun DataSourceWindow(
                                     } else if (jdbcUrl.isBlank()) {
                                         errorDialogMessage = "请输入 JDBC URL"
                                     } else {
-                                        if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@Button }
-                                        saving = true
-                                        try {
-                                            val pool = maxPoolSize.toIntOrNull() ?: 5
-                                            val timeout = connectionTimeout.toLongOrNull() ?: 30000L
-                                            val pwd = if (isEdit && password.isBlank()) "******" else password
-                                            val effectiveDriver = dbType.driverClass
-                                            if (isEdit) {
-                                                bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
-                                                    username.trim(), pwd, effectiveDriver, pool, timeout)
-                                            } else {
-                                                bridge.addDataSource(name.trim(), jdbcUrl.trim(), username.trim(),
-                                                    pwd, effectiveDriver, pool, timeout)
+                                            if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@Button }
+                                            if (!forceSave) {
+                                                val testMsg = bridge.testDataSourceConnection(
+                                                    jdbcUrl.trim(), username.trim(),
+                                                    if (isEdit && password.isBlank()) "******" else password,
+                                                    dbType.driverClass
+                                                )
+                                                if (testMsg != null) {
+                                                    errorDialogMessage = testMsg
+                                                    pendingForceSave = true
+                                                    return@Button
+                                                }
                                             }
-                                            onSaved(); onDismiss()
-                                        } catch (e: Exception) {
-                                            errorDialogMessage = e.message ?: "操作失败"
-                                        } finally {
-                                            saving = false
-                                        }
+                                            saving = true
+                                            try {
+                                                val pool = maxPoolSize.toIntOrNull() ?: 5
+                                                val timeout = connectionTimeout.toLongOrNull() ?: 30000L
+                                                val pwd = if (isEdit && password.isBlank()) "******" else password
+                                                val effectiveDriver = dbType.driverClass
+                                                if (isEdit) {
+                                                    bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
+                                                        username.trim(), pwd, effectiveDriver, pool, timeout)
+                                                } else {
+                                                    bridge.addDataSource(name.trim(), jdbcUrl.trim(), username.trim(),
+                                                        pwd, effectiveDriver, pool, timeout)
+                                                }
+                                                onSaved(); onDismiss()
+                                            } catch (e: Exception) {
+                                                errorDialogMessage = e.message ?: "操作失败"
+                                            } finally {
+                                                saving = false
+                                                forceSave = false
+                                            }
                                     }
                                 }
                                 dbType == DatabaseType.SQLite && dbFilePath.isBlank() -> errorDialogMessage = "请输入数据库文件路径"
@@ -575,11 +586,19 @@ fun DataSourceWindow(
 
     // Error dialog as independent window
     errorDialogMessage?.let { msg ->
+        val confirmAction = if (pendingForceSave) ({
+            forceSave = true
+            pendingForceSave = false
+            errorDialogMessage = null
+        }) else null
         ErrorDialog(
-            title = "错误",
+            title = if (pendingForceSave) "连接失败" else "错误",
             message = msg,
+            confirmText = if (pendingForceSave) "忽略并保存" else null,
+            onConfirm = confirmAction,
             onDismiss = {
                 errorDialogMessage = null
+                pendingForceSave = false
                 frameRef?.requestFocus()
             }
         )
