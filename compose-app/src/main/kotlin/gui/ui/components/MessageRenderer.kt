@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.HorizontalScrollbar
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
@@ -197,22 +198,28 @@ private fun TableNode(node: TableBlock) {
                 val dialogHScrollState = rememberScrollState()
                 val dialogVScrollState = rememberScrollState()
 
-                Column {
-                    Column(modifier = Modifier.weight(1f).horizontalScroll(dialogHScrollState)) {
-                        Column(modifier = Modifier.verticalScroll(dialogVScrollState)) {
-                            node.children.forEach { child ->
-                                when (child) {
-                                    is TableHead -> TableHeaderRow(child, colWidths)
-                                    is TableBody -> TableBodyContent(child, colWidths)
-                                    is TableSeparator -> { /* skip separator row */ }
-                                    else -> RenderMarkdownNode(child)
+                Row(Modifier.fillMaxSize()) {
+                    Column(Modifier.weight(1f)) {
+                        Column(modifier = Modifier.weight(1f).horizontalScroll(dialogHScrollState)) {
+                            Column(modifier = Modifier.verticalScroll(dialogVScrollState)) {
+                                node.children.forEach { child ->
+                                    when (child) {
+                                        is TableHead -> TableHeaderRow(child, colWidths)
+                                        is TableBody -> TableBodyContent(child, colWidths)
+                                        is TableSeparator -> { /* skip separator row */ }
+                                        else -> RenderMarkdownNode(child)
+                                    }
                                 }
                             }
                         }
+                        HorizontalScrollbar(
+                            modifier = Modifier.fillMaxWidth().height(8.dp).padding(horizontal = 2.dp),
+                            adapter = rememberScrollbarAdapter(scrollState = dialogHScrollState)
+                        )
                     }
-                    HorizontalScrollbar(
-                        modifier = Modifier.fillMaxWidth().height(8.dp).padding(horizontal = 2.dp),
-                        adapter = rememberScrollbarAdapter(scrollState = dialogHScrollState)
+                    VerticalScrollbar(
+                        modifier = Modifier.width(8.dp).padding(vertical = 2.dp),
+                        adapter = rememberScrollbarAdapter(scrollState = dialogVScrollState)
                     )
                 }
             }
