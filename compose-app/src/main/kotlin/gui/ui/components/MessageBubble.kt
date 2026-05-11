@@ -3,6 +3,8 @@ package gui.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
@@ -89,8 +91,9 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
                 resizable = true
             ) {
                 (window as? java.awt.Window)?.minimumSize = java.awt.Dimension(400, 300)
+                val rawScrollState = rememberScrollState()
                 Box(
-                    Modifier.fillMaxSize().background(AppColors.Surface).padding(16.dp)
+                    Modifier.fillMaxSize().background(AppColors.Surface).padding(16.dp).verticalScroll(rawScrollState)
                 ) {
                     SelectionContainer {
                         Text(
