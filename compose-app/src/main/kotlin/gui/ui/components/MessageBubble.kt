@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import gui.ui.model.ChatMessage
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
@@ -30,10 +31,22 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
         // Reasoning (collapsible)
         if (!isUser && message.reasoning != null) {
             var expanded by remember { mutableStateOf(false) }
-            Box(Modifier.widthIn(max = maxWidth).clip(RoundedCornerShape(8.dp))
-                .background(AppColors.CodeBackground).clickable { expanded = !expanded }.padding(8.dp)) {
+            Box(
+                Modifier.widthIn(max = maxWidth).clip(RoundedCornerShape(8.dp))
+                    .background(AppColors.CodeBackground).padding(8.dp)
+            ) {
                 Column {
-                    Text("推理", style = AppTheme.typography.caption)
+                    Row(
+                        Modifier.fillMaxWidth().clickable(enabled = !expanded) { expanded = true },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("推理", style = AppTheme.typography.caption,
+                            modifier = Modifier.weight(1f))
+                        if (expanded) {
+                            Text("▲", fontSize = 10.sp, color = AppColors.TextSecondary,
+                                modifier = Modifier.clickable { expanded = false })
+                        }
+                    }
                     if (expanded) MarkdownContent(message.reasoning)
                 }
             }
