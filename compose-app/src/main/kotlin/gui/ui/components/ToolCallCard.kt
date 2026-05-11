@@ -4,6 +4,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.*
@@ -68,8 +70,9 @@ fun ToolCallCard(toolCall: ToolCall, modifier: Modifier = Modifier) {
                             state = windowState,
                             resizable = true
                         ) {
+                            val scrollState = rememberScrollState()
                             Box(
-                                Modifier.fillMaxSize().background(AppColors.Surface).padding(16.dp)
+                                Modifier.fillMaxSize().background(AppColors.Surface).padding(16.dp).verticalScroll(scrollState)
                             ) {
                                 MarkdownContent(toolCall.result)
                             }
