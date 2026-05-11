@@ -173,6 +173,7 @@ data class DataSourceEditData(
 fun DataSourceWindow(
     bridge: Bridge?,
     editData: DataSourceEditData?,  // null = add mode
+    existingNames: Set<String> = emptySet(),
     onDismiss: () -> Unit,
     onSaved: () -> Unit
 ) {
@@ -508,6 +509,39 @@ fun DataSourceWindow(
                         onClick = {
                             when {
                                 name.isBlank() -> errorDialogMessage = "请输入名称"
+                                existingNames.contains(name.trim()) && name.trim() != editData?.oldName ->
+                                    errorDialogMessage = "名称「${name.trim()}」已存在，请使用其他名称"
+                                dbType != DatabaseType.SQLite && host.isBlank() -> errorDialogMessage = "请输入主机名"
+                                dbType != DatabaseType.SQLite -> {
+                                    val portNum = port.toIntOrNull()
+                                    if (portNum == null || portNum < 1 || portNum > 65535) {
+                                        errorDialogMessage = "端口号必须在 1-65535 之间"
+                                    } else if (jdbcUrl.isBlank()) {
+                                        errorDialogMessage = "请输入 JDBC URL"
+                                    } else {
+                                        if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@Button }
+                                        saving = true
+                                        try {
+                                            val pool = maxPoolSize.toIntOrNull() ?: 5
+                                            val timeout = connectionTimeout.toLongOrNull() ?: 30000L
+                                            val pwd = if (isEdit && password.isBlank()) "******" else password
+                                            val effectiveDriver = dbType.driverClass
+                                            if (isEdit) {
+                                                bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
+                                                    username.trim(), pwd, effectiveDriver, pool, timeout)
+                                            } else {
+                                                bridge.addDataSource(name.trim(), jdbcUrl.trim(), username.trim(),
+                                                    pwd, effectiveDriver, pool, timeout)
+                                            }
+                                            onSaved(); onDismiss()
+                                        } catch (e: Exception) {
+                                            errorDialogMessage = e.message ?: "操作失败"
+                                        } finally {
+                                            saving = false
+                                        }
+                                    }
+                                }
+                                dbType == DatabaseType.SQLite && dbFilePath.isBlank() -> errorDialogMessage = "请输入数据库文件路径"
                                 jdbcUrl.isBlank() -> errorDialogMessage = "请输入 JDBC URL"
                                 else -> {
                                     if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@Button }

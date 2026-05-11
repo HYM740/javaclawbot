@@ -41,6 +41,7 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
             emptyMap()
         }
     }
+    val existingNames = remember(datasources) { datasources.keys.toSet() }
 
     Column(
         Modifier.fillMaxSize().background(AppColors.Background).padding(40.dp, 24.dp, 24.dp, 24.dp),
@@ -188,6 +189,7 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         DataSourceWindow(
             bridge = bridge,
             editData = null,
+            existingNames = existingNames,
             onDismiss = { showAddWindow = false },
             onSaved = { showAddWindow = false; refreshKey++ }
         )
@@ -198,6 +200,7 @@ fun DatabasesPage(bridge: Bridge?, modifier: Modifier = Modifier) {
         DataSourceWindow(
             bridge = bridge,
             editData = data,
+            existingNames = existingNames,
             onDismiss = { editData = null },
             onSaved = { editData = null; refreshKey++ }
         )
