@@ -2,11 +2,13 @@ package gui.ui.pages
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -29,6 +31,7 @@ import gui.ui.LogEntry
 import gui.ui.LogWatcher
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
+import gui.ui.theme.CjkFontResolver
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -191,13 +194,21 @@ fun DevConsoleScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(vertical = 4.dp)
-        ) {
-            itemsIndexed(filteredLogs, key = { _, entry -> entry }) { _, entry ->
-                SelectionContainer { LogEntryRow(entry, searchTerm) }
+        SelectionContainer {
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(vertical = 4.dp)
+                ) {
+                    itemsIndexed(filteredLogs, key = { _, entry -> entry }) { _, entry ->
+                        LogEntryRow(entry, searchTerm)
+                    }
+                }
+                VerticalScrollbar(
+                    modifier = Modifier.width(8.dp).fillMaxHeight().padding(vertical = 2.dp),
+                    adapter = rememberScrollbarAdapter(scrollState = listState)
+                )
             }
         }
 
@@ -269,9 +280,10 @@ private fun LogEntryRow(entry: LogEntry, searchTerm: String) {
         }
     }
 
+    val logFont = CjkFontResolver.get()
     Text(
         annotatedText,
-        style = AppTheme.typography.mono,
+        style = AppTheme.typography.mono.copy(fontFamily = logFont),
         fontSize = 13.sp,
         modifier = Modifier.fillMaxWidth().background(
             when (level) {

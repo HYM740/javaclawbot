@@ -14,6 +14,7 @@
         <file>${user.home}/.javaclawbot/logs/app.log</file>
         <append>true</append>
         <encoder>
+            <charset>UTF-8</charset>
             <pattern>%d{HH:mm:ss.SSS} %-5level %logger{36} - %msg%n</pattern>
         </encoder>
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
