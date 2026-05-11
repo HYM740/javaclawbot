@@ -14,6 +14,9 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import gui.ui.model.ChatMessage
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberWindowState
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
 
@@ -54,15 +57,50 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
         }
 
         // Bubble
+        var showRawDialog by remember { mutableStateOf(false) }
         Box(Modifier.widthIn(max = maxWidth).clip(RoundedCornerShape(
             topStart = 16.dp, topEnd = 16.dp,
             bottomStart = if (isUser) 16.dp else 4.dp,
             bottomEnd = if (isUser) 4.dp else 16.dp
         )).background(bgColor).padding(12.dp)) {
-            if (isUser) SelectionContainer {
-                Text(message.content, color = textColor, style = AppTheme.typography.body)
+            Column {
+                if (isUser) SelectionContainer {
+                    Text(message.content, color = textColor, style = AppTheme.typography.body)
+                }
+                else MarkdownContent(message.content)
+                Text(
+                    "查看原文",
+                    color = textColor.copy(alpha = 0.5f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.align(Alignment.End).clickable { showRawDialog = true }
+                )
             }
-            else MarkdownContent(message.content)
+        }
+        if (showRawDialog) {
+            val rawWindowState = rememberWindowState(
+                position = WindowPosition.Aligned(Alignment.Center),
+                width = 600.dp,
+                height = 400.dp
+            )
+            Window(
+                onCloseRequest = { showRawDialog = false },
+                title = "原始消息",
+                state = rawWindowState,
+                resizable = true
+            ) {
+                (window as? java.awt.Window)?.minimumSize = java.awt.Dimension(400, 300)
+                Box(
+                    Modifier.fillMaxSize().background(AppColors.Surface).padding(16.dp)
+                ) {
+                    SelectionContainer {
+                        Text(
+                            message.content,
+                            style = AppTheme.typography.mono,
+                            color = AppColors.TextPrimary
+                        )
+                    }
+                }
+            }
         }
     }
 }
