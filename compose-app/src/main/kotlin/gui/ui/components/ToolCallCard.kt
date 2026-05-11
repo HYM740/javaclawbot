@@ -12,6 +12,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Window
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberWindowState
 import gui.ui.model.ToolCall
 import gui.ui.model.ToolStatus
 import gui.ui.theme.AppColors
@@ -41,7 +44,37 @@ fun ToolCallCard(toolCall: ToolCall, modifier: Modifier = Modifier) {
                 }
                 if (toolCall.result != null) {
                     Text("结果", style = AppTheme.typography.caption)
-                    MarkdownContent(toolCall.result)
+                    var showResultDialog by remember { mutableStateOf(false) }
+                    Column {
+                        Box(Modifier.heightIn(max = 120.dp).clip(RoundedCornerShape(0.dp))) {
+                            MarkdownContent(toolCall.result)
+                        }
+                        Text(
+                            "显示全部",
+                            color = AppColors.Accent,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable { showResultDialog = true }
+                        )
+                    }
+                    if (showResultDialog) {
+                        val windowState = rememberWindowState(
+                            position = WindowPosition.Aligned(Alignment.Center),
+                            width = 800.dp,
+                            height = 600.dp
+                        )
+                        Window(
+                            onCloseRequest = { showResultDialog = false },
+                            title = "工具调用结果",
+                            state = windowState,
+                            resizable = true
+                        ) {
+                            Box(
+                                Modifier.fillMaxSize().background(AppColors.Surface).padding(16.dp)
+                            ) {
+                                MarkdownContent(toolCall.result)
+                            }
+                        }
+                    }
                 }
             }
         }
