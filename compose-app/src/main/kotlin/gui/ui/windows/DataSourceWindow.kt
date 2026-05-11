@@ -55,7 +55,7 @@ enum class DatabaseType(
         "org.sqlite.JDBC")
 }
 
-private val URL_PREFIX_TO_TYPE = mapOf(
+private val urlPrefixToType = mapOf(
     "jdbc:mysql:" to DatabaseType.MySQL,
     "jdbc:mariadb:" to DatabaseType.MariaDB,
     "jdbc:postgresql:" to DatabaseType.PostgreSQL,
@@ -66,9 +66,9 @@ private val URL_PREFIX_TO_TYPE = mapOf(
 )
 
 private fun inferType(jdbcUrl: String): DatabaseType? =
-    URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value
+    urlPrefixToType.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value
 
-private fun buildJdbcUrl(type: DatabaseType, host: String, port: Int, dbName: String, filePath: String): String {
+private fun buildJdbcUrl(type: DatabaseType, host: String, port: Int, dbName: String, filePath: String = ""): String {
     if (type == DatabaseType.SQLite) {
         return if (filePath.isBlank()) "" else "jdbc:sqlite:${filePath}"
     }
@@ -99,15 +99,14 @@ private fun parseJdbcUrl(url: String): ParsedJdbcUrl {
     }
 
     // Match type by prefix
-    val matchedType = URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) ->
+    val matchedEntry = urlPrefixToType.entries.firstOrNull { (prefix) ->
         trimmed.startsWith(prefix)
-    }?.value
-
-    if (matchedType == null) {
+    }
+    if (matchedEntry == null) {
         return ParsedJdbcUrl(null, "", 0, trimmed, "")
     }
-
-    val prefix = URL_PREFIX_TO_TYPE.entries.first { (_, v) -> v == matchedType }.key
+    val prefix = matchedEntry.key
+    val matchedType = matchedEntry.value
     val afterPrefix = trimmed.removePrefix(prefix)
 
     var host = matchedType.defaultHost
@@ -124,7 +123,7 @@ private fun parseJdbcUrl(url: String): ParsedJdbcUrl {
                 if (hp.isNotEmpty() && hp[0].isNotBlank()) host = hp[0]
                 if (hp.size > 1) port = hp[1].toIntOrNull() ?: matchedType.defaultPort
             }
-            if (parts.size > 1) db = parts[1]
+            if (parts.size > 1) db = parts[1].substringBefore("?")
         }
         DatabaseType.Oracle -> {
             // jdbc:oracle:thin:@host:port:db
@@ -145,7 +144,7 @@ private fun parseJdbcUrl(url: String): ParsedJdbcUrl {
             }
             for (part in semicolonParts.drop(1)) {
                 if (part.startsWith("databaseName=") || part.startsWith("database=")) {
-                    db = part.substringAfter("=")
+                    db = part.substringAfter("=").substringBefore("?")
                 }
             }
         }
