@@ -7,7 +7,7 @@
 ; ============================================================
 
 #define MyAppName "NexusAI"
-#define MyAppVersion "2.3.0"
+#define MyAppVersion "2.3.1"
 #define MyAppPublisher "NexusAI"
 ; 全离线安装 — 运行时依赖从本地目录捆绑
 #define RuntimeDir "..\runtime"
