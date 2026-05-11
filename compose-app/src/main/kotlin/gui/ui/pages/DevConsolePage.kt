@@ -51,9 +51,11 @@ fun DevConsolePage(modifier: Modifier = Modifier) {
     val filteredLogs = logBuffer.filter { entry ->
         (levelFilter == "ALL" || entry.level() == levelFilter)
     }
+    var isWatching by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         logWatcher.start()
+        isWatching = true
         while (true) {
             delay(POLL_INTERVAL_MS)
             var polled = threadSafeBuffer.poll()
@@ -173,6 +175,19 @@ fun DevConsolePage(modifier: Modifier = Modifier) {
                 Spacer(Modifier.width(4.dp))
                 Text("清除", fontSize = 12.sp, color = AppColors.TextPrimary)
             }
+
+            // Export button
+            Row(
+                Modifier.clip(RoundedCornerShape(6.dp))
+                    .background(Color.White)
+                    .clickable { exportLogs(filteredLogs) }
+                    .padding(horizontal = 8.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("↧", fontSize = 12.sp)
+                Spacer(Modifier.width(4.dp))
+                Text("导出", fontSize = 12.sp, color = AppColors.TextPrimary)
+            }
         }
 
         LazyColumn(
@@ -183,6 +198,29 @@ fun DevConsolePage(modifier: Modifier = Modifier) {
             itemsIndexed(filteredLogs, key = { _, entry -> entry }) { _, entry ->
                 LogEntryRow(entry, searchTerm)
             }
+        }
+
+        // Status bar
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .background(Color(0xFFEAE8E1))
+                .padding(horizontal = 12.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Text(
+                "📄 ~/.javaclawbot/logs/app.log",
+                fontSize = 11.sp, color = Color(0xFF6B7280)
+            )
+            Text(
+                "共 ${filteredLogs.size} 行",
+                fontSize = 11.sp, color = Color(0xFF6B7280)
+            )
+            Text(
+                if (isWatching) "● 监听中" else "● 未启动",
+                fontSize = 11.sp,
+                color = if (isWatching) Color(0xFF16A34A) else Color(0xFF6B7280)
+            )
         }
     }
 }
@@ -242,4 +280,19 @@ private fun LogEntryRow(entry: LogEntry, searchTerm: String) {
             }
         ).padding(horizontal = 8.dp, vertical = 2.dp)
     )
+}
+
+private fun exportLogs(entries: List<LogEntry>) {
+    val dialog = java.awt.FileDialog(null as java.awt.Frame?, "导出日志")
+    dialog.file = "app.log"
+    dialog.mode = java.awt.FileDialog.SAVE
+    dialog.isVisible = true
+    if (dialog.file != null) {
+        val file = java.io.File(dialog.directory, dialog.file)
+        try {
+            file.writeText(entries.joinToString("\n") { it.raw() })
+        } catch (e: Exception) {
+            // 导出失败静默处理
+        }
+    }
 }
