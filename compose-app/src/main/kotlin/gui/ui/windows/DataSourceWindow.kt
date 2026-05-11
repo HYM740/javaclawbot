@@ -117,7 +117,7 @@ private fun parseJdbcUrl(url: String): ParsedJdbcUrl {
     when (matchedType) {
         DatabaseType.MySQL, DatabaseType.MariaDB, DatabaseType.PostgreSQL, DatabaseType.H2 -> {
             // jdbc:type://host:port/db
-            val rest = afterPrefix.removePrefix("//")
+            val rest = afterPrefix.substringAfter("//")
             val parts = rest.split("/", limit = 2)
             if (parts.isNotEmpty()) {
                 val hp = parts[0].split(":")
