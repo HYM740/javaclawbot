@@ -42,8 +42,10 @@ private val MARKDOWN_PARSER: Parser = Parser.builder()
 @Composable
 fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
     val document = remember(markdown) { MARKDOWN_PARSER.parse(markdown) }
-    Column(modifier = modifier) {
-        document.children.forEach { node -> RenderMarkdownNode(node) }
+    SelectionContainer {
+        Column(modifier = modifier) {
+            document.children.forEach { node -> RenderMarkdownNode(node) }
+        }
     }
 }
 
@@ -141,15 +143,13 @@ private fun TableNode(node: TableBlock) {
             .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
     ) {
         Column {
-            SelectionContainer(modifier = Modifier.horizontalScroll(tableScrollState)) {
-                Column {
-                    node.children.forEach { child ->
-                        when (child) {
-                            is TableHead -> TableHeaderRow(child, colWidths)
-                            is TableBody -> TableBodyContent(child, colWidths)
-                            is TableSeparator -> { /* skip separator row */ }
-                            else -> RenderMarkdownNode(child)
-                        }
+            Column(modifier = Modifier.horizontalScroll(tableScrollState)) {
+                node.children.forEach { child ->
+                    when (child) {
+                        is TableHead -> TableHeaderRow(child, colWidths)
+                        is TableBody -> TableBodyContent(child, colWidths)
+                        is TableSeparator -> { /* skip separator row */ }
+                        else -> RenderMarkdownNode(child)
                     }
                 }
             }
@@ -198,10 +198,8 @@ private fun TableNode(node: TableBlock) {
                 val dialogVScrollState = rememberScrollState()
 
                 Column {
-                    SelectionContainer(modifier = Modifier.weight(1f).horizontalScroll(dialogHScrollState)) {
-                        Column(
-                            modifier = Modifier.verticalScroll(dialogVScrollState)
-                        ) {
+                    Column(modifier = Modifier.weight(1f).horizontalScroll(dialogHScrollState)) {
+                        Column(modifier = Modifier.verticalScroll(dialogVScrollState)) {
                             node.children.forEach { child ->
                                 when (child) {
                                     is TableHead -> TableHeaderRow(child, colWidths)

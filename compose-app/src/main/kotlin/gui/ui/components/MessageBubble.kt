@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.ui.unit.dp
 import gui.ui.model.ChatMessage
 import gui.ui.theme.AppColors
@@ -45,7 +46,9 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
             bottomStart = if (isUser) 16.dp else 4.dp,
             bottomEnd = if (isUser) 4.dp else 16.dp
         )).background(bgColor).padding(12.dp)) {
-            if (isUser) Text(message.content, color = textColor, style = AppTheme.typography.body)
+            if (isUser) SelectionContainer {
+                Text(message.content, color = textColor, style = AppTheme.typography.body)
+            }
             else MarkdownContent(message.content)
         }
     }
