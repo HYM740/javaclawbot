@@ -68,6 +68,93 @@ private val URL_PREFIX_TO_TYPE = mapOf(
 private fun inferType(jdbcUrl: String): DatabaseType? =
     URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value
 
+private fun buildJdbcUrl(type: DatabaseType, host: String, port: Int, dbName: String, filePath: String): String {
+    if (type == DatabaseType.SQLite) {
+        return if (filePath.isBlank()) "" else "jdbc:sqlite:${filePath}"
+    }
+    val h = host.ifBlank { type.defaultHost }
+    val p = if (port <= 0) type.defaultPort else port
+    return type.urlTemplate
+        .replace("{host}", h)
+        .replace("{port}", p.toString())
+        .replace("{db}", dbName)
+}
+
+private data class ParsedJdbcUrl(
+    val type: DatabaseType?,
+    val host: String,
+    val port: Int,
+    val dbName: String,
+    val filePath: String
+)
+
+private fun parseJdbcUrl(url: String): ParsedJdbcUrl {
+    val trimmed = url.trim()
+    if (trimmed.isBlank()) return ParsedJdbcUrl(null, "", 0, "", "")
+
+    // SQLite
+    if (trimmed.startsWith("jdbc:sqlite:")) {
+        val path = trimmed.removePrefix("jdbc:sqlite:")
+        return ParsedJdbcUrl(DatabaseType.SQLite, "", 0, "", path)
+    }
+
+    // Match type by prefix
+    val matchedType = URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) ->
+        trimmed.startsWith(prefix)
+    }?.value
+
+    if (matchedType == null) {
+        return ParsedJdbcUrl(null, "", 0, trimmed, "")
+    }
+
+    val prefix = URL_PREFIX_TO_TYPE.entries.first { (_, v) -> v == matchedType }.key
+    val afterPrefix = trimmed.removePrefix(prefix)
+
+    var host = matchedType.defaultHost
+    var port = matchedType.defaultPort
+    var db = ""
+
+    when (matchedType) {
+        DatabaseType.MySQL, DatabaseType.MariaDB, DatabaseType.PostgreSQL, DatabaseType.H2 -> {
+            // jdbc:type://host:port/db
+            val rest = afterPrefix.removePrefix("//")
+            val parts = rest.split("/", limit = 2)
+            if (parts.isNotEmpty()) {
+                val hp = parts[0].split(":")
+                if (hp.isNotEmpty() && hp[0].isNotBlank()) host = hp[0]
+                if (hp.size > 1) port = hp[1].toIntOrNull() ?: matchedType.defaultPort
+            }
+            if (parts.size > 1) db = parts[1]
+        }
+        DatabaseType.Oracle -> {
+            // jdbc:oracle:thin:@host:port:db
+            val rest = afterPrefix.removePrefix("@")
+            val parts = rest.split(":")
+            if (parts.isNotEmpty() && parts[0].isNotBlank()) host = parts[0]
+            if (parts.size > 1) port = parts[1].toIntOrNull() ?: matchedType.defaultPort
+            if (parts.size > 2) db = parts.subList(2, parts.size).joinToString(":")
+        }
+        DatabaseType.SQLServer -> {
+            // jdbc:sqlserver://host:port;databaseName=db
+            val rest = afterPrefix.removePrefix("//")
+            val semicolonParts = rest.split(";")
+            if (semicolonParts.isNotEmpty()) {
+                val hp = semicolonParts[0].split(":")
+                if (hp.isNotEmpty() && hp[0].isNotBlank()) host = hp[0]
+                if (hp.size > 1) port = hp[1].toIntOrNull() ?: matchedType.defaultPort
+            }
+            for (part in semicolonParts.drop(1)) {
+                if (part.startsWith("databaseName=") || part.startsWith("database=")) {
+                    db = part.substringAfter("=")
+                }
+            }
+        }
+        DatabaseType.SQLite -> { /* handled above */ }
+    }
+
+    return ParsedJdbcUrl(matchedType, host, port, db, "")
+}
+
 data class DataSourceEditData(
     val oldName: String,
     val name: String,
