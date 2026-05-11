@@ -919,13 +919,17 @@ public class ChatPage extends VBox {
         });
     }
 
-    /** 刷新项目徽标 */
+    /** 刷新项目徽标，同步 Popover 内容 */
     public void refreshProjectBadge() {
         if (projectRegistry != null && backendBridge != null) {
             // 从 backendBridge 获取最新的 ProjectRegistry 引用
             this.projectRegistry = backendBridge.getProjectRegistry();
             this.workspacePath = backendBridge.getConfig().getWorkspacePath();
             chatInput.refreshProjectBadge(projectRegistry, workspacePath);
+            // Popover 正在显示时同步刷新列表
+            if (projectPopover != null && projectPopover.isShowing()) {
+                projectPopover.refreshList();
+            }
         }
     }
 

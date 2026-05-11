@@ -129,6 +129,14 @@ public class ProjectPopover {
         return popup.isShowing();
     }
 
+    /**
+     * 刷新项目列表（不改变位置/可见性）。
+     * 用于外部注册表变更后同步 popover 内容。
+     */
+    public void refreshList() {
+        rebuildProjectList();
+    }
+
     private void rebuildProjectList() {
         projectListBox.getChildren().clear();
 

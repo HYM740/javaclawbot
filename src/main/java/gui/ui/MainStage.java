@@ -353,6 +353,7 @@ public class MainStage {
                                     List<Map<String, Object>> history = backendBridge.getSessionHistory(sid);
                                     chatPage.loadMessages(history);
                                     chatPage.setContextUsage(backendBridge.getContextUsageRatio());
+                                    chatPage.refreshProjectBadge();
                                     return;
                                 }
                             }
@@ -362,6 +363,7 @@ public class MainStage {
                         backendBridge.newSession();
                         chatPage.clearMessages();
                         chatPage.setContextUsage(backendBridge.getContextUsageRatio());
+                        chatPage.refreshProjectBadge();
                         sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
                     });
                 });

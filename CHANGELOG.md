@@ -2,6 +2,15 @@
 
 All notable changes to NexusAI will be documented in this file.
 
+## [2.3.3] - 2026-05-11
+
+### Fixed
+- **修复绑定项目组件修改路径后 UI 不刷新的问题**：
+  - `BackendBridge.newSession()` 未清理 `projectRegistry`，导致新对话后徽标/Popover 显示旧会话的项目绑定
+  - `MainStage.pageChangeListener` 的自动恢复路径和欢迎页路径缺少 `chatPage.refreshProjectBadge()` 调用
+  - `ChatPage.refreshProjectBadge()` 未同步 Popover 内容（Popover 打开时注册表变更不会刷新列表）
+  - 新增 `ProjectPopover.refreshList()` 公开方法支持外部触发列表重建
+
 ## [2.3.2] - 2026-05-11
 
 ### Fixed

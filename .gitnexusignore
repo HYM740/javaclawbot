@@ -1,0 +1,3 @@
+# Exclude Python files causing segfault
+*.py
+target/

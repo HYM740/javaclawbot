@@ -403,6 +403,11 @@ public class BackendBridge {
         userMessageCount = 0;
         titleGenerationPending.set(false);
         titleRegenerationPending.set(false);
+
+        // 清空 ProjectRegistry，避免徽标/Popover 残留旧会话的项目绑定
+        // 实际会话创建时 ensureSession() 会用 createProjectRegistry() 重新初始化
+        this.projectRegistry = new ProjectRegistry(null);
+        notifyRegistryChanged();
     }
 
     /**
