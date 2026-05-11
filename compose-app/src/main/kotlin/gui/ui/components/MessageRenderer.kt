@@ -68,7 +68,8 @@ private fun RenderMarkdownNode(node: Node) {
         }
         is Code -> {
             val text = node.text.toString()
-            CodeBlock(text)
+            Text(text, style = AppTheme.typography.mono, color = AppColors.TextPrimary,
+                modifier = Modifier.background(AppColors.CodeBackground, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp))
         }
         is FencedCodeBlock -> {
             val text = node.contentChars.toString()

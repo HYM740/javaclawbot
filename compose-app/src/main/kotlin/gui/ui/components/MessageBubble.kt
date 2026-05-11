@@ -2,8 +2,10 @@ package gui.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
@@ -92,16 +94,22 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
             ) {
                 (window as? java.awt.Window)?.minimumSize = java.awt.Dimension(400, 300)
                 val rawScrollState = rememberScrollState()
-                Box(
-                    Modifier.fillMaxSize().background(AppColors.Surface).padding(16.dp).verticalScroll(rawScrollState)
-                ) {
-                    SelectionContainer {
-                        Text(
-                            message.content,
-                            style = AppTheme.typography.mono,
-                            color = AppColors.TextPrimary
-                        )
+                Row(Modifier.fillMaxSize()) {
+                    Box(
+                        Modifier.weight(1f).fillMaxHeight().background(AppColors.Surface).padding(16.dp).verticalScroll(rawScrollState)
+                    ) {
+                        SelectionContainer {
+                            Text(
+                                message.content,
+                                style = AppTheme.typography.mono,
+                                color = AppColors.TextPrimary
+                            )
+                        }
                     }
+                    VerticalScrollbar(
+                        modifier = Modifier.width(8.dp).padding(vertical = 2.dp),
+                        adapter = rememberScrollbarAdapter(scrollState = rawScrollState)
+                    )
                 }
             }
         }
