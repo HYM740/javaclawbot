@@ -71,6 +71,7 @@ fun McpServerWindow(
         SideEffect {
             val f = window as? java.awt.Frame
             f?.isResizable = false
+            f?.isUndecorated = false
             frameRef = f
         }
         Column(
