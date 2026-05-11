@@ -201,6 +201,35 @@ fun DataSourceWindow(
     var errorDialogMessage by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
 
+    fun performSave() {
+        if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return }
+        saving = true
+        try {
+            val pool = maxPoolSize.toIntOrNull() ?: 5
+            val timeout = connectionTimeout.toLongOrNull() ?: 30000L
+            val pwd = if (isEdit && password.isBlank()) "******" else password
+            val effectiveDriver = dbType.driverClass
+            if (isEdit) {
+                bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
+                    username.trim(), pwd, effectiveDriver, pool, timeout)
+            } else {
+                bridge.addDataSource(name.trim(), jdbcUrl.trim(), username.trim(),
+                    pwd, effectiveDriver, pool, timeout)
+            }
+            onSaved(); onDismiss()
+        } catch (e: Exception) {
+            if (forceSave) {
+                // 强制保存：忽略后端错误，关闭表单
+                onSaved(); onDismiss()
+            } else {
+                errorDialogMessage = e.message ?: "操作失败"
+            }
+        } finally {
+            saving = false
+            forceSave = false
+        }
+    }
+
     val windowState = rememberDialogState(
         width = 520.dp,
         height = 600.dp
@@ -530,52 +559,12 @@ fun DataSourceWindow(
                                                     return@Button
                                                 }
                                             }
-                                            saving = true
-                                            try {
-                                                val pool = maxPoolSize.toIntOrNull() ?: 5
-                                                val timeout = connectionTimeout.toLongOrNull() ?: 30000L
-                                                val pwd = if (isEdit && password.isBlank()) "******" else password
-                                                val effectiveDriver = dbType.driverClass
-                                                if (isEdit) {
-                                                    bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
-                                                        username.trim(), pwd, effectiveDriver, pool, timeout)
-                                                } else {
-                                                    bridge.addDataSource(name.trim(), jdbcUrl.trim(), username.trim(),
-                                                        pwd, effectiveDriver, pool, timeout)
-                                                }
-                                                onSaved(); onDismiss()
-                                            } catch (e: Exception) {
-                                                errorDialogMessage = e.message ?: "操作失败"
-                                            } finally {
-                                                saving = false
-                                                forceSave = false
-                                            }
+                                            performSave()
                                     }
                                 }
                                 dbType == DatabaseType.SQLite && dbFilePath.isBlank() -> errorDialogMessage = "请输入数据库文件路径"
                                 jdbcUrl.isBlank() -> errorDialogMessage = "请输入 JDBC URL"
-                                else -> {
-                                    if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@Button }
-                                    saving = true
-                                    try {
-                                        val pool = maxPoolSize.toIntOrNull() ?: 5
-                                        val timeout = connectionTimeout.toLongOrNull() ?: 30000L
-                                        val pwd = if (isEdit && password.isBlank()) "******" else password
-                                        val effectiveDriver = dbType.driverClass
-                                        if (isEdit) {
-                                            bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
-                                                username.trim(), pwd, effectiveDriver, pool, timeout)
-                                        } else {
-                                            bridge.addDataSource(name.trim(), jdbcUrl.trim(), username.trim(),
-                                                pwd, effectiveDriver, pool, timeout)
-                                        }
-                                        onSaved(); onDismiss()
-                                    } catch (e: Exception) {
-                                        errorDialogMessage = e.message ?: "操作失败"
-                                    } finally {
-                                        saving = false
-                                    }
-                                }
+                                else -> performSave()
                             }
                         }
                     ) { Text(confirmLabel) }
@@ -590,6 +579,7 @@ fun DataSourceWindow(
             forceSave = true
             pendingForceSave = false
             errorDialogMessage = null
+            performSave()
         }) else null
         ErrorDialog(
             title = if (pendingForceSave) "连接失败" else "错误",
