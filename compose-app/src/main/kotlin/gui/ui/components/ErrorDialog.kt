@@ -26,7 +26,9 @@ import gui.ui.theme.CjkFontResolver
 fun ErrorDialog(
     title: String,
     message: String,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    confirmText: String? = null,
+    onConfirm: (() -> Unit)? = null
 ) {
     val windowState = rememberWindowState(
         position = WindowPosition.Aligned(Alignment.Center),
@@ -65,14 +67,28 @@ fun ErrorDialog(
                 style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 11.sp),
                 color = AppColors.TextSecondary)
             Spacer(Modifier.height(16.dp))
-            Box(
-                Modifier.align(Alignment.End).clip(RoundedCornerShape(8.dp))
-                    .background(AppColors.Accent).clickable { onDismiss() }
-                    .padding(horizontal = 20.dp, vertical = 8.dp)
-            ) {
-                Text("关闭",
-                    style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp),
-                    color = Color.White)
+            Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (confirmText != null && onConfirm != null) {
+                    Box(
+                        Modifier.clip(RoundedCornerShape(8.dp))
+                            .background(AppColors.HoverBg).clickable { onDismiss() }
+                            .padding(horizontal = 20.dp, vertical = 8.dp)
+                    ) {
+                        Text("取消",
+                            style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp),
+                            color = AppColors.TextPrimary)
+                    }
+                }
+                Box(
+                    Modifier.clip(RoundedCornerShape(8.dp))
+                        .background(if (confirmText != null) AppColors.StatusWarn else AppColors.Accent)
+                        .clickable { if (onConfirm != null) onConfirm() else onDismiss() }
+                        .padding(horizontal = 20.dp, vertical = 8.dp)
+                ) {
+                    Text(confirmText ?: "关闭",
+                        style = TextStyle(fontFamily = CjkFontResolver.get(), fontSize = 14.sp),
+                        color = androidx.compose.ui.graphics.Color.White)
+                }
             }
         }
     }
