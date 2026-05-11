@@ -45,6 +45,10 @@ fun DevConsolePage(modifier: Modifier = Modifier) {
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose { logWatcher.stop() }
+    }
+
     Column(
         modifier = modifier.fillMaxSize().background(AppColors.Background)
     ) {
@@ -52,7 +56,7 @@ fun DevConsolePage(modifier: Modifier = Modifier) {
             modifier = Modifier.weight(1f).fillMaxWidth(),
             contentPadding = PaddingValues(vertical = 4.dp)
         ) {
-            itemsIndexed(logBuffer, key = { index, _ -> index }) { _, entry ->
+            itemsIndexed(logBuffer, key = { _, entry -> entry }) { _, entry ->
                 LogEntryRow(entry)
             }
         }
