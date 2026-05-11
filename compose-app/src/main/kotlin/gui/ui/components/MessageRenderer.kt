@@ -8,6 +8,7 @@ import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.rememberScrollbarAdapter
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -18,16 +19,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
+import java.awt.image.BufferedImage
+import java.io.ByteArrayOutputStream
+import java.io.File
+import javax.imageio.ImageIO
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import com.vladsch.flexmark.ast.*
 import com.vladsch.flexmark.ast.util.TextCollectingVisitor
 import com.vladsch.flexmark.ext.tables.*
@@ -53,23 +67,23 @@ fun MarkdownContent(markdown: String, modifier: Modifier = Modifier) {
 @Composable
 private fun RenderMarkdownNode(node: Node) {
     when (node) {
-        is Paragraph -> Column(modifier = Modifier.padding(vertical = 4.dp)) {
-            node.children.forEach { RenderMarkdownNode(it) }
-        }
-        is TextBase, is Text -> {
-            val text = node.chars.toString().ifEmpty { return }
-            Text(text, style = AppTheme.typography.body)
+        is Paragraph -> {
+            Text(
+                buildAnnotatedString {
+                    node.children.forEach { child -> appendInlineContent(child, this) }
+                },
+                style = AppTheme.typography.body,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
         }
         is Heading -> {
             val size = when (node.level) { 1 -> 24.sp; 2 -> 20.sp; 3 -> 17.sp; else -> 15.sp }
-            val visitor = TextCollectingVisitor()
-            val text = visitor.collectAndGetText(node)
-            Text(text, fontSize = size, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp))
-        }
-        is Code -> {
-            val text = node.text.toString()
-            Text(text, style = AppTheme.typography.mono, color = AppColors.TextPrimary,
-                modifier = Modifier.background(AppColors.CodeBackground, RoundedCornerShape(4.dp)).padding(horizontal = 4.dp))
+            Text(
+                buildAnnotatedString {
+                    node.children.forEach { child -> appendInlineContent(child, this) }
+                },
+                fontSize = size, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = 4.dp)
+            )
         }
         is FencedCodeBlock -> {
             val text = node.contentChars.toString()
@@ -77,11 +91,29 @@ private fun RenderMarkdownNode(node: Node) {
         }
         is BulletListItem -> Row(modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 2.dp)) {
             Text("• ", style = AppTheme.typography.body)
-            Column { node.children.forEach { RenderMarkdownNode(it) } }
+            if (node.children.count() == 1 && node.children.first() is Paragraph) {
+                Text(
+                    buildAnnotatedString {
+                        node.children.first().children.forEach { appendInlineContent(it, this) }
+                    },
+                    style = AppTheme.typography.body
+                )
+            } else {
+                Column { node.children.forEach { RenderMarkdownNode(it) } }
+            }
         }
         is OrderedListItem -> Row(modifier = Modifier.padding(start = 16.dp, top = 2.dp, bottom = 2.dp)) {
             Text("${node.openingMarker?.toString() ?: "1."} ", style = AppTheme.typography.body)
-            Column { node.children.forEach { RenderMarkdownNode(it) } }
+            if (node.children.count() == 1 && node.children.first() is Paragraph) {
+                Text(
+                    buildAnnotatedString {
+                        node.children.first().children.forEach { appendInlineContent(it, this) }
+                    },
+                    style = AppTheme.typography.body
+                )
+            } else {
+                Column { node.children.forEach { RenderMarkdownNode(it) } }
+            }
         }
         is BulletList -> Column(modifier = Modifier.padding(vertical = 4.dp)) {
             node.children.forEach { RenderMarkdownNode(it) }
@@ -89,16 +121,8 @@ private fun RenderMarkdownNode(node: Node) {
         is OrderedList -> Column(modifier = Modifier.padding(vertical = 4.dp)) {
             node.children.forEach { RenderMarkdownNode(it) }
         }
-        is Emphasis -> {
-            val visitor = TextCollectingVisitor()
-            val text = visitor.collectAndGetText(node)
-            Text(text, style = AppTheme.typography.body.copy(fontStyle = androidx.compose.ui.text.font.FontStyle.Italic))
-        }
-        is StrongEmphasis -> {
-            val visitor = TextCollectingVisitor()
-            val text = visitor.collectAndGetText(node)
-            Text(text, style = AppTheme.typography.body.copy(fontWeight = FontWeight.Bold))
-        }
+        is Link -> LinkNode(node)
+        is Image -> ImageNode(node)
         is BlockQuote -> Box(modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 4.dp)
@@ -113,6 +137,97 @@ private fun RenderMarkdownNode(node: Node) {
             Text(text, style = AppTheme.typography.body)
         }
     }
+}
+
+private fun appendInlineContent(node: Node, builder: AnnotatedString.Builder) {
+    when (node) {
+        is Text, is TextBase -> builder.append(node.chars.toString())
+        is Code -> {
+            val text = node.text.toString()
+            builder.withStyle(SpanStyle(
+                fontFamily = FontFamily.Monospace,
+                background = AppColors.CodeBackground,
+                color = AppColors.TextPrimary
+            )) {
+                append(text)
+            }
+        }
+        is Emphasis -> {
+            builder.withStyle(SpanStyle(fontStyle = FontStyle.Italic)) {
+                node.children.forEach { appendInlineContent(it, builder) }
+            }
+        }
+        is StrongEmphasis -> {
+            builder.withStyle(SpanStyle(fontWeight = FontWeight.Bold)) {
+                node.children.forEach { appendInlineContent(it, builder) }
+            }
+        }
+        is Link -> {
+            builder.withStyle(SpanStyle(
+                color = Color(0xFF3B82F6),
+                textDecoration = TextDecoration.Underline
+            )) {
+                node.children.forEach { appendInlineContent(it, builder) }
+            }
+        }
+        is SoftLineBreak -> builder.append(" ")
+        is HardLineBreak -> builder.append("\n")
+        else -> builder.append(node.chars.toString())
+    }
+}
+
+@Composable
+private fun LinkNode(node: Link) {
+    val url = node.getUrl().toString()
+    val text = buildAnnotatedString {
+        node.children.forEach { appendInlineContent(it, this) }
+    }
+    val fullText = buildAnnotatedString {
+        withStyle(SpanStyle(color = Color(0xFF3B82F6), textDecoration = TextDecoration.Underline)) {
+            append(text)
+        }
+    }
+    Text(
+        fullText,
+        modifier = Modifier.padding(vertical = 4.dp).clickable {
+            try {
+                java.awt.Desktop.getDesktop().browse(java.net.URI(url))
+            } catch (_: Exception) {}
+        }
+    )
+}
+
+@Composable
+private fun ImageNode(node: Image) {
+    val url = node.getUrl().toString()
+    val altText = TextCollectingVisitor().collectAndGetText(node)
+    var bitmap by remember(url) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
+
+    LaunchedEffect(url) {
+        bitmap = try {
+            val file = File(url)
+            if (file.exists()) {
+                val awtImage = ImageIO.read(file) ?: null
+                awtImage?.let { awtToComposeBitmap(it) }
+            } else null
+        } catch (_: Exception) { null }
+    }
+
+    val mod = Modifier.padding(vertical = 4.dp)
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = altText,
+            modifier = mod.fillMaxWidth().heightIn(max = 400.dp),
+            contentScale = ContentScale.Fit
+        )
+    } else {
+        Text(altText.ifEmpty { url }, style = AppTheme.typography.body, modifier = mod, color = AppColors.TextSecondary)
+    }
+}
+
+private fun awtToComposeBitmap(awtImage: BufferedImage): androidx.compose.ui.graphics.ImageBitmap {
+    return awtImage.toComposeImageBitmap()
 }
 
 @Composable
