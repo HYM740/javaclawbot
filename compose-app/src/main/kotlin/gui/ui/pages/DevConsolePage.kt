@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.DropdownMenu
@@ -196,7 +197,7 @@ fun DevConsolePage(modifier: Modifier = Modifier) {
             contentPadding = PaddingValues(vertical = 4.dp)
         ) {
             itemsIndexed(filteredLogs, key = { _, entry -> entry }) { _, entry ->
-                LogEntryRow(entry, searchTerm)
+                SelectionContainer { LogEntryRow(entry, searchTerm) }
             }
         }
 
