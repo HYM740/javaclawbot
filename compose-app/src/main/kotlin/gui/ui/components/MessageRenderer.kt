@@ -2,39 +2,38 @@ package gui.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPosition
-import androidx.compose.foundation.layout.width
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.rememberWindowState
-import androidx.compose.runtime.*
 import com.vladsch.flexmark.ast.*
 import com.vladsch.flexmark.ast.util.TextCollectingVisitor
+import com.vladsch.flexmark.ext.tables.*
 import com.vladsch.flexmark.parser.Parser
 import com.vladsch.flexmark.util.ast.Node
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
-import com.vladsch.flexmark.ext.tables.*
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.border
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 
 private val MARKDOWN_PARSER: Parser = Parser.builder()
     .extensions(listOf(TablesExtension.create()))
@@ -124,7 +123,7 @@ private fun CodeBlock(text: String) {
             .clickable { clipboard.setText(AnnotatedString(text)) }
             .padding(12.dp)
     ) {
-        Text(text, style = AppTheme.typography.mono, color = AppColors.TextPrimary)
+        Text(text, style = AppTheme.typography.mono, color = AppColors.TextPrimary, softWrap = true)
     }
 }
 
@@ -132,6 +131,7 @@ private fun CodeBlock(text: String) {
 private fun TableNode(node: TableBlock) {
     var showDialog by remember { mutableStateOf(false) }
     val colWidths = remember(node) { calculateColumnWidths(node) }
+    val tableScrollState = rememberScrollState()
 
     Box(
         modifier = Modifier
@@ -140,23 +140,23 @@ private fun TableNode(node: TableBlock) {
             .clip(RoundedCornerShape(8.dp))
             .border(1.dp, AppColors.Border, RoundedCornerShape(8.dp))
     ) {
-        SelectionContainer {
-            Column {
-                Row(
-                    modifier = Modifier.horizontalScroll(rememberScrollState())
-                ) {
-                    Column {
-                        node.children.forEach { child ->
-                            when (child) {
-                                is TableHead -> TableHeaderRow(child, colWidths)
-                                is TableBody -> TableBodyContent(child, colWidths)
-                                is TableSeparator -> { /* skip separator row */ }
-                                else -> RenderMarkdownNode(child)
-                            }
+        Column {
+            SelectionContainer(modifier = Modifier.horizontalScroll(tableScrollState)) {
+                Column {
+                    node.children.forEach { child ->
+                        when (child) {
+                            is TableHead -> TableHeaderRow(child, colWidths)
+                            is TableBody -> TableBodyContent(child, colWidths)
+                            is TableSeparator -> { /* skip separator row */ }
+                            else -> RenderMarkdownNode(child)
                         }
                     }
                 }
             }
+            HorizontalScrollbar(
+                modifier = Modifier.fillMaxWidth().height(8.dp).padding(horizontal = 2.dp),
+                adapter = rememberScrollbarAdapter(scrollState = tableScrollState)
+            )
         }
 
         // Top-right expand button
@@ -194,28 +194,28 @@ private fun TableNode(node: TableBlock) {
                     .background(AppColors.Surface)
                     .padding(16.dp)
             ) {
-                // Table content (scrollable)
-                SelectionContainer {
-                    Column {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .horizontalScroll(rememberScrollState())
+                val dialogHScrollState = rememberScrollState()
+                val dialogVScrollState = rememberScrollState()
+
+                Column {
+                    SelectionContainer(modifier = Modifier.weight(1f).horizontalScroll(dialogHScrollState)) {
+                        Column(
+                            modifier = Modifier.verticalScroll(dialogVScrollState)
                         ) {
-                            Column(
-                                modifier = Modifier.verticalScroll(rememberScrollState())
-                            ) {
-                                node.children.forEach { child ->
-                                    when (child) {
-                                        is TableHead -> TableHeaderRow(child, colWidths)
-                                        is TableBody -> TableBodyContent(child, colWidths)
-                                        is TableSeparator -> { /* skip separator row */ }
-                                        else -> RenderMarkdownNode(child)
-                                    }
+                            node.children.forEach { child ->
+                                when (child) {
+                                    is TableHead -> TableHeaderRow(child, colWidths)
+                                    is TableBody -> TableBodyContent(child, colWidths)
+                                    is TableSeparator -> { /* skip separator row */ }
+                                    else -> RenderMarkdownNode(child)
                                 }
                             }
                         }
                     }
+                    HorizontalScrollbar(
+                        modifier = Modifier.fillMaxWidth().height(8.dp).padding(horizontal = 2.dp),
+                        adapter = rememberScrollbarAdapter(scrollState = dialogHScrollState)
+                    )
                 }
             }
         }
