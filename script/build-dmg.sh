@@ -39,7 +39,7 @@ TEMP_INPUT_DIR="${TEMP_INPUT_DIR:-${PROJECT_DIR}/target/temp_package}"
 # Java runtime options
 JAVA_OPTS=(
     "-Dfile.encoding=UTF-8"
-    "-Dprism.order=es2"
+    "-Dprism.order=sw"
     "-Xmx512m"
 )
 
