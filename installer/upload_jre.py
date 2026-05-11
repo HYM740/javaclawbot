@@ -10,9 +10,10 @@ s3 = boto3.client('s3',
     region_name='us-east-1'
 )
 
-path = r'D:\code\ai_project\javaclawbot\installer\runtime\jdk-17-jre-x64.zip'
-key = 'releases/2.3.0/windows/jdk-17-jre-x64.zip'
+# 完整 JDK 17（非 jlink 裁剪版），用于安装器离线部署
+path = r'D:\code\ai_project\javaclawbot\installer\runtime\jdk-17-x64.zip'
+key = 'releases/2.3.0/windows/jdk-17-x64.zip'
 size_mb = os.path.getsize(path) / (1024*1024)
-print(f'Uploading jdk-17-jre-x64.zip ({size_mb:.1f} MB) -> s3://agent/{key} ...')
+print(f'Uploading jdk-17-x64.zip (full JDK, {size_mb:.1f} MB) -> s3://agent/{key} ...')
 s3.upload_file(path, 'agent', key)
 print('Done!')

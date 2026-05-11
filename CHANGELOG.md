@@ -2,6 +2,11 @@
 
 All notable changes to NexusAI will be documented in this file.
 
+## [2.3.1] - 2026-05-11
+
+### Fixed
+- **修复右下角项目 Popover 编辑主项目路径不持久化的问题**：`ProjectRegistry.save()` 在 Windows + JDK 17 下使用 `ATOMIC_MOVE` + `REPLACE_EXISTING` 时，因目标文件已存在抛出 `AtomicMoveNotSupportedException`，导致内存已更新但文件未写入。修复：先尝试 `ATOMIC_MOVE`，失败时降级为普通 `REPLACE_EXISTING`（与 `SessionManager.atomicReplace()` 一致）
+
 ## [2.3.0] - 2026-05-10
 
 ### Added

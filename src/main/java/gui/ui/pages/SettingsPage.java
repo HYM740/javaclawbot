@@ -1,11 +1,15 @@
 package gui.ui.pages;
 
+import gui.ui.update.UpdateInfo;
+import gui.ui.update.UpdateService;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.layout.HBox;
@@ -19,6 +23,7 @@ import javafx.stage.StageStyle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +33,14 @@ public class SettingsPage extends VBox {
     private VBox settingsContainer;
     private gui.ui.BackendBridge backendBridge;
     private Consumer<String> onModelChanged;
+
+    // ---- 自动更新相关 ----
+    private final UpdateService updateService = new UpdateService();
+    private VBox updateContentBox;
+    private enum UpdateState { IDLE, CHECKING, UP_TO_DATE, UPDATE_AVAILABLE, DOWNLOADING, READY, ERROR }
+    private UpdateState updateState = UpdateState.IDLE;
+    private UpdateInfo pendingUpdate;
+    private String updateErrorMessage;
 
     public SettingsPage() {
         setSpacing(0);
@@ -212,6 +225,8 @@ public class SettingsPage extends VBox {
         settingsContainer.getChildren().add(createGatewaySection());
         settingsContainer.getChildren().add(createSeparator());
         settingsContainer.getChildren().add(buildChannelsSection());
+        settingsContainer.getChildren().add(createSeparator());
+        settingsContainer.getChildren().add(buildUpdateSection());
     }
 
     /** ComboBox 条目类型：模型名 或 提供商分隔标题 */
@@ -786,5 +801,177 @@ public class SettingsPage extends VBox {
         scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
         dialog.setScene(scene);
         dialog.showAndWait();
+    }
+
+    /**
+     * 构建"更新"设置区域，支持多种状态：空闲/检查中/已最新/有更新/下载中/就绪/错误。
+     */
+    private VBox buildUpdateSection() {
+        VBox section = new VBox(16);
+
+        Label sectionTitle = new Label("更新");
+        sectionTitle.getStyleClass().add("section-title");
+
+        // 当前版本行
+        HBox versionRow = new HBox(16);
+        versionRow.setAlignment(Pos.CENTER_LEFT);
+        Label versionLabel = new Label("当前版本: " + UpdateService.getCurrentVersion());
+        versionLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.6);");
+
+        // 动态内容区域
+        updateContentBox = new VBox(12);
+        buildUpdateContent();
+
+        section.getChildren().addAll(sectionTitle, versionRow, updateContentBox);
+        return section;
+    }
+
+    private void buildUpdateContent() {
+        updateContentBox.getChildren().clear();
+
+        switch (updateState) {
+            case IDLE -> {
+                Button checkBtn = new Button("检查更新");
+                checkBtn.getStyleClass().add("pill-button");
+                checkBtn.setPrefHeight(36);
+                checkBtn.setOnAction(e -> startCheckForUpdates());
+                updateContentBox.getChildren().add(checkBtn);
+            }
+            case CHECKING -> {
+                Label checkingLabel = new Label("正在检查更新...");
+                checkingLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.5);");
+                updateContentBox.getChildren().add(checkingLabel);
+            }
+            case UP_TO_DATE -> {
+                Label upToDateLabel = new Label("已是最新版本");
+                upToDateLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #22c55e; -fx-font-weight: 500;");
+                Button recheckBtn = new Button("重新检查");
+                recheckBtn.getStyleClass().add("pill-button");
+                recheckBtn.setPrefHeight(32);
+                recheckBtn.setOnAction(e -> startCheckForUpdates());
+                updateContentBox.getChildren().addAll(upToDateLabel, recheckBtn);
+            }
+            case UPDATE_AVAILABLE -> {
+                if (pendingUpdate == null) break;
+                Label newVerLabel = new Label("新版本 v" + pendingUpdate.getVersion() + " 可用");
+                newVerLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 600; -fx-text-fill: #3b82f6;");
+
+                String sizeStr = pendingUpdate.getSize() > 0
+                    ? String.format("%.1f MB", pendingUpdate.getSize() / 1_048_576.0) : "未知";
+                Label sizeLabel = new Label("大小: " + sizeStr);
+                sizeLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0,0,0,0.5);");
+
+                VBox infoBox = new VBox(6);
+                infoBox.getChildren().addAll(newVerLabel, sizeLabel);
+
+                if (pendingUpdate.getChangelog() != null
+                    && !pendingUpdate.getChangelog().isBlank()) {
+                    Label changelogLabel = new Label("更新内容: " + pendingUpdate.getChangelog());
+                    changelogLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0,0,0,0.6);");
+                    changelogLabel.setWrapText(true);
+                    infoBox.getChildren().add(changelogLabel);
+                }
+
+                Button updateBtn = new Button("立即更新");
+                updateBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white;"
+                    + " -fx-background-radius: 12px; -fx-padding: 8px 24px;"
+                    + " -fx-font-size: 14px; -fx-font-weight: 600; -fx-cursor: hand;");
+                updateBtn.setPrefHeight(36);
+                updateBtn.setOnAction(e -> startDownload());
+                updateContentBox.getChildren().addAll(infoBox, updateBtn);
+            }
+            case DOWNLOADING -> {
+                Label dlLabel = new Label("正在下载更新...");
+                dlLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.5);");
+
+                ProgressBar progressBar = new ProgressBar(0);
+                progressBar.setPrefWidth(300);
+                progressBar.setStyle("-fx-accent: #3b82f6;");
+                // 用 userData 保存引用以便更新
+                dlLabel.setUserData(progressBar);
+
+                updateContentBox.getChildren().addAll(dlLabel, progressBar);
+            }
+            case READY -> {
+                Label readyLabel = new Label("更新已就绪，请重启应用以使用新版本"
+                    + (pendingUpdate != null ? " v" + pendingUpdate.getVersion() : ""));
+                readyLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #22c55e; -fx-font-weight: 500;");
+                readyLabel.setWrapText(true);
+                updateContentBox.getChildren().add(readyLabel);
+            }
+            case ERROR -> {
+                Label errorLabel = new Label("检查失败: " +
+                    (updateErrorMessage != null ? updateErrorMessage : "未知错误"));
+                errorLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #ef4444;");
+                errorLabel.setWrapText(true);
+                Button retryBtn = new Button("重试");
+                retryBtn.getStyleClass().add("pill-button");
+                retryBtn.setPrefHeight(32);
+                retryBtn.setOnAction(e -> startCheckForUpdates());
+                updateContentBox.getChildren().addAll(errorLabel, retryBtn);
+            }
+        }
+    }
+
+    private void startCheckForUpdates() {
+        updateState = UpdateState.CHECKING;
+        Platform.runLater(this::refresh);
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                UpdateInfo info = updateService.checkForUpdates();
+                Platform.runLater(() -> {
+                    if (info != null) {
+                        pendingUpdate = info;
+                        updateState = UpdateState.UPDATE_AVAILABLE;
+                    } else {
+                        updateState = UpdateState.UP_TO_DATE;
+                    }
+                    refresh();
+                });
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    updateErrorMessage = e.getMessage();
+                    updateState = UpdateState.ERROR;
+                    refresh();
+                });
+            }
+        });
+    }
+
+    private void startDownload() {
+        if (pendingUpdate == null) return;
+        updateState = UpdateState.DOWNLOADING;
+        Platform.runLater(this::refresh);
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                // 进度回调
+                Consumer<Double> progressCb = p -> Platform.runLater(() -> {
+                    if (updateState == UpdateState.DOWNLOADING
+                        && !updateContentBox.getChildren().isEmpty()) {
+                        // 找到 ProgressBar 并更新
+                        for (javafx.scene.Node node : updateContentBox.getChildren()) {
+                            if (node instanceof ProgressBar pb) {
+                                pb.setProgress(p);
+                                break;
+                            }
+                        }
+                    }
+                });
+
+                updateService.downloadAndReplace(pendingUpdate, progressCb);
+                Platform.runLater(() -> {
+                    updateState = UpdateState.READY;
+                    refresh();
+                });
+            } catch (Exception e) {
+                Platform.runLater(() -> {
+                    updateErrorMessage = "下载失败: " + e.getMessage();
+                    updateState = UpdateState.ERROR;
+                    refresh();
+                });
+            }
+        });
     }
 }

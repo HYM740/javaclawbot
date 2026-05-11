@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexusAi 操作配置指南</title>
+<style>
+  :root {
+    --ink: #1a1a24;
+    --paper: #fafaf9;
+    --surface: #ffffff;
+    --muted: #6b7280;
+    --faint: #9ca3af;
+    --accent: #3b5998;
+    --accent-soft: #eef1f7;
+    --border: rgba(0, 0, 0, 0.06);
+    --border-visible: rgba(0, 0, 0, 0.1);
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md: 0 4px 16px rgba(0,0,0,0.05);
+    --code-bg: #f4f4f5;
+    --code-dark: #1e293b;
+    --code-dark-text: #e2e8f0;
+    --green-text: #166534;
+    --green-bg: #dcfce7;
+    --red-text: #991b1b;
+    --red-bg: #fee2e2;
+    --yellow-text: #854d0e;
+    --yellow-bg: #fef9c3;
+    --blue-text: #1e40af;
+    --blue-bg: #dbeafe;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    line-height: 1.8;
+    font-size: 15px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* ===== 顶栏 ===== */
+  .topbar {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(250, 250, 249, 0.78);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    border-bottom: 0.5px solid var(--border);
+    padding: 14px 36px;
+    display: flex; align-items: center; justify-content: space-between;
+    transition: box-shadow 0.3s ease, background 0.3s ease;
+  }
+  .topbar.scrolled {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    background: rgba(250, 250, 249, 0.94);
+  }
+  .topbar .logo {
+    font-size: 18px; font-weight: 650; color: var(--ink);
+    letter-spacing: -0.3px;
+  }
+  .topbar .logo span { color: var(--accent); }
+  .topbar nav { display: flex; gap: 4px; }
+  .topbar nav a {
+    padding: 6px 14px; border-radius: 6px; color: var(--muted);
+    text-decoration: none; font-size: 13.5px; font-weight: 450;
+    transition: all 0.15s ease;
+  }
+  .topbar nav a:hover { color: var(--accent); background: var(--accent-soft); }
+
+  /* ===== Hero ===== */
+  .hero {
+    text-align: center; padding: 80px 32px 64px;
+    background: linear-gradient(165deg, #eef2f9 0%, #f5f0f0 45%, #fafaf9 100%);
+    border-bottom: 0.5px solid var(--border);
+  }
+  .hero h1 {
+    font-size: 44px; font-weight: 700; letter-spacing: -1.2px;
+    color: var(--ink); margin-bottom: 16px;
+  }
+  .hero h1 span { color: var(--accent); }
+  .hero p {
+    font-size: 17px; color: var(--muted); max-width: 520px;
+    margin: 0 auto 20px; line-height: 1.7;
+  }
+  .hero .version {
+    display: inline-block; background: var(--ink); color: #fff;
+    padding: 4px 18px; border-radius: 20px; font-size: 12.5px;
+    font-weight: 550; letter-spacing: 0.3px;
+  }
+
+  /* ===== 主体布局 ===== */
+  .layout {
+    display: flex; max-width: 1200px; margin: 0 auto;
+    padding: 40px 24px 80px; gap: 48px;
+  }
+
+  /* ===== 侧边目录 ===== */
+  .toc {
+    width: 220px; flex-shrink: 0;
+    position: sticky; top: 88px; align-self: flex-start;
+    max-height: calc(100vh - 120px); overflow-y: auto;
+  }
+  .toc-label {
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    color: var(--faint); letter-spacing: 1.2px; margin-bottom: 16px;
+  }
+  .toc a {
+    display: block; padding: 6px 12px; border-radius: 5px;
+    color: var(--muted); text-decoration: none; font-size: 13.5px;
+    border-left: 2px solid transparent; transition: all 0.15s ease;
+    margin-bottom: 1px;
+  }
+  .toc a:hover, .toc a.active {
+    color: var(--accent); background: var(--accent-soft);
+    border-left-color: var(--accent);
+  }
+  .toc .sub a { padding-left: 28px; font-size: 12.5px; color: var(--faint); }
+
+  /* ===== 主内容 ===== */
+  .content { flex: 1; min-width: 0; }
+
+  section { margin-bottom: 64px; }
+  section h2 {
+    font-size: 26px; font-weight: 680; margin-bottom: 10px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--border);
+    letter-spacing: -0.3px;
+  }
+  section h3 {
+    font-size: 19px; font-weight: 620; margin: 32px 0 14px;
+    color: #2d3748; letter-spacing: -0.2px;
+  }
+  section h4 {
+    font-size: 15.5px; font-weight: 600; margin: 22px 0 10px;
+    color: var(--muted);
+  }
+
+  p { margin-bottom: 14px; color: #374151; }
+
+  ul, ol { margin: 10px 0 18px 22px; }
+  li { margin-bottom: 5px; color: #374151; }
+
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* ===== 卡片 ===== */
+  .card {
+    background: var(--surface); border: 0.5px solid var(--border);
+    border-radius: 10px; padding: 24px 28px; margin: 18px 0;
+    box-shadow: var(--shadow-sm);
+  }
+  .card-title {
+    font-weight: 650; font-size: 15.5px; margin-bottom: 10px;
+    color: var(--ink);
+  }
+
+  /* ===== 截图 ===== */
+  .screenshot {
+    margin: 22px 0; border: 0.5px solid var(--border-visible);
+    border-radius: 10px; overflow: hidden;
+    box-shadow: var(--shadow-md); background: var(--surface);
+  }
+  .screenshot img { width: 100%; display: block; }
+  .screenshot .caption {
+    padding: 10px 18px; background: #fafaf9; font-size: 13px;
+    color: var(--muted); border-top: 0.5px solid var(--border);
+    text-align: center; font-weight: 400;
+  }
+
+  /* ===== 配置表格 ===== */
+  .config-table {
+    width: 100%; border-collapse: collapse; margin: 18px 0;
+    font-size: 14px; border-radius: 8px; overflow: hidden;
+    border: 0.5px solid var(--border);
+  }
+  .config-table th, .config-table td {
+    padding: 10px 15px; text-align: left;
+  }
+  .config-table th {
+    background: #f8f8f7; font-weight: 600; font-size: 12.5px;
+    color: var(--muted); white-space: nowrap; letter-spacing: 0.2px;
+  }
+  .config-table td {
+    border-top: 0.5px solid var(--border); color: #374151;
+  }
+  .config-table td:first-child {
+    font-weight: 550; white-space: nowrap;
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace; font-size: 13px;
+  }
+  .config-table tr:hover td { background: #fafaf8; }
+
+  /* ===== 标签 ===== */
+  .tag {
+    display: inline-block; padding: 2px 10px; border-radius: 10px;
+    font-size: 11.5px; font-weight: 580; letter-spacing: 0.1px;
+  }
+  .tag-green { background: var(--green-bg); color: var(--green-text); }
+  .tag-red { background: var(--red-bg); color: var(--red-text); }
+  .tag-yellow { background: var(--yellow-bg); color: var(--yellow-text); }
+  .tag-blue { background: var(--blue-bg); color: var(--blue-text); }
+
+  /* ===== 安全流程 ===== */
+  .security-flow {
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 22px 0;
+    justify-content: center; align-items: center;
+  }
+  .flow-step {
+    flex: 0 0 155px; text-align: center; padding: 18px 12px;
+    background: var(--surface); border: 0.5px solid var(--border);
+    border-radius: 10px; box-shadow: var(--shadow-sm);
+  }
+  .flow-step .step-num {
+    width: 30px; height: 30px; border-radius: 50%;
+    color: #fff; font-weight: 650; font-size: 13px;
+    line-height: 30px; margin: 0 auto 8px;
+    background: var(--accent);
+  }
+  .flow-step .step-num.warn { background: #ca8a04; }
+  .flow-step .step-num.danger { background: #dc2626; }
+  .flow-step .step-num.ok { background: #16a34a; }
+  .flow-arrow {
+    font-size: 20px; color: var(--faint); display: flex;
+    align-items: center;
+  }
+  .flow-step strong { font-size: 13px; display: block; margin-bottom: 2px; }
+
+  /* ===== Callout ===== */
+  .callout {
+    padding: 16px 20px; border-radius: 9px; margin: 18px 0;
+    font-size: 14px; border-left-width: 3px; border-left-style: solid;
+  }
+  .callout-info {
+    background: #f5f8fd; border-left-color: var(--accent); color: #2d4373;
+  }
+  .callout-warn {
+    background: #fffbeb; border-left-color: #ca8a04; color: #6d4c00;
+  }
+  .callout-danger {
+    background: #fef5f5; border-left-color: #dc2626; color: #7f1d1d;
+  }
+  .callout-tip {
+    background: #f4fbf7; border-left-color: #16a34a; color: #14532d;
+  }
+  .callout strong { font-weight: 650; }
+
+  /* ===== 代码 ===== */
+  code {
+    font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+    background: var(--code-bg); padding: 1.5px 6px; border-radius: 4px;
+    font-size: 13px; color: #2d3748; font-weight: 450;
+  }
+  pre {
+    background: var(--code-dark); color: var(--code-dark-text);
+    padding: 18px 22px; border-radius: 9px; overflow-x: auto;
+    font-size: 13px; margin: 14px 0; line-height: 1.7;
+    box-shadow: var(--shadow-sm);
+  }
+  pre code { background: transparent; padding: 0; color: inherit; }
+
+  /* ===== 页脚 ===== */
+  footer {
+    text-align: center; padding: 36px; color: var(--faint);
+    font-size: 13px; border-top: 0.5px solid var(--border);
+    background: var(--paper);
+  }
+  footer p { color: var(--faint); }
+
+  /* ===== 响应式 ===== */
+  @media (max-width: 860px) {
+    .layout { flex-direction: column; padding: 32px 18px 60px; }
+    .toc {
+      width: 100%; position: static; max-height: none;
+      display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 32px;
+    }
+    .toc a { border-left: none; font-size: 12.5px; }
+    .toc .sub { display: none; }
+    .hero h1 { font-size: 32px; }
+    .topbar { padding: 12px 18px; }
+    .topbar nav { display: none; }
+    .security-flow { flex-direction: column; }
+    .flow-arrow { transform: rotate(90deg); }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar" id="topbar">
+  <div class="logo"><span>NexusAi</span> 配置指南</div>
+  <nav>
+    <a href="#overview">概览</a>
+    <a href="#models">模型</a>
+    <a href="#agents">Agent</a>
+    <a href="#skills">技能</a>
+    <a href="#mcp">MCP</a>
+    <a href="#database">数据库</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <h1><span>NexusAi</span> 操作配置指南</h1>
+  <p>面向非开发者的图文操作手册，涵盖模型、Agent、技能、MCP、渠道、数据库、定时任务等全部配置模块</p>
+  <span class="version">Version 2.3.0</span>
+</section>
+
+<div class="layout">
+
+<aside class="toc">
+  <div class="toc-label">Contents</div>
+  <a href="#overview">系统概览</a>
+  <a href="#chat">对话页面</a>
+  <a href="#models">模型配置</a>
+  <a href="#agents">Agent 配置</a>
+  <a href="#skills">技能管理</a>
+  <div class="sub"><a href="#skills-concept">什么是技能</a></div>
+  <div class="sub"><a href="#skills-market">技能市场</a></div>
+  <div class="sub"><a href="#skills-config">技能管理页面</a></div>
+  <a href="#mcp">MCP 管理</a>
+  <div class="sub"><a href="#mcp-concept">什么是 MCP</a></div>
+  <div class="sub"><a href="#mcp-config">MCP 管理页面</a></div>
+  <a href="#channels">渠道配置</a>
+  <a href="#database">数据库与安全</a>
+  <div class="sub"><a href="#db-config">配置页面</a></div>
+  <div class="sub"><a href="#db-security">安全围栏</a></div>
+  <div class="sub"><a href="#db-flow">执行流程</a></div>
+  <a href="#cron">定时任务</a>
+  <a href="#appendix">附录</a>
+</aside>
+
+<main class="content">
+
+<!-- 系统概览 -->
+<section id="overview">
+  <h2>系统概览</h2>
+  <p>NexusAi 是一款 <strong>AI Agent 管理平台</strong>，帮助您配置和管理 AI 助手。系统采用左侧导航 + 右侧内容区的经典布局。</p>
+
+  <div class="card">
+    <div class="card-title">左侧导航栏 — 功能一览</div>
+    <table class="config-table">
+      <tr><th>模块</th><th>功能说明</th></tr>
+      <tr><td>Chat</td><td>与 AI 进行对话交互的主界面</td></tr>
+      <tr><td>Models</td><td>配置 AI 大模型（API Key、参数等）</td></tr>
+      <tr><td>Agents</td><td>配置 Agent 的行为参数（模型选择、迭代次数等）</td></tr>
+      <tr><td>Channels</td><td>连接外部通讯平台（飞书、Telegram、Discord 等）</td></tr>
+      <tr><td>Skills</td><td>管理 Agent 的技能插件（扩展能力）</td></tr>
+      <tr><td>MCP</td><td>管理 Model Context Protocol 服务器（外部工具连接）</td></tr>
+      <tr><td>Databases</td><td>配置数据库连接，让 AI 能查询数据库</td></tr>
+      <tr><td>Cron Tasks</td><td>设置周期性自动执行的任务</td></tr>
+    </table>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>Settings</strong> 用于全局配置，<strong>Dev Console</strong> 供开发者调试使用。日常使用只需关注上述 8 个模块。
+  </div>
+</section>
+
+<!-- 对话页面 -->
+<section id="chat">
+  <h2>对话页面</h2>
+  <p>对话页面是您与 AI 交互的主界面。点击左侧 <strong>「+ 新对话」</strong> 按钮即可开启一个新的 AI 会话。</p>
+
+  <div class="screenshot">
+    <img src="images/对话页面.png" alt="对话页面截图" loading="lazy">
+    <div class="caption">对话主界面：上方为输出区，下方为输入区，底部状态栏显示模型状态和上下文使用率</div>
+  </div>
+
+  <h3>页面结构</h3>
+  <table class="config-table">
+    <tr><th>区域</th><th>位置</th><th>说明</th></tr>
+    <tr><td>输出窗口</td><td>中央大块区域</td><td>显示 AI 的回复内容，支持 Markdown 渲染、代码高亮</td></tr>
+    <tr><td>输入框</td><td>底部白色区域</td><td>输入您的问题或指令，支持 <code>ALT+&#8593;/&#8595;</code> 导航历史消息</td></tr>
+    <tr><td>附件按钮</td><td>输入框左侧</td><td>上传文件（图片、文档等）供 AI 分析</td></tr>
+    <tr><td>@ 提及</td><td>输入框左侧</td><td>提及特定 Agent 或上下文</td></tr>
+    <tr><td>状态栏</td><td>输入框下方</td><td>显示当前模型名称和上下文使用率进度条</td></tr>
+  </table>
+
+  <div class="callout callout-tip">
+    <strong>状态栏说明：</strong>进度条颜色代表上下文窗口使用率&mdash;&mdash;<span style="color:#16a34a">绿色 &le;60%</span>（充足）、<span style="color:#ca8a04">黄色 &le;85%</span>（注意）、<span style="color:#dc2626">红色 &gt;85%</span>（即将超限，系统会自动压缩）。
+  </div>
+</section>
+
+<!-- 模型配置 -->
+<section id="models">
+  <h2>模型配置</h2>
+  <p>模型配置是让 AI 拥有智能的核心步骤。您需要在这里填入大模型服务商的 API 凭证和参数。</p>
+
+  <div class="screenshot">
+    <img src="images/模型修改页面.png" alt="模型配置页面截图" loading="lazy">
+    <div class="caption">模型编辑弹窗：配置 API 提供商、密钥、端点地址和模型参数</div>
+  </div>
+
+  <h3>配置项详解</h3>
+  <table class="config-table">
+    <tr><th>配置项</th><th>类型</th><th>必填</th><th>说明</th></tr>
+    <tr><td>Provider</td><td>下拉选择</td><td>是</td><td>选择 AI 服务商，如 DeepSeek、阿里云 DashScope 等</td></tr>
+    <tr><td>API Key</td><td>密码输入</td><td>是</td><td>服务商提供的 API 密钥，用于身份认证。前往对应平台获取</td></tr>
+    <tr><td>API Base URL</td><td>文本输入</td><td>否</td><td>API 端点地址，默认为官方地址。使用代理时需修改</td></tr>
+    <tr><td>模型列表</td><td>下拉选择</td><td>是</td><td>选择具体模型类型，如 CHAT（对话模型）</td></tr>
+    <tr><td>Max Tokens</td><td>数值</td><td>否</td><td>单次最大输出长度，默认 65536</td></tr>
+    <tr><td>Temperature</td><td>数值</td><td>否</td><td>随机性参数，0~1。越低越确定，越高越有创意。推荐 0.3</td></tr>
+    <tr><td>Top P</td><td>数值</td><td>否</td><td>核采样参数，控制输出多样性</td></tr>
+    <tr><td>上下文窗口</td><td>数值</td><td>否</td><td>模型能同时处理的最大 Token 数，默认 512000</td></tr>
+    <tr><td>思考配置</td><td>JSON</td><td>否</td><td>高级参数，如开启推理模式、设置推理强度</td></tr>
+  </table>
+
+  <div class="callout callout-warn">
+    <strong>API Key 是敏感信息，请妥善保管。</strong>不同服务商的 Key 获取方式不同：DeepSeek 在 <code>platform.deepseek.com</code>，阿里云在 <code>dashscope.aliyun.com</code>。
+  </div>
+
+  <h3>如何获取 API Key</h3>
+  <ol>
+    <li>访问对应服务商官网（如 <a href="https://platform.deepseek.com" target="_blank">platform.deepseek.com</a>）</li>
+    <li>注册/登录账号，进入「API Keys」或「密钥管理」页面</li>
+    <li>点击「创建新的 API Key」，复制生成的密钥</li>
+    <li>回到 NexusAi，粘贴到 API Key 输入框中</li>
+    <li>点击「保存」按钮</li>
+  </ol>
+</section>
+
+<!-- Agent 配置 -->
+<section id="agents">
+  <h2>Agent 配置</h2>
+  <p>Agent 是 AI 助手的行为配置。您可以在这里设置 Agent 使用哪个模型、最多迭代多少次、是否开启调试模式等。</p>
+
+  <div class="screenshot">
+    <img src="images/Agent配置页面.png" alt="Agent配置页面截图" loading="lazy">
+    <div class="caption">Agent 配置弹窗：设置主模型、快速模型、迭代次数等核心参数</div>
+  </div>
+
+  <h3>配置项详解</h3>
+  <table class="config-table">
+    <tr><th>配置项</th><th>类型</th><th>说明</th></tr>
+    <tr><td>主模型名称</td><td>文本</td><td>Agent 使用的核心 AI 模型。推荐使用强大的模型处理复杂任务</td></tr>
+    <tr><td>快速模型</td><td>文本</td><td>用于标题生成等轻量级任务。为空则回退到主模型。使用快速模型可节省成本</td></tr>
+    <tr><td>模型系列</td><td>文本</td><td>模型所属系列/供应商标识，如 deepseek</td></tr>
+    <tr><td>最大迭代次数</td><td>数值</td><td>Agent 循环思考/自我修正的最大次数，防止无限循环。推荐 500</td></tr>
+    <tr><td>Token 限制</td><td>数值</td><td>单次任务的 Token 上限。默认 200</td></tr>
+    <tr><td>超时时间</td><td>数值</td><td>工具执行超时时间（秒）。默认 120</td></tr>
+    <tr><td>上下文轮数</td><td>数值</td><td>保留的对话轮数。默认 4</td></tr>
+    <tr><td>开发模式</td><td>复选框</td><td>开启后输出详细日志，方便排查问题。日常使用建议关闭</td></tr>
+    <tr><td>自动压缩上下文</td><td>复选框</td><td>对话过长时自动总结历史，节省 Token。<strong>强烈建议开启</strong></td></tr>
+  </table>
+
+  <div class="callout callout-tip">
+    <strong>最佳实践：</strong>主模型用 <code>deepseek-v4-pro</code> 处理复杂任务，快速模型用 <code>deepseek-v4-flash</code> 处理简单任务，兼顾质量与成本。
+  </div>
+</section>
+
+<!-- 技能管理 -->
+<section id="skills">
+  <h2>技能管理</h2>
+
+  <h3 id="skills-concept">什么是技能？</h3>
+  <p><strong>技能（Skill）</strong> 是 AI Agent 的能力插件。就像手机需要安装 App 才能拍照、导航一样，AI Agent 需要安装技能才能执行专业任务。</p>
+
+  <div class="card">
+    <div class="card-title">一个技能包含什么？</div>
+    <pre><code>my-skill/
+├── SKILL.md          &larr; 核心：告诉 AI 这个技能怎么用（必需）
+├── scripts/          &larr; 可执行脚本（可选）
+├── references/       &larr; 参考文档（可选）
+└── assets/           &larr; 图片等静态资源（可选）</code></pre>
+  </div>
+
+  <p><strong>技能的本质：</strong>一段写给 AI 看的说明书（Markdown 格式），告诉 AI 在什么情况下使用、如何使用某个特定能力。</p>
+
+  <div class="callout callout-info">
+    <strong>技能 &ne; 程序代码。</strong>技能是 <strong>提示词 + 规则 + 参考文档</strong> 的组合，它教会 AI "如何思考"某个专业领域的问题。
+  </div>
+
+  <h4>常见技能举例</h4>
+  <table class="config-table">
+    <tr><th>技能名称</th><th>功能</th></tr>
+    <tr><td>canvas-design</td><td>创建 PNG/PDF 视觉艺术设计</td></tr>
+    <tr><td>find-skills</td><td>帮助发现和安装新的 Agent 技能</td></tr>
+    <tr><td>md-to-docx</td><td>将 Markdown 文档转换为 Word (.docx) 格式</td></tr>
+    <tr><td>gitnexus-cli</td><td>运行 GitNexus 代码分析命令</td></tr>
+    <tr><td>gitnexus-debugging</td><td>辅助调试 bug、追踪错误</td></tr>
+    <tr><td>gitnexus-exploring</td><td>帮助理解代码架构和调用关系</td></tr>
+    <tr><td>gitnexus-impact</td><td>评估代码变更的影响范围</td></tr>
+    <tr><td>omm-scan / omm-view</td><td>扫描和查看项目架构图</td></tr>
+  </table>
+
+  <h3 id="skills-market">从哪里获取技能？</h3>
+  <table class="config-table">
+    <tr><th>平台</th><th>网址</th><th>技能数量</th><th>特点</th></tr>
+    <tr><td><strong>ClawHub</strong></td><td><a href="https://clawhub.ai" target="_blank">clawhub.ai</a></td><td>21,000+</td><td>OpenClaw 官方技能市场，中文友好，有中国镜像</td></tr>
+    <tr><td><strong>Skills.sh</strong></td><td><a href="https://skills.sh" target="_blank">skills.sh</a></td><td>110,000+</td><td>全球最大，支持 27+ AI 平台，每小时新增 550+ 技能</td></tr>
+    <tr><td><strong>GitHub</strong></td><td><a href="https://github.com/topics/clawbot-skill" target="_blank">github.com</a></td><td>海量</td><td>开源技能仓库，可直接查看源码</td></tr>
+    <tr><td><strong>魔搭社区</strong></td><td><a href="https://modelscope.cn" target="_blank">modelscope.cn</a></td><td>丰富</td><td>阿里达摩院出品，中文 AI 模型和技能社区</td></tr>
+  </table>
+
+  <h3 id="skills-config">技能管理页面</h3>
+
+  <div class="screenshot">
+    <img src="images/技能管理页面.png" alt="技能管理页面截图" loading="lazy">
+    <div class="caption">技能管理页面：卡片式展示，每张卡片代表一个技能，右上角开关控制启用/禁用</div>
+  </div>
+
+  <h4>操作说明</h4>
+  <table class="config-table">
+    <tr><th>操作</th><th>方式</th><th>说明</th></tr>
+    <tr><td><strong>启用技能</strong></td><td>点击卡片右上角开关</td><td>开关激活后 Agent 可在对话中调用该技能</td></tr>
+    <tr><td><strong>禁用技能</strong></td><td>再次点击开关</td><td>禁用后 Agent 不会调用该技能</td></tr>
+    <tr><td><strong>更多操作</strong></td><td>点击 ··· 按钮</td><td>可删除、更新或查看技能详情</td></tr>
+  </table>
+
+  <div class="callout callout-warn">
+    <strong>仅从可信来源安装技能。</strong>技能本质是让 AI 执行的指令，恶意技能可能诱导 AI 执行危险操作。安装前请查看技能的 SKILL.md 内容。
+  </div>
+</section>
+
+<!-- MCP 管理 -->
+<section id="mcp">
+  <h2>MCP 管理</h2>
+
+  <h3 id="mcp-concept">什么是 MCP？</h3>
+  <p><strong>MCP（Model Context Protocol，模型上下文协议）</strong> 是一种标准协议，让 AI 模型能够安全地连接外部工具和数据源。</p>
+
+  <div class="card">
+    <div class="card-title">MCP 的核心作用</div>
+    <p>MCP 就像 AI 的 "USB 接口"。通过 MCP，AI 可以：</p>
+    <ul>
+      <li><strong>联网搜索</strong> &mdash; 获取最新信息</li>
+      <li><strong>图像理解</strong> &mdash; 分析图片内容</li>
+      <li><strong>文件操作</strong> &mdash; 读写本地文件</li>
+      <li><strong>数据库查询</strong> &mdash; 访问数据库</li>
+      <li><strong>代码分析</strong> &mdash; 理解项目代码结构（如 GitNexus）</li>
+    </ul>
+  </div>
+
+  <div class="callout callout-info">
+    <strong>技能 vs MCP：</strong>技能是给 AI 的说明书（知识），MCP 是给 AI 的工具接口（能力）。两者配合使用效果最佳&mdash;&mdash;技能告诉 AI "怎么做"，MCP 让 AI "能做到"。
+  </div>
+
+  <h3 id="mcp-config">MCP 管理页面</h3>
+
+  <div class="screenshot">
+    <img src="images/mcp管理页面.png" alt="MCP管理页面截图" loading="lazy">
+    <div class="caption">MCP 管理页面：以卡片形式展示每个 MCP 服务器及其提供的工具</div>
+  </div>
+
+  <h4>页面元素说明</h4>
+  <table class="config-table">
+    <tr><th>元素</th><th>说明</th></tr>
+    <tr><td><strong>服务器卡片</strong></td><td>每个 MCP 服务器一张卡片，显示名称、启动命令、状态</td></tr>
+    <tr><td><span class="tag tag-green">已连接</span></td><td>绿色标签，表示服务运行正常</td></tr>
+    <tr><td><span class="tag tag-red">已禁用</span></td><td>红色标签，表示服务未运行</td></tr>
+    <tr><td><strong>可用工具</strong></td><td>卡片下方列出该服务器提供的具体工具（如 web_search、understand_image）</td></tr>
+    <tr><td><strong>编辑</strong></td><td>修改服务器名称或启动命令</td></tr>
+    <tr><td><strong>重新加载</strong></td><td>重启该 MCP 服务</td></tr>
+    <tr><td><strong>删除</strong></td><td>移除该服务器配置</td></tr>
+  </table>
+
+  <h4>当前已集成的 MCP 服务器</h4>
+  <table class="config-table">
+    <tr><th>服务器</th><th>启动命令</th><th>提供的工具</th></tr>
+    <tr><td><strong>gitnexus</strong></td><td><code>cmd /c npx -y gitnexus@latest mcp</code></td><td>代码智能分析（上下文查询、影响分析、重命名等）</td></tr>
+    <tr><td><strong>MiniMax</strong></td><td><code>uvx minimax-coding-plan-mcp -y</code></td><td>网页搜索 (web_search)、图像理解 (understand_image)</td></tr>
+  </table>
+
+  <h4>如何添加新的 MCP 服务器？</h4>
+  <ol>
+    <li>点击页面底部 <strong>「+ 添加 MCP 服务器」</strong> 按钮</li>
+    <li>输入<strong>服务器名称</strong>（自定义标识）</li>
+    <li>输入<strong>启动命令</strong>（如 <code>uvx some-mcp-server</code> 或 <code>npx some-package</code>）</li>
+    <li>点击保存，系统会自动启动该 MCP 服务</li>
+    <li>状态变为 <span class="tag tag-green">已连接</span> 即表示可用</li>
+  </ol>
+
+  <div class="callout callout-tip">
+    <strong>MCP 服务器需要本地已安装对应的运行时</strong>（Node.js / Python）。如果启动失败，请先检查前置依赖。
+  </div>
+</section>
+
+<!-- 渠道配置 -->
+<section id="channels">
+  <h2>渠道配置</h2>
+  <p>渠道配置让 NexusAi 能够连接到外部通讯平台，使 AI 能通过飞书、Telegram、Discord 等渠道与用户交互。</p>
+
+  <div class="screenshot">
+    <img src="images/渠道配置页面.png" alt="渠道配置页面截图" loading="lazy">
+    <div class="caption">渠道管理页面：以飞书为例，展示连接飞书开放平台所需的配置参数</div>
+  </div>
+
+  <h3>支持的渠道</h3>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;">
+    <span class="tag tag-blue">Telegram</span>
+    <span class="tag tag-blue">飞书</span>
+    <span class="tag tag-blue">Email</span>
+    <span class="tag tag-blue">Discord</span>
+    <span class="tag tag-blue">DingTalk</span>
+    <span class="tag tag-blue">Slack</span>
+    <span class="tag tag-blue">Matrix</span>
+  </div>
+
+  <h3>飞书配置项（以飞书为例）</h3>
+  <table class="config-table">
+    <tr><th>配置项</th><th>必填</th><th>说明</th></tr>
+    <tr><td>启用</td><td>-</td><td>勾选后激活该渠道连接</td></tr>
+    <tr><td>App ID</td><td>是</td><td>飞书开放平台应用的唯一标识符</td></tr>
+    <tr><td>App Secret</td><td>是</td><td>飞书应用的密钥，与 App ID 配合认证</td></tr>
+    <tr><td>Encrypt Key</td><td>否</td><td>消息加密密钥（如果飞书后台开启了加密）</td></tr>
+    <tr><td>Verification Token</td><td>否</td><td>回调校验令牌，用于验证请求来源</td></tr>
+  </table>
+
+  <div class="callout callout-info">
+    <strong>通用流程：</strong>每个渠道的配置思路类似&mdash;&mdash;先去对应平台的开发者后台创建应用，获取 App ID 和 Secret，然后填入 NexusAi 即可。
+  </div>
+</section>
+
+<!-- 数据库配置与安全围栏 -->
+<section id="database">
+  <h2>数据库配置与安全围栏</h2>
+  <p>数据库模块让 AI 能够<strong>查询和操作数据库</strong>，这是企业级应用的核心能力。同时系统内置了<strong>多层安全围栏</strong>，确保 AI 不会执行危险操作。</p>
+
+  <h3 id="db-config">数据库配置页面</h3>
+
+  <div class="screenshot">
+    <img src="images/数据库配置页面.png" alt="数据库配置页面截图" loading="lazy">
+    <div class="caption">添加数据源弹窗：配置 JDBC URL、用户名密码、连接池参数</div>
+  </div>
+
+  <h4>配置项详解</h4>
+  <table class="config-table">
+    <tr><th>配置项</th><th>说明</th><th>示例值</th></tr>
+    <tr><td>数据源名称</td><td>自定义名称，用于在对话中引用</td><td>生产数据库、analytics</td></tr>
+    <tr><td>JDBC URL</td><td>数据库连接字符串</td><td><code>jdbc:mysql://localhost:3306/mydb</code></td></tr>
+    <tr><td>用户名</td><td>数据库登录账号</td><td>root</td></tr>
+    <tr><td>密码</td><td>数据库登录密码</td><td>********</td></tr>
+    <tr><td>最大连接数</td><td>连接池最大连接数，默认 10</td><td>10</td></tr>
+    <tr><td>连接超时(ms)</td><td>连接超时时间（毫秒），默认 30000</td><td>30000</td></tr>
+  </table>
+
+  <h4>支持的数据库类型</h4>
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;">
+    <span class="tag tag-green">MySQL</span>
+    <span class="tag tag-green">PostgreSQL</span>
+    <span class="tag tag-green">MariaDB</span>
+    <span class="tag tag-green">Oracle</span>
+    <span class="tag tag-green">SQL Server</span>
+    <span class="tag tag-green">H2</span>
+    <span class="tag tag-green">SQLite</span>
+  </div>
+
+  <h4>操作步骤</h4>
+  <ol>
+    <li>填写数据源名称、JDBC URL、用户名、密码</li>
+    <li>点击 <strong>「测试连接」</strong> 按钮验证配置是否正确</li>
+    <li>测试通过后点击 <strong>「添加」</strong> 保存配置</li>
+  </ol>
+
+  <h3 id="db-security">安全围栏详解</h3>
+  <p>NexusAi 的数据库工具内置了<strong>四层安全围栏</strong>，全面防护 AI 误操作或恶意 SQL：</p>
+
+  <div class="security-flow">
+    <div class="flow-step">
+      <div class="step-num">1</div>
+      <strong>SQL 注入防护</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px;">参数化查询<br>杜绝拼接注入</p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step">
+      <div class="step-num warn">2</div>
+      <strong>操作分类检测</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px;">自动识别只读/破坏性<br>8 类危险操作标记</p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step">
+      <div class="step-num danger">3</div>
+      <strong>用户确认拦截</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px;">破坏性 SQL 必须<br>人工确认</p>
+    </div>
+    <div class="flow-arrow">&rarr;</div>
+    <div class="flow-step">
+      <div class="step-num ok">4</div>
+      <strong>事务保护</strong>
+      <p style="font-size:12px;color:var(--muted);margin-top:4px;">自动提交/回滚<br>支持手动事务控制</p>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:22px;">
+    <div class="card-title">安全围栏详细说明</div>
+
+    <h4>第一层：SQL 注入防护</h4>
+    <p>所有 SQL 参数均通过 <strong>命名参数 &rarr; 位置参数</strong> 转换后使用 <code>PreparedStatement</code> 执行，从根本上杜绝 SQL 注入。参数以 <code>:name</code> 格式传入，系统自动转换为 <code>?</code> 占位符并安全绑定。</p>
+
+    <h4>第二层：操作分类检测</h4>
+    <p>系统自动将 SQL 分为两类：</p>
+    <table class="config-table">
+      <tr><th>类型</th><th>操作</th><th>处理方式</th></tr>
+      <tr><td><span class="tag tag-green">只读</span></td><td>SELECT、SHOW、DESCRIBE、EXPLAIN、WITH</td><td>直接执行</td></tr>
+      <tr><td><span class="tag tag-red">破坏性</span></td><td>INSERT、UPDATE、DELETE、TRUNCATE、DROP、ALTER、CREATE、REPLACE</td><td>必须用户确认</td></tr>
+    </table>
+
+    <h4>第三层：用户确认拦截</h4>
+    <p>当 AI 尝试执行破坏性 SQL 时，系统会<strong>立即暂停</strong>，弹出确认对话框：</p>
+    <ul>
+      <li>显示完整的 SQL 语句供审核</li>
+      <li>用户选择"允许"或"拒绝"</li>
+      <li><strong>拒绝后 SQL 不会被执行</strong></li>
+      <li>只有用户明确选择"允许"后才继续执行</li>
+    </ul>
+
+    <h4>第四层：事务保护</h4>
+    <ul>
+      <li>非事务模式下，更新操作执行后<strong>自动提交</strong></li>
+      <li>支持手动事务：<code>BEGIN</code> &rarr; 执行多条 SQL &rarr; <code>COMMIT</code> 或 <code>ROLLBACK</code></li>
+      <li>发生异常时自动回滚，保护数据一致性</li>
+    </ul>
+  </div>
+
+  <div class="callout callout-danger">
+    <strong>重要提醒：</strong>
+    <ul>
+      <li>数据库密码以明文存储在配置文件中，请确保服务器安全</li>
+      <li>生产环境建议使用<strong>只读账号</strong>连接数据库</li>
+      <li>定期审计 AI 的数据库操作日志</li>
+      <li>敏感表可配置数据库权限进行限制</li>
+    </ul>
+  </div>
+
+  <h3 id="db-flow">数据库工具完整执行流程</h3>
+
+  <div class="card">
+    <div class="card-title">AI 发起数据库操作时的完整流转</div>
+    <pre><code>用户: "帮我查一下今天的订单数量"
+
+1. AI 理解意图，生成 SQL
+   SELECT COUNT(*) FROM orders WHERE date = today
+
+2. 系统调用 db 工具
+   &rarr; 检测 SQL 类型：SELECT = 只读 &check;
+
+3. 参数化处理 (NamedParameterProcessor)
+   :today &rarr; ? &rarr; PreparedStatement.setObject()
+   【SQL 注入防护】
+
+4. 执行查询 + 自动分页
+   &rarr; 从连接池获取连接 (HikariCP)
+   &rarr; 执行 COUNT 获取总数
+   &rarr; 分页返回结果 (默认每页 500 行)
+
+5. 返回结果给 AI
+   { rows: [...], _page: 1, _totalRows: 42 }
+
+AI 用自然语言回复用户
+
+&mdash;&mdash;&mdash;
+
+如果是破坏性 SQL（如 DELETE）：
+
+2'. 系统调用 db 工具
+    &rarr; 检测 SQL 类型：DELETE = 破坏性 &cross;
+    &rarr; 返回 AskUserQuestion 格式
+    &rarr; AgentLoop 检测 awaiting_response
+    &rarr; 暂停 AI，弹出确认框
+
+    ├── 用户点「拒绝」&rarr; SQL 不执行，返回错误
+    └── 用户点「允许」&rarr; 继续执行 &rarr; 参数化 &rarr; 执行 &rarr; 提交</code></pre>
+  </div>
+
+  <h4>关键源码安全点</h4>
+  <table class="config-table">
+    <tr><th>安全机制</th><th>实现文件</th><th>代码行</th></tr>
+    <tr><td>破坏性SQL检测</td><td><code>DbTool.java</code></td><td><code>isDestructive()</code> 方法，检查 8 类危险操作</td></tr>
+    <tr><td>用户确认拦截</td><td><code>DbTool.java</code></td><td><code>execute(Map, ToolUseContext)</code> 覆写方法</td></tr>
+    <tr><td>SQL注入防护</td><td><code>NamedParameterProcessor.java</code></td><td>命名参数 &rarr; 位置参数 + PreparedStatement</td></tr>
+    <tr><td>连接池管理</td><td><code>DataSourceManager.java</code></td><td>HikariCP 连接池，支持外部驱动加载</td></tr>
+    <tr><td>事务控制</td><td><code>DbTool.java</code></td><td><code>handleTransaction()</code> 方法</td></tr>
+  </table>
+</section>
+
+<!-- 定时任务 -->
+<section id="cron">
+  <h2>定时任务</h2>
+  <p>定时任务让您能够<strong>按计划自动触发 AI 执行任务</strong>，比如每天自动生成报告、定时检查系统状态等。</p>
+
+  <div class="screenshot">
+    <img src="images/定时任务页面.png" alt="定时任务页面截图" loading="lazy">
+    <div class="caption">新建定时任务弹窗：设置任务名称、执行消息、时间规则</div>
+  </div>
+
+  <h3>配置项详解</h3>
+  <table class="config-table">
+    <tr><th>配置项</th><th>说明</th><th>示例</th></tr>
+    <tr><td>任务名称</td><td>自定义名称，方便识别</td><td>每日工作总结</td></tr>
+    <tr><td>执行消息</td><td>触发时发送给 AI 的指令</td><td>总结今天的对话并生成日报</td></tr>
+    <tr><td>定时类型</td><td>cron 表达式 / 固定间隔 / 特定时间</td><td>cron 表达式</td></tr>
+    <tr><td>时间规则</td><td>根据定时类型填写</td><td><code>0 9 * * *</code> (每天9点)</td></tr>
+    <tr><td>执行环境</td><td>运行载体</td><td>cli</td></tr>
+  </table>
+
+  <h4>Cron 表达式速查</h4>
+  <table class="config-table">
+    <tr><th>表达式</th><th>含义</th></tr>
+    <tr><td><code>0 9 * * *</code></td><td>每天上午 9:00</td></tr>
+    <tr><td><code>0 */2 * * *</code></td><td>每 2 小时</td></tr>
+    <tr><td><code>0 9 * * 1-5</code></td><td>工作日（周一至周五）上午 9:00</td></tr>
+    <tr><td><code>3600</code></td><td>每 3600 秒（每小时）运行一次</td></tr>
+    <tr><td><code>17:00</code></td><td>每天下午 5:00</td></tr>
+  </table>
+
+  <div class="callout callout-tip">
+    <strong>实用场景：</strong>设置每天早上 9:00 发送"总结昨天的对话要点"，实现自动化的日报生成。
+  </div>
+</section>
+
+<!-- 附录 -->
+<section id="appendix">
+  <h2>附录：技能市场资源汇总</h2>
+
+  <h3>ClawHub &mdash; OpenClaw 官方技能市场</h3>
+  <table class="config-table">
+    <tr><th>项目</th><th>详情</th></tr>
+    <tr><td>官网</td><td><a href="https://clawhub.ai" target="_blank">https://clawhub.ai</a></td></tr>
+    <tr><td>技能数量</td><td>21,000+（截至 2026.05）</td></tr>
+    <tr><td>定位</td><td>OpenClaw 的 "App Store"，技能注册与分发平台</td></tr>
+    <tr><td>安装方式</td><td><code>clawhub install &lt;skill-name&gt;</code></td></tr>
+    <tr><td>特点</td><td>中文友好、有中国镜像站、完全免费、社区评分</td></tr>
+    <tr><td>CLI 安装</td><td><code>npm i -g clawhub</code></td></tr>
+  </table>
+
+  <h3>Skills.sh &mdash; 全球最大 AI 技能生态</h3>
+  <table class="config-table">
+    <tr><th>项目</th><th>详情</th></tr>
+    <tr><td>官网</td><td><a href="https://skills.sh" target="_blank">https://skills.sh</a></td></tr>
+    <tr><td>技能数量</td><td>110,000+（截至 2026.05），每小时新增 550+</td></tr>
+    <tr><td>定位</td><td>全球最大的开源 AI 技能生态平台</td></tr>
+    <tr><td>安装方式</td><td><code>npx skills add &lt;owner/repo&gt;</code></td></tr>
+    <tr><td>支持平台</td><td>Claude Code、Cursor、Copilot、Windsurf、Zed 等 27+ 平台</td></tr>
+  </table>
+
+  <h3>GitHub 开源技能仓库</h3>
+  <table class="config-table">
+    <tr><th>仓库</th><th>说明</th></tr>
+    <tr><td><a href="https://github.com/openclaw/skills" target="_blank">openclaw/skills</a></td><td>OpenClaw 官方技能仓库</td></tr>
+    <tr><td><a href="https://github.com/topics/clawbot-skill" target="_blank">github.com/topics/clawbot-skill</a></td><td>GitHub 上标记为 clawbot-skill 主题的仓库</td></tr>
+    <tr><td>搜索技巧</td><td>在 GitHub 搜索 <code>SKILL.md</code> 文件可发现大量社区技能</td></tr>
+  </table>
+
+  <h3>魔搭社区 (ModelScope)</h3>
+  <table class="config-table">
+    <tr><th>项目</th><th>详情</th></tr>
+    <tr><td>官网</td><td><a href="https://modelscope.cn" target="_blank">https://modelscope.cn</a></td></tr>
+    <tr><td>定位</td><td>阿里达摩院出品的 AI 模型和技能社区</td></tr>
+    <tr><td>特点</td><td>中文资源丰富、国内访问快、模型+技能一站式</td></tr>
+    <tr><td>适用场景</td><td>寻找中文优化的 AI 技能和模型</td></tr>
+  </table>
+
+  <h3>技能安全选型原则</h3>
+  <div class="callout callout-warn">
+    <strong>安全第一：</strong>安装技能前请遵循以下原则：
+    <ol>
+      <li><strong>来源可信：</strong>优先选择官方市场（ClawHub、Skills.sh）和知名开发者</li>
+      <li><strong>查看源码：</strong>安装前阅读 SKILL.md，确认技能不会执行危险操作</li>
+      <li><strong>最小权限：</strong>只安装当前需要的技能，不用的及时禁用</li>
+      <li><strong>警惕恶意技能：</strong>曾有恶意技能诱导 AI 进行加密货币挖矿，务必从可信源安装</li>
+    </ol>
+  </div>
+
+</section>
+
+</main>
+</div>
+
+<footer>
+  <p>NexusAi 操作配置指南 &middot; Version 2.3.0 &middot; 最后更新 2026-05-10</p>
+  <p style="margin-top:6px;">本文档面向非开发者，力求图文并茂、通俗易懂</p>
+</footer>
+
+<script>
+  // 顶栏滚动阴影
+  const topbar = document.getElementById('topbar');
+  window.addEventListener('scroll', () => {
+    topbar.classList.toggle('scrolled', window.scrollY > 10);
+  });
+
+  // 目录高亮
+  const sections = document.querySelectorAll('section[id]');
+  const tocLinks = document.querySelectorAll('.toc a[href^="#"]');
+
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        tocLinks.forEach(link => {
+          link.classList.toggle('active', link.getAttribute('href') === '#' + entry.target.id);
+        });
+      }
+    });
+  }, { rootMargin: '-80px 0px -70% 0px' });
+
+  sections.forEach(s => observer.observe(s));
+</script>
+
+</body>
+</html>

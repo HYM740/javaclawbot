@@ -38,11 +38,11 @@ if command -v java &>/dev/null && java --version 2>&1 | grep -q "17"; then
   echo "  JDK 17 ✅ 已安装 (跳过)"
 else
   echo "  下载 JDK 17 运行时..."
-  curl -L --progress-bar -o "/tmp/jdk-17-jre-${PLATFORM}.tar.gz" \
-    "${BASE_URL}/${PLATFORM}/jdk-17-jre-${PLATFORM}.tar.gz"
+  curl -L --progress-bar -o "/tmp/jdk-17-${PLATFORM}.tar.gz" \
+    "${BASE_URL}/${PLATFORM}/jdk-17-${PLATFORM}.tar.gz"
   echo "  解压 JDK 17..."
-  tar -xzf "/tmp/jdk-17-jre-${PLATFORM}.tar.gz" -C "$INSTALL_DIR/"
-  rm -f "/tmp/jdk-17-jre-${PLATFORM}.tar.gz"
+  tar -xzf "/tmp/jdk-17-${PLATFORM}.tar.gz" -C "$INSTALL_DIR/"
+  rm -f "/tmp/jdk-17-${PLATFORM}.tar.gz"
   echo "  JDK 17 ✅ 安装完成"
 fi
 echo ""
@@ -109,9 +109,10 @@ if ! grep -q "# NexusAI Runtime PATH" "$SHELL_RC" 2>/dev/null; then
   cat >> "$SHELL_RC" << 'EOF'
 
 # NexusAI Runtime PATH
-export PATH="$HOME/Applications/NexusAI/java17/bin:$HOME/Applications/NexusAI/git/bin:$HOME/Applications/NexusAI/python/bin:$HOME/Applications/NexusAI/node/bin:$PATH"
+export NEXUS_HOME="$HOME/Applications/NexusAI"
+export PATH="$NEXUS_HOME/java17/bin:$NEXUS_HOME/git/bin:$NEXUS_HOME/python/bin:$NEXUS_HOME/node/bin:$PATH"
 EOF
-  echo "  已追加 PATH 到 ${SHELL_RC}"
+  echo "  已追加 PATH 和 NEXUS_HOME 到 ${SHELL_RC}"
 else
   echo "  PATH 已配置 (跳过)"
 fi

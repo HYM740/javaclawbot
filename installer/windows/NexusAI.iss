@@ -1,13 +1,17 @@
 ; ============================================================
-; NexusAI Windows Inno Setup 一键安装脚本 (全离线 + 内置下载)
+; NexusAI Windows 全离线一键安装脚本
 ; 生成: NexusAI-Setup-2.3.0.exe
-; 使用 Inno Setup 6.1+ 内置 DownloadTemporaryFile，零外部依赖
+; 所有运行时依赖预打包于安装器内，零网络下载，零外部依赖
+; 构建前需: 1) mvn package 生成 NexusAI.jar
+;           2) runtime/ 目录准备好 JDK/Git/Python/Node.js 离线包
 ; ============================================================
 
 #define MyAppName "NexusAI"
 #define MyAppVersion "2.3.0"
 #define MyAppPublisher "NexusAI"
-#define RuntimeBaseURL "http://101.68.93.109:9102/agent/releases/2.3.0/windows"
+; 全离线安装 — 运行时依赖从本地目录捆绑
+#define RuntimeDir "..\runtime"
+#define JarSource "..\..\target\NexusAI.jar"
 
 [Setup]
 AppId={{B3C4D5E6-F7A8-9012-BCDE-F12345678901}
@@ -17,6 +21,9 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
+; 确保显示目录选择页面（默认已启用，显式声明防止意外覆盖）
+DisableDirPage=no
+DirExistsWarning=yes
 OutputDir=..\..\dist
 OutputBaseFilename=NexusAI-Setup-{#MyAppVersion}
 Compression=lzma2
@@ -42,7 +49,25 @@ Name: "python"; Description: "Python Script Engine"; Types: full custom
 Name: "nodejs"; Description: "Node.js JavaScript Engine"; Types: full custom
 
 [Files]
+; 图标
 Source: "app-icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+
+; 主程序 JAR — 从本地 target/ 目录捆绑（需先 mvn package）
+Source: "{#JarSource}"; DestDir: "{app}"; Flags: ignoreversion
+
+; 运行时依赖 — 从本地 runtime/ 目录捆绑至临时目录，安装后解压
+; 已安装组件自动跳过（Check: not IsXxxInstalled），节省安装包体积和安装时间
+Source: "{#RuntimeDir}\jdk-17-x64.zip"; DestDir: "{tmp}"; \
+  Components: jdk; Check: not IsJdk17Installed; Flags: deleteafterinstall
+
+Source: "{#RuntimeDir}\PortableGit-2.47.0-64-bit.7z.exe"; DestDir: "{tmp}"; \
+  Components: git; Check: not IsGitInstalled; Flags: deleteafterinstall
+
+Source: "{#RuntimeDir}\python-3.12.4-embed-amd64.zip"; DestDir: "{tmp}"; \
+  Components: python; Check: not IsPythonInstalled; Flags: deleteafterinstall
+
+Source: "{#RuntimeDir}\node-v22.12.0-win-x64.zip"; DestDir: "{tmp}"; \
+  Components: nodejs; Check: not IsNodeInstalled; Flags: deleteafterinstall
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\NexusAI.bat"; IconFilename: "{app}\app-icon.ico"
@@ -50,12 +75,39 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\NexusAI.bat"; IconFilename: "{app}\app-icon.ico"
 
 [Registry]
-; 始终将 {app} 加入 PATH，确保 nexusai 命令全局可用
+; ---- PATH 环境变量 (用户级，逐条条件写入) ----
+; 1) 始终将 {app} 加入 PATH，确保 nexusai.cmd 全局可用（已存在则跳过）
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; \
   ValueName: "Path"; ValueData: "{olddata};{app}"; \
+  Check: NeedAppInPath; Flags: preservestringtype
+
+; 2) 仅当安装了我们内置的 JDK 时，才将 java17\bin 加入 PATH
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; \
+  ValueName: "Path"; ValueData: "{olddata};{app}\java17\bin"; \
+  Check: NeedJdkHome; Flags: preservestringtype
+
+; 3) 仅当安装了我们内置的 Git 时，才将 git\bin, git\cmd, git\usr\bin 加入 PATH
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; \
+  ValueName: "Path"; ValueData: "{olddata};{app}\git\bin;{app}\git\cmd;{app}\git\usr\bin"; \
+  Check: NeedGitPath; Flags: preservestringtype
+
+; 4) 仅当安装了我们内置的 Python 时，才将 python 加入 PATH
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; \
+  ValueName: "Path"; ValueData: "{olddata};{app}\python"; \
+  Check: NeedPythonPath; Flags: preservestringtype
+
+; 5) 仅当安装了我们内置的 Node.js 时，才将 node 加入 PATH
+Root: HKCU; Subkey: "Environment"; ValueType: expandsz; \
+  ValueName: "Path"; ValueData: "{olddata};{app}\node"; \
+  Check: NeedNodePath; Flags: preservestringtype
+
+; ---- 其他环境变量 ----
+; 永久设置 NEXUS_HOME，方便后续脚本和工具获取安装路径
+Root: HKCU; Subkey: "Environment"; ValueType: string; \
+  ValueName: "NEXUS_HOME"; ValueData: "{app}"; \
   Flags: preservestringtype
 
-; 如果安装了 JDK，设置 JAVA_HOME
+; 仅当安装了内置 JDK 时，设置 JAVA_HOME
 Root: HKCU; Subkey: "Environment"; ValueType: string; \
   ValueName: "JAVA_HOME"; ValueData: "{app}\java17"; \
   Check: NeedJdkHome; Flags: preservestringtype
@@ -106,216 +158,27 @@ begin
     if IsJdk17Installed then
       WizardForm.ComponentsList.ItemCaption[0] := 'JDK 17 Runtime - Already installed (skip)'
     else
-      WizardForm.ComponentsList.ItemCaption[0] := 'JDK 17 Runtime - Will download ~40MB';
+      WizardForm.ComponentsList.ItemCaption[0] := 'JDK 17 Runtime - Bundled (~150MB)';
 
     if IsGitInstalled then
       WizardForm.ComponentsList.ItemCaption[1] := 'Git Version Control - Already installed (skip)'
     else
-      WizardForm.ComponentsList.ItemCaption[1] := 'Git Version Control - Will download ~59MB';
+      WizardForm.ComponentsList.ItemCaption[1] := 'Git Version Control - Bundled (~59MB)';
 
     if IsPythonInstalled then
       WizardForm.ComponentsList.ItemCaption[2] := 'Python Script Engine - Already installed (skip)'
     else
-      WizardForm.ComponentsList.ItemCaption[2] := 'Python Script Engine - Will download ~11MB';
+      WizardForm.ComponentsList.ItemCaption[2] := 'Python Script Engine - Bundled (~11MB)';
 
     if IsNodeInstalled then
       WizardForm.ComponentsList.ItemCaption[3] := 'Node.js Engine - Already installed (skip)'
     else
-      WizardForm.ComponentsList.ItemCaption[3] := 'Node.js Engine - Will download ~33MB';
+      WizardForm.ComponentsList.ItemCaption[3] := 'Node.js Engine - Bundled (~33MB)';
   end;
 end;
 
 // ========================================================================
-// 下载 (BITSAdmin + 详细日志)
-// ========================================================================
-var
-  DownloadPage: TOutputProgressWizardPage;
-  LastDownloadError: string;
-
-function DownloadFileRetry(const URL, DestFile: string; MaxRetries: Integer): Boolean;
-var
-  Retry, ResultCode: Integer;
-  BatchFile, CmdLine: string;
-  LogFile: string;
-  ErrorLines: AnsiString;
-begin
-  Result := False;
-  BatchFile := ExpandConstant('{tmp}\dl.bat');
-  LogFile := ExpandConstant('{tmp}\dl_result.txt');
-
-  for Retry := 1 to MaxRetries do
-  begin
-    Log(Format('Downloading %s (attempt %d/%d)...', [URL, Retry, MaxRetries]));
-
-    // BITSAdmin + 输出重定向到日志文件
-    CmdLine :=
-      '@echo off' + #13#10 +
-      'echo [%date% %time%] Downloading: ' + URL + ' > "' + LogFile + '"' + #13#10 +
-      'echo. >> "' + LogFile + '"' + #13#10 +
-      '' + #13#10 +
-      'bitsadmin /transfer "NexusAIDL" /download /priority FOREGROUND "' + URL + '" "' + DestFile + '" >> "' + LogFile + '" 2>&1' + #13#10 +
-      'echo. >> "' + LogFile + '"' + #13#10 +
-      'echo Exit code: %ERRORLEVEL% >> "' + LogFile + '"' + #13#10 +
-      '' + #13#10 +
-      'if exist "' + DestFile + '" (' + #13#10 +
-      '  echo FILE EXISTS: ' + DestFile + ' >> "' + LogFile + '"' + #13#10 +
-      '  exit /b 0' + #13#10 +
-      ') else (' + #13#10 +
-      '  echo FILE NOT FOUND: ' + DestFile + ' >> "' + LogFile + '"' + #13#10 +
-      '  exit /b 1' + #13#10 +
-      ')';
-
-    SaveStringToFile(BatchFile, CmdLine, False);
-
-    if Exec('cmd.exe', '/c "' + BatchFile + '"', '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and (ResultCode = 0) then
-    begin
-      if FileExists(DestFile) then
-      begin
-        Log('Download succeeded.');
-        Result := True;
-        Exit;
-      end;
-    end;
-
-    // 读取错误日志
-    if FileExists(LogFile) then
-    begin
-      if LoadStringFromFile(LogFile, ErrorLines) then
-        LastDownloadError := ErrorLines
-      else
-        LastDownloadError := 'Unable to read log file';
-    end
-    else
-      LastDownloadError := 'Log file not created';
-
-    Log(Format('Download failed (attempt %d), exit: %d', [Retry, ResultCode]));
-
-    if Retry < MaxRetries then
-      Sleep(2000);
-  end;
-end;
-
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-var
-  AppDir, TmpDir, URL, FileName: string;
-  TotalSteps, CurrentStep: Integer;
-begin
-  Result := '';
-  NeedsRestart := False;
-
-  AppDir := ExpandConstant('{app}');
-  TmpDir := ExpandConstant('{tmp}');
-
-  // 计算总步骤
-  TotalSteps := 1; // NexusAI.jar always
-  if WizardIsComponentSelected('jdk') and not IsJdk17Installed then TotalSteps := TotalSteps + 1;
-  if WizardIsComponentSelected('git') and not IsGitInstalled then TotalSteps := TotalSteps + 1;
-  if WizardIsComponentSelected('python') and not IsPythonInstalled then TotalSteps := TotalSteps + 1;
-  if WizardIsComponentSelected('nodejs') and not IsNodeInstalled then TotalSteps := TotalSteps + 1;
-
-  DownloadPage := CreateOutputProgressPage('Downloading runtime dependencies...',
-    'Downloading from internal server. This may take a few minutes.');
-
-  CurrentStep := 0;
-
-  // ---- 下载 NexusAI.jar ----
-  CurrentStep := CurrentStep + 1;
-  DownloadPage.SetText(Format('Downloading NexusAI (%d/%d)...', [CurrentStep, TotalSteps]),
-    'NexusAI.jar ~270MB');
-  DownloadPage.SetProgress(CurrentStep, TotalSteps + 1);
-  FileName := TmpDir + '\NexusAI.jar';
-  URL := '{#RuntimeBaseURL}/NexusAI.jar';
-  if not FileExists(FileName) then
-  begin
-    if not DownloadFileRetry(URL, FileName, 3) then
-    begin
-      LastDownloadError := 'Failed: ' + URL + #13#10 + LastDownloadError;
-      Result := LastDownloadError;
-      Exit;
-    end;
-  end;
-
-  // ---- 下载 JDK 17 ----
-  if WizardIsComponentSelected('jdk') and not IsJdk17Installed then
-  begin
-    CurrentStep := CurrentStep + 1;
-    DownloadPage.SetText(Format('Downloading JDK 17 (%d/%d)...', [CurrentStep, TotalSteps]),
-      'jdk-17-jre-x64.zip ~40MB');
-    DownloadPage.SetProgress(CurrentStep, TotalSteps + 1);
-    FileName := TmpDir + '\jdk-17-jre-x64.zip';
-    URL := '{#RuntimeBaseURL}/jdk-17-jre-x64.zip';
-    if not FileExists(FileName) then
-    begin
-      if not DownloadFileRetry(URL, FileName, 3) then
-      begin
-        Result := 'Failed to download JDK 17. Check network.';
-        Exit;
-      end;
-    end;
-  end;
-
-  // ---- 下载 Git ----
-  if WizardIsComponentSelected('git') and not IsGitInstalled then
-  begin
-    CurrentStep := CurrentStep + 1;
-    DownloadPage.SetText(Format('Downloading Git (%d/%d)...', [CurrentStep, TotalSteps]),
-      'PortableGit-2.47.0-64-bit.7z.exe ~59MB');
-    DownloadPage.SetProgress(CurrentStep, TotalSteps + 1);
-    FileName := TmpDir + '\PortableGit-2.47.0-64-bit.7z.exe';
-    URL := '{#RuntimeBaseURL}/PortableGit-2.47.0-64-bit.7z.exe';
-    if not FileExists(FileName) then
-    begin
-      if not DownloadFileRetry(URL, FileName, 3) then
-      begin
-        Result := 'Failed to download Git. Check network.';
-        Exit;
-      end;
-    end;
-  end;
-
-  // ---- 下载 Python ----
-  if WizardIsComponentSelected('python') and not IsPythonInstalled then
-  begin
-    CurrentStep := CurrentStep + 1;
-    DownloadPage.SetText(Format('Downloading Python (%d/%d)...', [CurrentStep, TotalSteps]),
-      'python-3.12.4-embed-amd64.zip ~11MB');
-    DownloadPage.SetProgress(CurrentStep, TotalSteps + 1);
-    FileName := TmpDir + '\python-3.12.4-embed-amd64.zip';
-    URL := '{#RuntimeBaseURL}/python-3.12.4-embed-amd64.zip';
-    if not FileExists(FileName) then
-    begin
-      if not DownloadFileRetry(URL, FileName, 3) then
-      begin
-        Result := 'Failed to download Python. Check network.';
-        Exit;
-      end;
-    end;
-  end;
-
-  // ---- 下载 Node.js ----
-  if WizardIsComponentSelected('nodejs') and not IsNodeInstalled then
-  begin
-    CurrentStep := CurrentStep + 1;
-    DownloadPage.SetText(Format('Downloading Node.js (%d/%d)...', [CurrentStep, TotalSteps]),
-      'node-v22.12.0-win-x64.zip ~33MB');
-    DownloadPage.SetProgress(CurrentStep, TotalSteps + 1);
-    FileName := TmpDir + '\node-v22.12.0-win-x64.zip';
-    URL := '{#RuntimeBaseURL}/node-v22.12.0-win-x64.zip';
-    if not FileExists(FileName) then
-    begin
-      if not DownloadFileRetry(URL, FileName, 3) then
-      begin
-        Result := 'Failed to download Node.js. Check network.';
-        Exit;
-      end;
-    end;
-  end;
-
-  DownloadPage.SetProgress(TotalSteps + 1, TotalSteps + 1);
-end;
-
-// ========================================================================
-// 安装后解压
+// 安装后解压 (运行时依赖由 [Files] 段已复制到 {tmp})
 // ========================================================================
 procedure CurStepChanged(CurStep: TSetupStep);
 var
@@ -327,15 +190,11 @@ begin
 
   if CurStep = ssPostInstall then
   begin
-    Log('Extracting dependencies...');
+    Log('Extracting bundled runtime dependencies...');
 
-    // 复制 JAR
-    if FileExists(TmpDir + '\NexusAI.jar') then
-      CopyFile(TmpDir + '\NexusAI.jar', AppDir + '\NexusAI.jar', False);
-
-    // 解压 JDK (用 tar 因为 zip 可能没有)
-    if WizardIsComponentSelected('jdk') and not IsJdk17Installed and FileExists(TmpDir + '\jdk-17-jre-x64.zip') then
-      Exec('powershell.exe', '-NoProfile -Command "Expand-Archive -Path ''' + TmpDir + '\jdk-17-jre-x64.zip'' -DestinationPath ''' + AppDir + '\java17'' -Force"',
+    // 解压完整 JDK 17 到 java17 目录
+    if WizardIsComponentSelected('jdk') and not IsJdk17Installed and FileExists(TmpDir + '\jdk-17-x64.zip') then
+      Exec('powershell.exe', '-NoProfile -Command "Expand-Archive -Path ''' + TmpDir + '\jdk-17-x64.zip'' -DestinationPath ''' + AppDir + '\java17'' -Force"',
         '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
     // Git 自解压
@@ -354,16 +213,17 @@ begin
         '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
     // 创建全局命令行启动器 nexusai.cmd
+    // 优先使用注册表设置的 NEXUS_HOME，回退到安装路径
     SaveStringToFile(AppDir + '\nexusai.cmd',
       '@echo off' + #13#10 +
-      'set "NX_HOME=' + AppDir + '"' + #13#10 +
+      'if not defined NEXUS_HOME set "NEXUS_HOME=' + AppDir + '"' + #13#10 +
       'java --version 2>&1 | find "17" >nul' + #13#10 +
       'if %ERRORLEVEL% EQU 0 (' + #13#10 +
-      '  java -jar "%NX_HOME%\NexusAI.jar" %*' + #13#10 +
+      '  java -Dfile.encoding=utf-8 -jar "%NEXUS_HOME%\NexusAI.jar" %*' + #13#10 +
       '  goto :eof' + #13#10 +
       ')' + #13#10 +
-      'if exist "%NX_HOME%\java17\bin\java.exe" (' + #13#10 +
-      '  "%NX_HOME%\java17\bin\java.exe" -jar "%NX_HOME%\NexusAI.jar" %*' + #13#10 +
+      'if exist "%NEXUS_HOME%\java17\bin\java.exe" (' + #13#10 +
+      '  "%NEXUS_HOME%\java17\bin\java.exe" -Dfile.encoding=utf-8 -jar "%NEXUS_HOME%\NexusAI.jar" %*' + #13#10 +
       '  goto :eof' + #13#10 +
       ')' + #13#10 +
       'echo ERROR: Java 17 not found.' + #13#10 +
@@ -371,16 +231,17 @@ begin
       False);
 
     // 创建桌面/开始菜单启动批处理
+    // 优先使用注册表设置的 NEXUS_HOME，回退到安装路径
     SaveStringToFile(AppDir + '\NexusAI.bat',
       '@echo off' + #13#10 +
-      'set "NX_HOME=' + AppDir + '"' + #13#10 +
+      'if not defined NEXUS_HOME set "NEXUS_HOME=' + AppDir + '"' + #13#10 +
       'java --version 2>&1 | find "17" >nul' + #13#10 +
       'if %ERRORLEVEL% EQU 0 (' + #13#10 +
-      '  start "" java -jar "%NX_HOME%\NexusAI.jar"' + #13#10 +
+      '  start "" java -Dfile.encoding=utf-8 -jar "%NEXUS_HOME%\NexusAI.jar"' + #13#10 +
       '  goto :eof' + #13#10 +
       ')' + #13#10 +
-      'if exist "%NX_HOME%\java17\bin\java.exe" (' + #13#10 +
-      '  start "" "%NX_HOME%\java17\bin\java.exe" -jar "%NX_HOME%\NexusAI.jar"' + #13#10 +
+      'if exist "%NEXUS_HOME%\java17\bin\java.exe" (' + #13#10 +
+      '  start "" "%NEXUS_HOME%\java17\bin\java.exe" -Dfile.encoding=utf-8 -jar "%NEXUS_HOME%\NexusAI.jar"' + #13#10 +
       '  goto :eof' + #13#10 +
       ')' + #13#10 +
       'echo ERROR: Java 17 not found.' + #13#10 +
@@ -392,17 +253,43 @@ begin
 end;
 
 // ========================================================================
-// PATH
+// PATH 条件判断 (仅当组件被选中且系统未安装时，才添加对应 PATH)
 // ========================================================================
+
+// {app} 去重检查 — 避免重复安装时 PATH 重复追加
+function NeedAppInPath: Boolean;
+var
+  CurrentPath, AppDir: string;
+begin
+  AppDir := ExpandConstant('{app}');
+  Result := True;
+  if RegQueryStringValue(HKCU, 'Environment', 'Path', CurrentPath) then
+    if Pos(AppDir, CurrentPath) > 0 then
+      Result := False;
+end;
+
+// 仅当选中 JDK 组件且系统无 JDK 17 时
 function NeedJdkHome: Boolean;
 begin
   Result := WizardIsComponentSelected('jdk') and not IsJdk17Installed;
 end;
 
-function NeedPathUpdate: Boolean;
+// 仅当选中 Git 组件且系统无 Git 时
+function NeedGitPath: Boolean;
 begin
-  Result := WizardIsComponentSelected('jdk') or WizardIsComponentSelected('git')
-         or WizardIsComponentSelected('python') or WizardIsComponentSelected('nodejs');
+  Result := WizardIsComponentSelected('git') and not IsGitInstalled;
+end;
+
+// 仅当选中 Python 组件且系统无 Python 时
+function NeedPythonPath: Boolean;
+begin
+  Result := WizardIsComponentSelected('python') and not IsPythonInstalled;
+end;
+
+// 仅当选中 Node.js 组件且系统无 Node.js 时
+function NeedNodePath: Boolean;
+begin
+  Result := WizardIsComponentSelected('nodejs') and not IsNodeInstalled;
 end;
 
 // ========================================================================
@@ -415,13 +302,20 @@ begin
   AppDir := ExpandConstant('{app}');
   if CurUninstallStep = usPostUninstall then
   begin
+    // 清理 PATH 环境变量中的所有安装目录条目
     if RegQueryStringValue(HKCU, 'Environment', 'Path', CurrentPath) then
     begin
+      StringChange(CurrentPath, ';' + AppDir, '');
       StringChange(CurrentPath, ';' + AppDir + '\java17\bin', '');
       StringChange(CurrentPath, ';' + AppDir + '\git\bin', '');
+      StringChange(CurrentPath, ';' + AppDir + '\git\cmd', '');
+      StringChange(CurrentPath, ';' + AppDir + '\git\usr\bin', '');
       StringChange(CurrentPath, ';' + AppDir + '\python', '');
       StringChange(CurrentPath, ';' + AppDir + '\node', '');
       RegWriteStringValue(HKCU, 'Environment', 'Path', CurrentPath);
     end;
+    // 清理 NEXUS_HOME 和 JAVA_HOME 环境变量
+    RegDeleteValue(HKCU, 'Environment', 'NEXUS_HOME');
+    RegDeleteValue(HKCU, 'Environment', 'JAVA_HOME');
   end;
 end;

@@ -79,6 +79,11 @@ public class RipgrepConfig {
 
     /**
      * Find system executable in PATH.
+     * <p>
+     * Strips surrounding double-quotes from PATH entries, which Windows
+     * sometimes adds (e.g., "C:\Program Files\...").  Also wraps each
+     * entry in try-catch to skip invalid entries that would cause
+     * {@code InvalidPathException} rather than crashing the search.
      */
     private static String findSystemExecutable(String name) {
         String path = System.getenv("PATH");
@@ -89,10 +94,22 @@ public class RipgrepConfig {
         String[] dirs = path.split(System.getProperty("path.separator"));
         String exeName = System.getProperty("os.name").startsWith("Windows") ? name + ".exe" : name;
 
-        for (String dir : dirs) {
-            Path fullPath = Paths.get(dir, exeName);
-            if (Files.exists(fullPath) && Files.isExecutable(fullPath)) {
-                return fullPath.toString();
+        for (String rawDir : dirs) {
+            // Strip surrounding double-quotes (common on Windows when PATH entries
+            // contain spaces; the System Properties dialog adds them automatically)
+            String dir = rawDir;
+            if (dir.length() > 2 && dir.startsWith("\"") && dir.endsWith("\"")) {
+                dir = dir.substring(1, dir.length() - 1);
+            }
+
+            try {
+                Path fullPath = Paths.get(dir, exeName);
+                if (Files.exists(fullPath) && Files.isExecutable(fullPath)) {
+                    return fullPath.toString();
+                }
+            } catch (Exception ignored) {
+                // Skip invalid PATH entries (e.g., ones with illegal characters
+                // like unmatched quotes) instead of letting them crash the search
             }
         }
         return null;

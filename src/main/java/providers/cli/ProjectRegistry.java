@@ -274,11 +274,21 @@ public class ProjectRegistry {
             String json = GsonFactory.getGson().toJson(data);
             Files.writeString(tempPath, json);
 
-            // 原子替换
-            Files.move(tempPath, storagePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
-                    java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            // 原子替换（先尝试 ATOMIC_MOVE，Windows 下目标文件存在时会失败，退化为普通替换）
+            try {
+                Files.move(tempPath, storagePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+                // Windows 下当目标文件已存在时 ATOMIC_MOVE 不支持，退化为普通 REPLACE
+                if (log.isDebugEnabled()) {
+                    log.debug("ATOMIC_MOVE not supported, falling back to regular replace: {}", storagePath);
+                }
+                Files.move(tempPath, storagePath, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
 
-            log.debug("Project registry saved to {}", storagePath);
+            if (log.isDebugEnabled()) {
+                log.debug("Project registry saved to {}", storagePath);
+            }
         } catch (IOException e) {
             log.error("Failed to save project registry", e);
         }
