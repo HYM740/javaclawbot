@@ -37,7 +37,7 @@ private const val MAX_LOG_LINES = 1000
 private const val POLL_INTERVAL_MS = 60L
 
 @Composable
-fun DevConsolePage(modifier: Modifier = Modifier) {
+fun DevConsoleScreen(modifier: Modifier = Modifier) {
     val logBuffer = remember { mutableStateListOf<LogEntry>() }
     val threadSafeBuffer = remember { ConcurrentLinkedQueue<LogEntry>() }
     val logWatcher = remember { LogWatcher(threadSafeBuffer) }
