@@ -79,8 +79,6 @@ fun McpServerWindow(
                 .background(AppColors.Surface)
                 .padding(24.dp)
         ) {
-            Spacer(Modifier.height(16.dp))
-
             // Scrollable form area
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
                 // Mode tabs
