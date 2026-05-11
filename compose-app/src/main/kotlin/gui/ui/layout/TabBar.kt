@@ -56,24 +56,6 @@ fun TabBar(
         modifier = modifier.fillMaxWidth().height(36.dp).background(AppColors.Background),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Pinned "历史" tab — visually distinct
-        Row(
-            Modifier
-                .clip(RoundedCornerShape(topStart = 8.dp, topEnd = 8.dp))
-                .background(if (showHistoryActive) AppColors.Surface else AppColors.HoverBg.copy(alpha = 0.4f))
-                .clickable { onHistorySelected() }
-                .padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                "📋 历史",
-                maxLines = 1,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = if (showHistoryActive) AppColors.TextPrimary else AppColors.TextSecondary
-            )
-        }
-
         // Chat tabs
         LazyRow(
             modifier = Modifier.weight(1f),
@@ -205,21 +187,45 @@ fun TabBar(
             }
         }
 
-        // New chat button with text
+        // 新对话 + 历史 按钮组
         Row(
-            Modifier.padding(end = 8.dp).clickable { onNewTab() },
+            Modifier.padding(end = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Filled.Add, "New tab", Modifier.size(20.dp),
-                tint = AppColors.TextSecondary
-            )
-            Spacer(Modifier.width(2.dp))
-            Text(
-                "新对话",
-                fontSize = 12.sp,
-                color = AppColors.TextSecondary
-            )
+            // 新对话按钮
+            Row(
+                Modifier.clickable { onNewTab() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.Add, "New tab", Modifier.size(20.dp),
+                    tint = AppColors.TextSecondary
+                )
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    "新对话",
+                    fontSize = 12.sp,
+                    color = AppColors.TextSecondary
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            // 历史按钮
+            Row(
+                Modifier.clickable { onHistorySelected() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "📋",
+                    fontSize = 14.sp
+                )
+                Spacer(Modifier.width(2.dp))
+                Text(
+                    "历史",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (showHistoryActive) AppColors.TextPrimary else AppColors.TextSecondary
+                )
+            }
         }
     }
 }

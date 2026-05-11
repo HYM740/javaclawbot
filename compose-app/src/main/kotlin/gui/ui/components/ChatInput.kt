@@ -3,6 +3,7 @@ package gui.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -20,7 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -29,7 +33,12 @@ import gui.ui.theme.AppColors
 import gui.ui.theme.CjkFontResolver
 import org.slf4j.LoggerFactory
 import java.awt.Desktop
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
+import java.awt.image.BufferedImage
+import java.io.File
 import java.nio.file.Path
+import javax.imageio.ImageIO
 import kotlin.math.roundToInt
 
 private val log = LoggerFactory.getLogger("ChatInput")
@@ -116,6 +125,9 @@ fun ChatInput(
                         Box {
                             when (att.type) {
                                 AttachmentType.IMAGE -> {
+                                    val thumbnailBitmap = remember(att.path) {
+                                        loadImageBitmap(att.path)
+                                    }
                                     Box(
                                         Modifier.size(80.dp, 60.dp)
                                             .clip(RoundedCornerShape(6.dp))
@@ -123,7 +135,16 @@ fun ChatInput(
                                             .clickable { openWithSystem(att.path) },
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("🖼", fontSize = 14.sp)
+                                        if (thumbnailBitmap != null) {
+                                            Image(
+                                                bitmap = thumbnailBitmap,
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                        } else {
+                                            Text("🖼", fontSize = 14.sp)
+                                        }
                                     }
                                 }
                                 AttachmentType.FILE -> {
@@ -189,6 +210,12 @@ fun ChatInput(
                                 historyIndex = -1
                             } else {
                                 text = userMessages[historyIndex]
+                            }
+                            true
+                        }
+                        event.key == Key.V && (event.isCtrlPressed || event.isMetaPressed) -> {
+                            pasteImageFromClipboard { att ->
+                                if (att != null) attachments = attachments + att
                             }
                             true
                         }
@@ -276,6 +303,34 @@ private fun openWithSystem(path: Path) {
     } catch (e: Exception) {
         log.warn("无法打开文件: {}", path, e)
     }
+}
+
+private fun pasteImageFromClipboard(onResult: (Attachment?) -> Unit) {
+    try {
+        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+        if (clipboard.isDataFlavorAvailable(DataFlavor.imageFlavor)) {
+            val image = clipboard.getData(DataFlavor.imageFlavor) as? BufferedImage
+            if (image != null) {
+                val tempFile = File.createTempFile("paste-", ".png")
+                tempFile.deleteOnExit()
+                ImageIO.write(image, "png", tempFile)
+                onResult(Attachment(tempFile.toPath(), AttachmentType.IMAGE))
+                return
+            }
+        }
+    } catch (e: Exception) {
+        log.warn("剪贴板粘贴图片失败", e)
+    }
+    onResult(null)
+}
+
+private fun loadImageBitmap(path: Path): ImageBitmap? {
+    return try {
+        val file = path.toFile()
+        if (file.exists()) {
+            ImageIO.read(file)?.toComposeImageBitmap()
+        } else null
+    } catch (_: Exception) { null }
 }
 
 private fun selectFiles(onResult: (List<Attachment>) -> Unit) {
