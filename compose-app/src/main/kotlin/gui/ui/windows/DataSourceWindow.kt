@@ -52,28 +52,21 @@ enum class DatabaseType(
         "org.h2.Driver"),
     SQLite("SQLite", "", 0,
         "jdbc:sqlite:{path}",
-        "org.sqlite.JDBC");
+        "org.sqlite.JDBC")
 }
 
 private val URL_PREFIX_TO_TYPE = mapOf(
     "jdbc:mysql:" to DatabaseType.MySQL,
-    "jdbc:postgresql:" to DatabaseType.PostgreSQL,
     "jdbc:mariadb:" to DatabaseType.MariaDB,
+    "jdbc:postgresql:" to DatabaseType.PostgreSQL,
     "jdbc:oracle:thin:" to DatabaseType.Oracle,
     "jdbc:sqlserver:" to DatabaseType.SQLServer,
     "jdbc:h2:" to DatabaseType.H2,
     "jdbc:sqlite:" to DatabaseType.SQLite,
 )
 
-private val DRIVER_MAP = mapOf(
-    "jdbc:mysql:" to "com.mysql.cj.jdbc.Driver",
-    "jdbc:postgresql:" to "org.postgresql.Driver",
-    "jdbc:mariadb:" to "org.mariadb.jdbc.Driver",
-    "jdbc:oracle:thin:" to "oracle.jdbc.OracleDriver",
-    "jdbc:sqlserver:" to "com.microsoft.sqlserver.jdbc.SQLServerDriver",
-    "jdbc:h2:" to "org.h2.Driver",
-    "jdbc:sqlite:" to "org.sqlite.JDBC"
-)
+private fun inferType(jdbcUrl: String): DatabaseType? =
+    URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value
 
 data class DataSourceEditData(
     val oldName: String,
@@ -141,10 +134,7 @@ fun DataSourceWindow(
                 fieldInput("名称", name, "例如: my-db") { name = it }
                 fieldInput("JDBC URL", jdbcUrl, "jdbc:postgresql://localhost:5432/mydb") {
                     jdbcUrl = it
-                    val inferred = URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> it.trim().startsWith(prefix) }?.value?.driverClass
-                    if (inferred != null) {
-                        driverClass = inferred
-                    }
+                    inferType(it.trim())?.let { driverClass = it.driverClass }
                 }
                 fieldInput("驱动类", driverClass, "自动推断") { driverClass = it }
                 fieldInput("用户名", username, "root") { username = it }
@@ -203,7 +193,7 @@ fun DataSourceWindow(
                             if (bridge == null) { errorDialogMessage = "后端未初始化，请重启应用"; return@TextButton }
                             testing = true; testResult = null
                             val effectiveDriver = driverClass.trim().ifEmpty {
-                                URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value?.driverClass ?: ""
+                                inferType(jdbcUrl.trim())?.driverClass ?: ""
                             }
                             val msg = bridge.testDataSourceConnection(
                                 jdbcUrl.trim(), username.trim(), password, effectiveDriver
@@ -243,7 +233,7 @@ fun DataSourceWindow(
                                         val timeout = connectionTimeout.toLongOrNull() ?: 30000L
                                         val pwd = if (isEdit && password.isBlank()) "******" else password
                                         val effectiveDriver = driverClass.trim().ifEmpty {
-                                            URL_PREFIX_TO_TYPE.entries.firstOrNull { (prefix) -> jdbcUrl.trim().startsWith(prefix) }?.value?.driverClass ?: ""
+                                            inferType(jdbcUrl.trim())?.driverClass ?: ""
                                         }
                                         if (isEdit) {
                                             bridge.updateDataSource(editData!!.oldName, name.trim(), jdbcUrl.trim(),
