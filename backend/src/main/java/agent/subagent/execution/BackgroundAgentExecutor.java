@@ -50,6 +50,9 @@ public class BackgroundAgentExecutor {
     /** Running background tasks for potential cancellation */
     private final ConcurrentHashMap<String, CompletableFuture<String>> runningTasks = new ConcurrentHashMap<>();
 
+    /** Last publish time per (taskId + ":" + status) for 200ms throttling */
+    private final ConcurrentHashMap<String, Long> lastPublishTime = new ConcurrentHashMap<>();
+
     /** Task metadata for notifications */
     private final ConcurrentHashMap<String, TaskMetadata> taskMetadata = new ConcurrentHashMap<>();
 
@@ -286,6 +289,12 @@ public class BackgroundAgentExecutor {
         if (messageBus == null) return;
         TaskMetadata meta = taskMetadata.get(taskId);
         if (meta == null) return;
+        // 200ms throttling: skip same status within 200ms
+        String throttleKey = taskId + ":" + status;
+        long now = System.currentTimeMillis();
+        Long last = lastPublishTime.get(throttleKey);
+        if (last != null && (now - last) < 200) return;
+        lastPublishTime.put(throttleKey, now);
         Map<String, Object> metadata = new java.util.LinkedHashMap<>();
         metadata.put("_progress", true);
         metadata.put("_subagent_progress", true);
