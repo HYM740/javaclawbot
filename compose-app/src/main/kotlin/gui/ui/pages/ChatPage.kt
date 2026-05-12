@@ -121,7 +121,7 @@ fun ChatPage(
                             // 每个工具独立 hint（来自 AgentLoop 执行前发布的 OutboundMessage），
                             // 跳过 toolName==null 的旧版拼接提示
                             exchangeMsgs.add(ChatMessage(
-                                id = "tool_${System.currentTimeMillis()}_${progress.toolName}",
+                                id = "tool_${System.currentTimeMillis()}_${progress.toolName}_${progress.content.hashCode().toString().take(8)}",
                                 role = ChatMessage.Role.ASSISTANT,
                                 content = "",
                                 toolCalls = listOf(ToolCall(

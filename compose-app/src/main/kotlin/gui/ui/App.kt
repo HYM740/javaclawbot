@@ -28,8 +28,19 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import org.slf4j.LoggerFactory
+
+private val log = LoggerFactory.getLogger("App")
 
 fun main() = application {
+    val prev = Thread.getDefaultUncaughtExceptionHandler()
+    Thread.setDefaultUncaughtExceptionHandler { thread, ex ->
+        if (log.isWarnEnabled) log.warn("未捕获异常 (thread: {}): {}", thread.name, ex.message)
+        prev?.uncaughtException(thread, ex) ?: run {
+            System.err.print("Exception in thread \"${thread.name}\" ")
+            ex.printStackTrace(System.err)
+        }
+    }
     val windowState = rememberWindowState(width = 1000.dp, height = 700.dp)
     val scope = rememberCoroutineScope()
 

@@ -27,6 +27,9 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.rememberWindowState
 import gui.ui.theme.AppColors
 import gui.ui.theme.AppTheme
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 @Composable
 fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
@@ -91,6 +94,12 @@ fun MessageBubble(message: ChatMessage, modifier: Modifier = Modifier) {
                 )
             }
         }
+        Text(
+            SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(message.timestamp)),
+            fontSize = 10.sp,
+            color = AppColors.TextSecondary.copy(alpha = 0.5f),
+            modifier = Modifier.padding(top = 2.dp)
+        )
         if (showRawDialog) {
             val rawWindowState = rememberWindowState(
                 position = WindowPosition.Aligned(Alignment.Center),
