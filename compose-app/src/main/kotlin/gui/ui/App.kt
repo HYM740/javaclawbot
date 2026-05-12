@@ -38,6 +38,7 @@ fun main() = application {
     var tabs by remember { mutableStateOf(listOf(ChatTab(id = "default", title = "新对话"))) }
     var activeTabId by remember { mutableStateOf("default") }
     var messagesMap by remember { mutableStateOf(mapOf("default" to emptyList<ChatMessage>())) }
+    var tabChatIds by remember { mutableStateOf(mapOf("default" to "direct")) }
     var history by remember { mutableStateOf(emptyList<HistoryGroup>()) }
     var statusInfo by remember { mutableStateOf(StatusInfo()) }
     var isLoading by remember { mutableStateOf(false) }
@@ -56,14 +57,17 @@ fun main() = application {
                 backend.initialize()
                 val b = Bridge(backend, scope)
                 b.setOnTitleChanged(Runnable {
-                    // Auto-generated title changed: refresh current tab title
-                    val session = backend.currentSession
-                    if (session != null) {
-                        val sid = session.sessionId
-                        val meta = session.metadata
-                        val newTitle = meta?.get("title")?.toString() ?: return@Runnable
-                        scope.launch(Dispatchers.Main) {
-                            tabs = tabs.map { if (it.id == sid) it.copy(title = newTitle) else it }
+                    // Auto-generated title changed: refresh titles for all tab sessions
+                    scope.launch(Dispatchers.Main) {
+                        tabs = tabs.map { tab ->
+                            val chatId = tabChatIds[tab.id] ?: return@map tab
+                            val session = backend.getCurrentSession(chatId)
+                            if (session != null) {
+                                val newTitle = session.metadata?.get("title")?.toString()
+                                if (newTitle != null && newTitle != tab.title) {
+                                    tab.copy(title = newTitle)
+                                } else tab
+                            } else tab
                         }
                     }
                 })
@@ -139,11 +143,16 @@ fun main() = application {
                                     backend.initialize()
                                     val b = Bridge(backend, scope)
                                     b.setOnTitleChanged(Runnable {
-                                        val session = backend.currentSession
-                                        if (session != null) {
-                                            val newTitle = session.metadata?.get("title")?.toString() ?: return@Runnable
-                                            scope.launch(Dispatchers.Main) {
-                                                tabs = tabs.map { if (it.id == session.sessionId) it.copy(title = newTitle) else it }
+                                        scope.launch(Dispatchers.Main) {
+                                            tabs = tabs.map { tab ->
+                                                val chatId = tabChatIds[tab.id] ?: return@map tab
+                                                val session = backend.getCurrentSession(chatId)
+                                                if (session != null) {
+                                                    val newTitle = session.metadata?.get("title")?.toString()
+                                                    if (newTitle != null && newTitle != tab.title) {
+                                                        tab.copy(title = newTitle)
+                                                    } else tab
+                                                } else tab
                                             }
                                         }
                                     })
@@ -186,22 +195,29 @@ fun main() = application {
                     }
                 },
                 onTabClosed = { id ->
+                    val closedChatId = tabChatIds[id]
                     tabs = tabs.filter { it.id != id }
                     messagesMap = messagesMap - id
+                    tabChatIds = tabChatIds - id
                     if (id == activeTabId && tabs.isNotEmpty()) {
                         activeTabId = tabs.first().id
                         activePage = "chat"
                     } else if (tabs.isEmpty()) {
                         activePage = "__history__"
                     }
+                    if (closedChatId != null) {
+                        scope.launch(Dispatchers.IO) { bridge?.removeSession(closedChatId) }
+                    }
                 },
                 onNewTab = {
-                    val newId = "tab_${System.currentTimeMillis()}"
+                    val newId = "tab_${System.nanoTime()}"
+                    val newChatId = "tab_${System.nanoTime()}"
                     tabs = tabs + ChatTab(id = newId, title = "新对话")
                     messagesMap = messagesMap + (newId to emptyList())
+                    tabChatIds = tabChatIds + (newId to newChatId)
                     activeTabId = newId
                     activePage = "chat"
-                    bridge?.newSession()
+                    scope.launch(Dispatchers.IO) { bridge?.createSession(newChatId) }
                 },
                 onHistorySelected = { activePage = "__history__" },
                 onRename = { tabId, newTitle ->
@@ -214,46 +230,53 @@ fun main() = application {
                     "__history__" -> HistoryPage(
                         history = history,
                         onResume = { sessionId, title ->
-                            if (tabs.none { it.id == sessionId }) {
-                                tabs = tabs + ChatTab(id = sessionId, title = title)
-                                messagesMap = messagesMap + (sessionId to emptyList())
-                            }
-                            activeTabId = sessionId
-                            activePage = "chat"
-                            scope.launch(Dispatchers.IO) {
-                                bridge?.resumeSession(sessionId)
-                                val msgs = bridge?.getSessionHistory(sessionId) ?: emptyList()
-                                val chatMsgs = msgs.mapNotNull { m ->
-                                    val roleStr = m["role"]?.toString() ?: return@mapNotNull null
-                                    val content = m["content"]?.toString() ?: ""
-                                    val reasoning = m["reasoning_content"]?.toString()
-                                    val role = when (roleStr) {
-                                        "user" -> ChatMessage.Role.USER
-                                        "assistant" -> ChatMessage.Role.ASSISTANT
-                                        else -> ChatMessage.Role.SYSTEM
+                            val historyTabId = sessionId
+                            if (tabs.none { it.id == historyTabId }) {
+                                val historyChatId = "hist_${System.nanoTime()}"
+                                tabs = tabs + ChatTab(id = historyTabId, title = title)
+                                messagesMap = messagesMap + (historyTabId to emptyList())
+                                tabChatIds = tabChatIds + (historyTabId to historyChatId)
+                                scope.launch(Dispatchers.IO) {
+                                    bridge?.resumeSession(sessionId, historyChatId)
+                                    val msgs = bridge?.getSessionHistory(sessionId, historyChatId) ?: emptyList()
+                                    val chatMsgs = msgs.mapNotNull { m ->
+                                        val roleStr = m["role"]?.toString() ?: return@mapNotNull null
+                                        val content = m["content"]?.toString() ?: ""
+                                        val reasoning = m["reasoning_content"]?.toString()
+                                        val role = when (roleStr) {
+                                            "user" -> ChatMessage.Role.USER
+                                            "assistant" -> ChatMessage.Role.ASSISTANT
+                                            else -> ChatMessage.Role.SYSTEM
+                                        }
+                                        ChatMessage(
+                                            id = "hist_${System.currentTimeMillis()}_${m.hashCode()}",
+                                            role = role,
+                                            content = content,
+                                            reasoning = reasoning
+                                        )
                                     }
-                                    ChatMessage(
-                                        id = "hist_${System.currentTimeMillis()}_${m.hashCode()}",
-                                        role = role,
-                                        content = content,
-                                        reasoning = reasoning
-                                    )
-                                }
-                                scope.launch(Dispatchers.Main) {
-                                    messagesMap = messagesMap + (sessionId to chatMsgs)
+                                    scope.launch(Dispatchers.Main) {
+                                        messagesMap = messagesMap + (historyTabId to chatMsgs)
+                                    }
                                 }
                             }
+                            activeTabId = historyTabId
+                            activePage = "chat"
                         },
                         onDelete = { sessionId ->
                             scope.launch(Dispatchers.IO) { bridge?.deleteSession(sessionId) }
                         }
                     )
-                    "chat" -> ChatPage(
-                        bridge,
-                        messages = messagesMap[activeTabId] ?: emptyList(),
-                        onMessagesChanged = { messagesMap = messagesMap + (activeTabId to it) },
-                        isLoading = isLoading
-                    )
+                    "chat" -> {
+                        val currentChatId = tabChatIds[activeTabId] ?: "direct"
+                        ChatPage(
+                            bridge,
+                            chatId = currentChatId,
+                            messages = messagesMap[activeTabId] ?: emptyList(),
+                            onMessagesChanged = { messagesMap = messagesMap + (activeTabId to it) },
+                            isLoading = isLoading
+                        )
+                    }
                     "models" -> ModelsPage(bridge)
                     "agents" -> AgentsPage(bridge)
                     "channels" -> ChannelsPage(bridge)

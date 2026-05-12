@@ -214,10 +214,13 @@ fun ChatInput(
                             true
                         }
                         event.key == Key.V && (event.isCtrlPressed || event.isMetaPressed) -> {
-                            pasteImageFromClipboard { att ->
-                                if (att != null) attachments = attachments + att
-                            }
-                            true
+                            // 仅在剪贴板有图片时处理粘贴，否则交给 BasicTextField 默认处理文本粘贴
+                            if (hasImageInClipboard()) {
+                                pasteImageFromClipboard { att ->
+                                    if (att != null) attachments = attachments + att
+                                }
+                                true
+                            } else false
                         }
                         event.key == Key.Enter && !event.isShiftPressed -> {
                             if (text.isNotBlank() || attachments.isNotEmpty()) {
@@ -302,6 +305,15 @@ private fun openWithSystem(path: Path) {
         Desktop.getDesktop().open(path.toFile())
     } catch (e: Exception) {
         log.warn("无法打开文件: {}", path, e)
+    }
+}
+
+private fun hasImageInClipboard(): Boolean {
+    return try {
+        val clipboard = Toolkit.getDefaultToolkit().systemClipboard
+        clipboard.isDataFlavorAvailable(DataFlavor.imageFlavor)
+    } catch (e: Exception) {
+        false
     }
 }
 

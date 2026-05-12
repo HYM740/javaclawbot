@@ -28,7 +28,8 @@ class Bridge(
         mediaPaths: List<String>? = null,
         onProgress: (Progress) -> Unit,
         onResponse: (String) -> Unit,
-        onError: (String) -> Unit
+        onError: (String) -> Unit,
+        chatId: String = "direct"
     ) {
         val progressAdapter = java.util.function.Consumer<BackendBridge.ProgressEvent> { event ->
             scope.launch(Dispatchers.Main) {
@@ -50,16 +51,23 @@ class Bridge(
         }
 
         scope.launch(Dispatchers.IO) {
-            bridge.sendMessage(text, mediaPaths, progressAdapter, responseAdapter, errorAdapter)
+            bridge.sendMessage(text, mediaPaths, progressAdapter, responseAdapter, errorAdapter, chatId)
         }
     }
 
     fun stopMessage() = bridge.stopMessage()
+    fun stopMessage(chatId: String) = bridge.stopMessage(chatId)
     fun newSession() = bridge.newSession()
+    fun newSession(chatId: String) = bridge.newSession(chatId)
+    fun createSession(chatId: String) = bridge.createSession(chatId)
+    fun removeSession(chatId: String) = bridge.removeSession(chatId)
     fun resumeSession(sessionId: String) = bridge.resumeSession(sessionId)
+    fun resumeSession(sessionId: String, chatId: String) = bridge.resumeSession(sessionId, chatId)
     fun deleteSession(sessionId: String) = bridge.deleteSession(sessionId)
     fun renameSession(sessionId: String, newTitle: String) = bridge.renameSession(sessionId, newTitle)
+    fun renameSession(sessionId: String, newTitle: String, chatId: String) = bridge.renameSession(sessionId, newTitle, chatId)
     fun ensureFreshSession() = bridge.ensureFreshSession()
+    fun ensureFreshSession(chatId: String) = bridge.ensureFreshSession(chatId)
     fun refreshProvider() = bridge.refreshProvider()
     fun reloadConfigFromDisk() = bridge.reloadConfigFromDisk()
 
@@ -74,12 +82,18 @@ class Bridge(
     val sessionKey get() = bridge.sessionKey
 
     val isWaitingForResponse get() = bridge.isWaitingForResponse
+    fun isWaitingForResponse(chatId: String) = bridge.isWaitingForResponse(chatId)
     val currentSession get() = bridge.currentSession
+    fun getCurrentSession(chatId: String) = bridge.getCurrentSession(chatId)
     fun getSessionHistory(sessionId: String) = bridge.getSessionHistory(sessionId)
+    fun getSessionHistory(sessionId: String, chatId: String) = bridge.getSessionHistory(sessionId, chatId)
     val lastReasoningContent get() = bridge.lastReasoningContent
+    fun getLastReasoningContent(chatId: String) = bridge.getLastReasoningContent(chatId)
     fun getContextUsageRatio(): Double = bridge.getContextUsageRatio()
+    fun getContextUsageRatio(chatId: String): Double = bridge.getContextUsageRatio(chatId)
     fun setOnTitleChanged(callback: Runnable?) { bridge.setOnTitleChanged(callback) }
     fun resetTitleCounter() = bridge.resetTitleCounter()
+    fun resetTitleCounter(chatId: String) = bridge.resetTitleCounter(chatId)
 
     // MCP server management
     fun addMcpServer(name: String, command: String) = bridge.addMcpServer(name, command)

@@ -34,6 +34,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -91,8 +92,31 @@ public class BackendBridge {
 
     // ── 会话 ──
     private static final String CLI_CHANNEL = "cli";
-    private static final String CLI_CHAT_ID = "direct";
-    private final String sessionKey = CLI_CHANNEL + ":" + CLI_CHAT_ID;
+    private static final String DEFAULT_CHAT_ID = "direct";
+
+    /**
+     * 每个独立聊天会话的上下文状态。
+     * 每个 chatId（标签页）拥有独立的回调、等待标志、标题生成状态。
+     */
+    public static class SessionContext {
+        final AtomicReference<Consumer<ProgressEvent>> currentProgressCallback = new AtomicReference<>();
+        final AtomicReference<Consumer<String>> currentResponseCallback = new AtomicReference<>();
+        volatile boolean waitingForResponse = false;
+        volatile String lastReasoningContent;
+        final AtomicBoolean titleGenerationPending = new AtomicBoolean(false);
+        final AtomicBoolean titleRegenerationPending = new AtomicBoolean(false);
+        int userMessageCount = 0;
+    }
+
+    private final ConcurrentHashMap<String, SessionContext> sessionContexts = new ConcurrentHashMap<>();
+
+    private SessionContext getOrCreateContext(String chatId) {
+        return sessionContexts.computeIfAbsent(chatId, k -> new SessionContext());
+    }
+
+    private String sessionKey(String chatId) {
+        return CLI_CHANNEL + ":" + (chatId != null ? chatId : DEFAULT_CHAT_ID);
+    }
 
     // ── UI 线程调度器（JavaFX 默认 Platform.runLater，Compose 可替换）──
     private volatile Consumer<Runnable> uiDispatcher = Platform::runLater;
@@ -101,17 +125,7 @@ public class BackendBridge {
         this.uiDispatcher = dispatcher != null ? dispatcher : Runnable::run;
     }
 
-    // ── 当前消息回调（一次只处理一条消息）──
-    private final AtomicReference<Consumer<ProgressEvent>> currentProgressCallback = new AtomicReference<>();
-    private final AtomicReference<Consumer<String>> currentResponseCallback = new AtomicReference<>();
-    private volatile boolean waitingForResponse = false;
-    /** 最近一次回复的推理内容 */
-    private volatile String lastReasoningContent;
-
-    // ── 标题生成计数器 ──
-    private final AtomicBoolean titleGenerationPending = new AtomicBoolean(false);
-    private final AtomicBoolean titleRegenerationPending = new AtomicBoolean(false);
-    private int userMessageCount = 0;
+    // ── 默认会话上下文（向后兼容 JavaFX）──
 
     /** 标题生成/更新后回调（MainStage 设置用于刷新侧栏） */
     private volatile Runnable onTitleChanged;
@@ -176,8 +190,8 @@ public class BackendBridge {
 
         // 10) 恢复 plan mode 状态
         try {
-            Session session = sessionManager.getOrCreate(sessionKey);
-            agentLoop.ensurePlanModeState(sessionKey, session);
+            Session session = sessionManager.getOrCreate(sessionKey(DEFAULT_CHAT_ID));
+            agentLoop.ensurePlanModeState(sessionKey(DEFAULT_CHAT_ID), session);
         } catch (Exception ignored) {
         }
     }
@@ -205,65 +219,8 @@ public class BackendBridge {
                     OutboundMessage out = bus.consumeOutbound(1, TimeUnit.SECONDS);
                     if (out == null) continue;
 
-                    // 过滤非本会话消息
-                    if (!isTargetCliOutbound(out)) continue;
-
-                    Map<String, Object> meta = out.getMetadata() != null ? out.getMetadata() : Map.of();
-                    boolean isProgress = Boolean.TRUE.equals(meta.get("_progress"));
-                    boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
-                    boolean isToolResult = Boolean.TRUE.equals(meta.get("_tool_result"));
-                    boolean isReasoning = Boolean.TRUE.equals(meta.get("_reasoning"));
-                    boolean isSystemCommand = Boolean.TRUE.equals(meta.get("_system_command"));
-                    String toolName = meta.get("tool_name") instanceof String s ? s : null;
-                    String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
-
-                    if (isSystemCommand) {
-                        // 系统命令回复（/stop、/help 等）
-                        // 重置等待状态，避免 stop 后无法继续对话
-                        waitingForResponse = false;
-                        currentResponseCallback.set(null);
-
-                        String content = out.getContent() != null ? out.getContent() : "";
-                        Consumer<ProgressEvent> cb = currentProgressCallback.get();
-                        if (cb != null) {
-                            uiDispatcher.accept(() -> cb.accept(
-                                new ProgressEvent(content, false)));
-                        }
-                    } else if (isProgress) {
-                        String content = out.getContent() != null ? out.getContent() : "";
-                        Consumer<ProgressEvent> cb = currentProgressCallback.get();
-                        if (cb != null) {
-                            uiDispatcher.accept(() -> cb.accept(
-                                new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId, isReasoning)));
-                        }
-                    } else {
-                        // 最终回复
-                        String content = out.getContent() != null ? out.getContent() : "";
-                        // 提取推理内容
-                        Object rcObj = meta.get("_reasoning_content");
-                        if (rcObj instanceof String s && !s.isBlank()) {
-                            lastReasoningContent = s;
-                        } else {
-                            lastReasoningContent = null;
-                        }
-                        Consumer<String> cb = currentResponseCallback.getAndSet(null);
-                        waitingForResponse = false;
-
-                        // 标题生成：回复完成后触发，确保 session 已包含本轮完整对话
-                        // force=true 优先：深度对话后的标题再生成，此时不再触发普通生成
-                        if (userMessageCount >= 3 && titleRegenerationPending.compareAndSet(false, true)) {
-                            titleGenerationPending.set(true);  // 阻止后续 force=false 触发
-                            triggerTitleGeneration(true);
-                        } else if (userMessageCount >= 1 && titleGenerationPending.compareAndSet(false, true)) {
-                            triggerTitleGeneration(false);
-                        }
-
-                        uiDispatcher.accept(() -> {
-                            if (cb != null) {
-                                cb.accept(content);
-                            }
-                        });
-                    }
+                    // 路由到对应的会话上下文
+                    if (!routeOutboundToSession(out)) continue;
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
@@ -274,13 +231,71 @@ public class BackendBridge {
     }
 
     /**
-     * 判断 outbound 消息是否属于当前 CLI 会话
+     * 将 outbound 消息路由到对应 chatId 的 SessionContext。
+     * @return true 如果消息被路由到已知会话
      */
-    private boolean isTargetCliOutbound(OutboundMessage out) {
+    private boolean routeOutboundToSession(OutboundMessage out) {
         try {
             String ch = out.getChannel();
             String cid = out.getChatId();
-            return CLI_CHANNEL.equals(ch) && CLI_CHAT_ID.equals(cid);
+            if (!CLI_CHANNEL.equals(ch) || cid == null || cid.isBlank()) return false;
+
+            SessionContext ctx = sessionContexts.get(cid);
+            if (ctx == null) return false;
+
+            Map<String, Object> meta = out.getMetadata() != null ? out.getMetadata() : Map.of();
+            boolean isProgress = Boolean.TRUE.equals(meta.get("_progress"));
+            boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
+            boolean isToolResult = Boolean.TRUE.equals(meta.get("_tool_result"));
+            boolean isReasoning = Boolean.TRUE.equals(meta.get("_reasoning"));
+            boolean isSystemCommand = Boolean.TRUE.equals(meta.get("_system_command"));
+            String toolName = meta.get("tool_name") instanceof String s ? s : null;
+            String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
+
+            if (isSystemCommand) {
+                // 系统命令回复（/stop、/help 等）
+                ctx.waitingForResponse = false;
+                ctx.currentResponseCallback.set(null);
+                String content = out.getContent() != null ? out.getContent() : "";
+                Consumer<ProgressEvent> cb = ctx.currentProgressCallback.get();
+                if (cb != null) {
+                    uiDispatcher.accept(() -> cb.accept(new ProgressEvent(content, false)));
+                }
+            } else if (isProgress) {
+                String content = out.getContent() != null ? out.getContent() : "";
+                Consumer<ProgressEvent> cb = ctx.currentProgressCallback.get();
+                if (cb != null) {
+                    uiDispatcher.accept(() -> cb.accept(
+                        new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId, isReasoning)));
+                }
+            } else {
+                // 最终回复
+                String content = out.getContent() != null ? out.getContent() : "";
+                // 提取推理内容
+                Object rcObj = meta.get("_reasoning_content");
+                if (rcObj instanceof String s && !s.isBlank()) {
+                    ctx.lastReasoningContent = s;
+                } else {
+                    ctx.lastReasoningContent = null;
+                }
+                Consumer<String> cb = ctx.currentResponseCallback.getAndSet(null);
+                ctx.waitingForResponse = false;
+
+                // 标题生成：回复完成后触发
+                if (ctx.userMessageCount >= 3 && ctx.titleRegenerationPending.compareAndSet(false, true)) {
+                    ctx.titleGenerationPending.set(true);
+                    triggerTitleGeneration(true, cid);
+                } else if (ctx.userMessageCount >= 1 && ctx.titleGenerationPending.compareAndSet(false, true)) {
+                    triggerTitleGeneration(false, cid);
+                }
+
+                uiDispatcher.accept(() -> {
+                    if (cb != null) {
+                        cb.accept(content);
+                    }
+                });
+            }
+            return true;
         } catch (Exception e) {
             return false;
         }
@@ -306,24 +321,35 @@ public class BackendBridge {
                             Consumer<ProgressEvent> onProgress,
                             Consumer<String> onResponse,
                             Consumer<String> onError) {
+        sendMessage(text, mediaPaths, onProgress, onResponse, onError, DEFAULT_CHAT_ID);
+    }
+
+    public void sendMessage(String text,
+                            List<String> mediaPaths,
+                            Consumer<ProgressEvent> onProgress,
+                            Consumer<String> onResponse,
+                            Consumer<String> onError,
+                            String chatId) {
         if (text == null || text.isBlank()) return;
         if (bus == null || agentLoop == null) {
             if (onError != null) uiDispatcher.accept(() -> onError.accept("bus 或 agentLoop 未初始化"));
             return;
         }
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
+        SessionContext ctx = getOrCreateContext(cid);
 
-        currentProgressCallback.set(onProgress);
-        currentResponseCallback.set(onResponse);
-        waitingForResponse = true;
+        ctx.currentProgressCallback.set(onProgress);
+        ctx.currentResponseCallback.set(onResponse);
+        ctx.waitingForResponse = true;
 
         CompletableFuture.runAsync(() -> {
             try {
                 InboundMessage in = new InboundMessage(
-                        CLI_CHANNEL, "user", CLI_CHAT_ID, text, mediaPaths, null);
+                        CLI_CHANNEL, "user", cid, text, mediaPaths, null);
                 bus.publishInbound(in).toCompletableFuture().join();
             } catch (Exception e) {
-                waitingForResponse = false;
-                currentResponseCallback.set(null);
+                ctx.waitingForResponse = false;
+                ctx.currentResponseCallback.set(null);
                 if (onError != null) {
                     uiDispatcher.accept(() -> onError.accept(e.getMessage()));
                 }
@@ -331,7 +357,7 @@ public class BackendBridge {
         }, executor);
 
         // 标题生成计数器（实际触发在收到回复后，确保 session 已包含本轮对话）
-        userMessageCount++;
+        ctx.userMessageCount++;
     }
 
     /**
@@ -347,16 +373,22 @@ public class BackendBridge {
      * 发送 /stop 命令
      */
     public void stopMessage() {
-        if (!waitingForResponse) return;
+        stopMessage(DEFAULT_CHAT_ID);
+    }
+
+    public void stopMessage(String chatId) {
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
+        SessionContext ctx = sessionContexts.get(cid);
+        if (ctx == null || !ctx.waitingForResponse) return;
 
         // 立即重置等待状态，避免 stop 后 always-waiting 导致无法继续对话
-        waitingForResponse = false;
-        currentResponseCallback.set(null);
+        ctx.waitingForResponse = false;
+        ctx.currentResponseCallback.set(null);
 
         CompletableFuture.runAsync(() -> {
             try {
                 InboundMessage stopMsg = new InboundMessage(
-                        CLI_CHANNEL, "user", CLI_CHAT_ID, "/stop", null, null);
+                        CLI_CHANNEL, "user", cid, "/stop", null, null);
                 bus.publishInbound(stopMsg).toCompletableFuture().join();
             } catch (Exception ignored) {
             }
@@ -368,23 +400,39 @@ public class BackendBridge {
     }
 
     /**
-     * 获取当前会话
+     * 获取当前默认会话
      */
     public Session getCurrentSession() {
-        if (sessionManager == null) return null;
-        return sessionManager.getOrCreate(sessionKey);
+        return getCurrentSession(DEFAULT_CHAT_ID);
     }
 
     /**
-     * 确保当前为全新会话（用于欢迎页启动），不通过 bus 发送 /clear，直接操作 SessionManager。
+     * 获取指定 chatId 的会话
+     */
+    public Session getCurrentSession(String chatId) {
+        if (sessionManager == null) return null;
+        return sessionManager.getOrCreate(sessionKey(chatId));
+    }
+
+    /**
+     * 确保默认会话为全新会话（用于欢迎页启动）。
      */
     public void ensureFreshSession() {
-        if (sessionManager == null) return;
-        userMessageCount = 0;
-        titleGenerationPending.set(false);
-        titleRegenerationPending.set(false);
+        ensureFreshSession(DEFAULT_CHAT_ID);
+    }
 
-        Session newSession = sessionManager.createNew(sessionKey);
+    /**
+     * 确保指定 chatId 的会话为全新会话。
+     */
+    public void ensureFreshSession(String chatId) {
+        if (sessionManager == null) return;
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
+        SessionContext ctx = getOrCreateContext(cid);
+        ctx.userMessageCount = 0;
+        ctx.titleGenerationPending.set(false);
+        ctx.titleRegenerationPending.set(false);
+
+        Session newSession = sessionManager.createNew(sessionKey(cid));
         ProjectRegistry newRegistry = createProjectRegistry(newSession.getSessionId());
         this.projectRegistry = newRegistry;
         if (agentLoop != null) {
@@ -396,12 +444,21 @@ public class BackendBridge {
      * 创建新会话：发送 /clear 命令让 AgentLoop 重置上下文
      */
     public Session newSession() {
-        if (sessionManager == null || bus == null) return null;
-        userMessageCount = 0;
-        titleGenerationPending.set(false);
-        titleRegenerationPending.set(false);
+        return newSession(DEFAULT_CHAT_ID);
+    }
 
-        Session newSession = sessionManager.createNew(sessionKey);
+    /**
+     * 为指定 chatId 创建新会话。
+     */
+    public Session newSession(String chatId) {
+        if (sessionManager == null || bus == null) return null;
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
+        SessionContext ctx = getOrCreateContext(cid);
+        ctx.userMessageCount = 0;
+        ctx.titleGenerationPending.set(false);
+        ctx.titleRegenerationPending.set(false);
+
+        Session newSession = sessionManager.createNew(sessionKey(cid));
 
         // 为新会话创建独立的 ProjectRegistry，避免上一轮绑定遗留
         ProjectRegistry newRegistry = createProjectRegistry(newSession.getSessionId());
@@ -414,7 +471,7 @@ public class BackendBridge {
         CompletableFuture.runAsync(() -> {
             try {
                 InboundMessage clearMsg = new InboundMessage(
-                        CLI_CHANNEL, "user", CLI_CHAT_ID, "/clear", null, null);
+                        CLI_CHANNEL, "user", cid, "/clear", null, null);
                 bus.publishInbound(clearMsg).toCompletableFuture().join();
             } catch (Exception ignored) {
             }
@@ -423,13 +480,21 @@ public class BackendBridge {
     }
 
     /**
-     * 恢复到指定会话
+     * 将指定会话恢复到默认 chatId
      */
     public void resumeSession(String sessionId) {
+        resumeSession(sessionId, DEFAULT_CHAT_ID);
+    }
+
+    /**
+     * 将指定会话恢复到指定 chatId
+     */
+    public void resumeSession(String sessionId, String chatId) {
         if (sessionManager == null) return;
-        sessionManager.resumeSession(sessionKey, sessionId);
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
+        sessionManager.resumeSession(sessionKey(cid), sessionId);
         // 清除缓存，强制下次 getOrCreate 从磁盘加载
-        sessionManager.evictFromCache(sessionKey);
+        sessionManager.evictFromCache(sessionKey(cid));
 
         // 为恢复的会话加载对应的 ProjectRegistry，避免上一轮绑定遗留
         ProjectRegistry sessionRegistry = createProjectRegistry(sessionId);
@@ -439,16 +504,17 @@ public class BackendBridge {
         }
 
         // 根据会话已有消息数初始化标题生成计数器，避免恢复历史后重复触发
-        Session session = sessionManager.getOrCreate(sessionKey);
+        Session session = sessionManager.getOrCreate(sessionKey(cid));
+        SessionContext ctx = getOrCreateContext(cid);
         int count = countUserMessages(session);
-        userMessageCount = count;
+        ctx.userMessageCount = count;
         if (count >= 3) {
             // 已有足够对话轮次，不再触发标题生成/更新
-            titleGenerationPending.set(true);
-            titleRegenerationPending.set(true);
+            ctx.titleGenerationPending.set(true);
+            ctx.titleRegenerationPending.set(true);
         } else {
-            titleGenerationPending.set(false);
-            titleRegenerationPending.set(false);
+            ctx.titleGenerationPending.set(false);
+            ctx.titleRegenerationPending.set(false);
         }
     }
 
@@ -465,25 +531,60 @@ public class BackendBridge {
     }
 
     /**
-     * 获取会话历史消息（直接从磁盘加载，不经缓存）
+     * 将会话加载到默认 chatId 并获取历史消息
      */
     public List<Map<String, Object>> getSessionHistory(String sessionId) {
+        return getSessionHistory(sessionId, DEFAULT_CHAT_ID);
+    }
+
+    /**
+     * 将会话加载到指定 chatId 并获取历史消息
+     */
+    public List<Map<String, Object>> getSessionHistory(String sessionId, String chatId) {
         if (sessionManager == null) return List.of();
-        sessionManager.resumeSession(sessionKey, sessionId);
-        sessionManager.evictFromCache(sessionKey);
-        Session session = sessionManager.getOrCreate(sessionKey);
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
+        sessionManager.resumeSession(sessionKey(cid), sessionId);
+        sessionManager.evictFromCache(sessionKey(cid));
+        Session session = sessionManager.getOrCreate(sessionKey(cid));
         return session.getHistory();
+    }
+
+    /**
+     * 创建一个新的独立会话上下文（用于新标签页）。
+     * 在 SessionManager 中创建对应 sessionKey 的全新会话。
+     */
+    public void createSession(String chatId) {
+        if (chatId == null || chatId.isBlank() || chatId.equals(DEFAULT_CHAT_ID)) return;
+        getOrCreateContext(chatId);
+        sessionManager.createNew(sessionKey(chatId));
+    }
+
+    /**
+     * 移除指定 chatId 的会话上下文（标签关闭时调用）。
+     * 如果该 chatId 有正在进行的消息，先发送 /stop。
+     */
+    public void removeSession(String chatId) {
+        if (chatId == null || chatId.isBlank() || chatId.equals(DEFAULT_CHAT_ID)) return;
+        SessionContext ctx = sessionContexts.get(chatId);
+        if (ctx != null && ctx.waitingForResponse) {
+            stopMessage(chatId);
+        }
+        sessionContexts.remove(chatId);
     }
 
     /**
      * 异步生成/更新会话标题
      * @param force 为 true 时即使已有标题也重新生成（对话深入后更新）
      */
-    private void triggerTitleGeneration(boolean force) {
+    private void triggerTitleGeneration(boolean force, String chatId) {
         if (provider == null || sessionManager == null) return;
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
+        SessionContext ctx = sessionContexts.get(cid);
+        if (ctx == null) return;
+
         CompletableFuture.runAsync(() -> {
             try {
-                Session session = getCurrentSession();
+                Session session = getCurrentSession(cid);
                 if (session == null) {
                     return;
                 }
@@ -547,7 +648,7 @@ public class BackendBridge {
                 log.warn("标题生成异常: " + e.getMessage());
             } finally {
                 // 重置标志位，允许下次消息重新尝试标题生成/更新
-                resetTitleFlags(force);
+                resetTitleFlags(force, cid);
             }
             // 通知 UI 刷新侧栏标题
             if (onTitleChanged != null) {
@@ -561,11 +662,13 @@ public class BackendBridge {
      * force=true 时重置 titleRegenerationPending；
      * force=false 时重置 titleGenerationPending（允许下次消息重试）。
      */
-    private void resetTitleFlags(boolean force) {
+    private void resetTitleFlags(boolean force, String chatId) {
+        SessionContext ctx = sessionContexts.get(chatId);
+        if (ctx == null) return;
         if (force) {
-            titleRegenerationPending.set(false);
+            ctx.titleRegenerationPending.set(false);
         } else {
-            titleGenerationPending.set(false);
+            ctx.titleGenerationPending.set(false);
         }
     }
 
@@ -761,14 +864,23 @@ public class BackendBridge {
     }
 
     /**
-     * 重命名指定会话的标题。
+     * 重命名指定会话的标题（使用默认 chatId）。
      * @return true 如果 session 存在并更新成功
      */
     public boolean renameSession(String sessionId, String newTitle) {
+        return renameSession(sessionId, newTitle, DEFAULT_CHAT_ID);
+    }
+
+    /**
+     * 重命名指定会话的标题（指定 chatId）。
+     * @return true 如果 session 存在并更新成功
+     */
+    public boolean renameSession(String sessionId, String newTitle, String chatId) {
         if (sessionManager == null || newTitle == null || newTitle.isBlank()) return false;
+        String cid = chatId != null ? chatId : DEFAULT_CHAT_ID;
         try {
-            sessionManager.resumeSession(sessionKey, sessionId);
-            Session session = sessionManager.getOrCreate(sessionKey);
+            sessionManager.resumeSession(sessionKey(cid), sessionId);
+            Session session = sessionManager.getOrCreate(sessionKey(cid));
             if (session == null) return false;
             session.getMetadata().put("title", newTitle.trim());
             sessionManager.save(session);
@@ -784,12 +896,21 @@ public class BackendBridge {
     }
 
     /**
-     * 重置标题生成计数器（切换会话时调用）
+     * 重置默认会话的标题生成计数器
      */
     public void resetTitleCounter() {
-        userMessageCount = 0;
-        titleGenerationPending.set(false);
-        titleRegenerationPending.set(false);
+        resetTitleCounter(DEFAULT_CHAT_ID);
+    }
+
+    /**
+     * 重置指定 chatId 的标题生成计数器
+     */
+    public void resetTitleCounter(String chatId) {
+        SessionContext ctx = sessionContexts.get(chatId);
+        if (ctx == null) return;
+        ctx.userMessageCount = 0;
+        ctx.titleGenerationPending.set(false);
+        ctx.titleRegenerationPending.set(false);
     }
 
     /**
@@ -1014,27 +1135,46 @@ public class BackendBridge {
     }
 
     public String getSessionKey() {
-        return sessionKey;
+        return sessionKey(DEFAULT_CHAT_ID);
+    }
+
+    public String getSessionKey(String chatId) {
+        return sessionKey(chatId);
     }
 
     public boolean isWaitingForResponse() {
-        return waitingForResponse;
+        return isWaitingForResponse(DEFAULT_CHAT_ID);
+    }
+
+    public boolean isWaitingForResponse(String chatId) {
+        SessionContext ctx = sessionContexts.get(chatId);
+        return ctx != null && ctx.waitingForResponse;
     }
 
     /** 获取最近一次回复的推理内容（可能为 null） */
     public String getLastReasoningContent() {
-        return lastReasoningContent;
+        return getLastReasoningContent(DEFAULT_CHAT_ID);
+    }
+
+    /** 获取指定 chatId 的推理内容 */
+    public String getLastReasoningContent(String chatId) {
+        SessionContext ctx = sessionContexts.get(chatId);
+        return ctx != null ? ctx.lastReasoningContent : null;
     }
 
     /**
-     * 获取当前会话的上下文使用率 (0.0 ~ 1.0)。
-     *
-     * 用于状态栏展示。有真实 usage 数据时使用 lastCall 的 prompt tokens；
-     * 首轮无数据时回退到消息字符估算。
+     * 获取默认会话的上下文使用率 (0.0 ~ 1.0)。
      */
     public double getContextUsageRatio() {
+        return getContextUsageRatio(DEFAULT_CHAT_ID);
+    }
+
+    /**
+     * 获取指定 chatId 的上下文使用率 (0.0 ~ 1.0)。
+     */
+    public double getContextUsageRatio(String chatId) {
         if (agentLoop == null || sessionManager == null) return 0.0;
-        Session session = sessionManager.getOrCreate(sessionKey);
+        Session session = sessionManager.getOrCreate(sessionKey(chatId));
         if (session == null) return 0.0;
         UsageAccumulator usageAcc = session.obtainLastUsage();
         List<Map<String, Object>> messages = session.getMessages();

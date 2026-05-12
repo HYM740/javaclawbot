@@ -24,6 +24,7 @@ enum class ViewMode { BUBBLE, LIST }
 @Composable
 fun ChatPage(
     bridge: Bridge?,
+    chatId: String = "direct",
     messages: List<ChatMessage>,
     onMessagesChanged: (List<ChatMessage>) -> Unit,
     isLoading: Boolean,
@@ -37,11 +38,11 @@ fun ChatPage(
     var latestMessages by remember { mutableStateOf(messages) }
     SideEffect { latestMessages = messages }
 
-    LaunchedEffect(bridge) {
+    LaunchedEffect(bridge, chatId) {
         bridge ?: return@LaunchedEffect
         val model = bridge.config?.agents?.defaults?.model ?: ""
         statusText = "● 模型就绪 · $model"
-        contextUsage = bridge.getContextUsageRatio().toFloat()
+        contextUsage = bridge.getContextUsageRatio(chatId).toFloat()
     }
 
     LaunchedEffect(messages.size) {
@@ -99,38 +100,81 @@ fun ChatPage(
             onSend = { text, mediaPaths ->
                 val model = bridge?.config?.agents?.defaults?.model ?: ""
                 statusText = "● 思考中..."
-                contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
+                contextUsage = bridge?.getContextUsageRatio(chatId)?.toFloat() ?: 0f
+
+                // 本轮对话的消息列表（快照），在进度事件中直接追加/修改
+                val exchangeMsgs = latestMessages.toMutableList()
+                // 添加用户消息
+                val userMsg = ChatMessage(
+                    id = "user_${System.currentTimeMillis()}",
+                    role = ChatMessage.Role.USER,
+                    content = text
+                )
+                exchangeMsgs.add(userMsg)
+                onMessagesChanged(exchangeMsgs.toList())
+
                 bridge?.sendMessage(
                     text = text,
                     mediaPaths = mediaPaths,
-                    onProgress = { /* handled externally */ },
+                    onProgress = { progress ->
+                        if (progress.isToolHint) {
+                            // Tool 调用开始时添加运行中条目
+                            val toolName = progress.toolName ?: progress.content ?: "unknown"
+                            exchangeMsgs.add(ChatMessage(
+                                id = "tool_${System.currentTimeMillis()}_${toolName}",
+                                role = ChatMessage.Role.ASSISTANT,
+                                content = "",
+                                toolCalls = listOf(ToolCall(
+                                    name = toolName,
+                                    status = ToolStatus.RUNNING,
+                                    params = progress.content
+                                ))
+                            ))
+                            onMessagesChanged(exchangeMsgs.toList())
+                        } else if (progress.isToolResult) {
+                            // Tool 返回结果：更新最后一条 RUNNING tool 调用的状态
+                            val resultContent = progress.content ?: ""
+                            val tn = progress.toolName
+                            val lastToolIdx = exchangeMsgs.indexOfLast { msg ->
+                                msg.toolCalls.any { it.status == ToolStatus.RUNNING && (tn == null || it.name == tn) }
+                            }
+                            if (lastToolIdx >= 0) {
+                                val lastMsg = exchangeMsgs[lastToolIdx]
+                                val updatedCalls = lastMsg.toolCalls.map { call ->
+                                    if (call.status == ToolStatus.RUNNING && (tn == null || call.name == tn)) {
+                                        call.copy(status = ToolStatus.COMPLETED, result = resultContent)
+                                    } else call
+                                }
+                                exchangeMsgs[lastToolIdx] = lastMsg.copy(toolCalls = updatedCalls)
+                                onMessagesChanged(exchangeMsgs.toList())
+                            }
+                        }
+                    },
                     onResponse = { response ->
                         statusText = "● 模型就绪 · $model"
-                        contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
-                        onMessagesChanged(latestMessages + ChatMessage(
+                        contextUsage = bridge?.getContextUsageRatio(chatId)?.toFloat() ?: 0f
+                        exchangeMsgs.add(ChatMessage(
                             id = "ai_${System.currentTimeMillis()}",
                             role = ChatMessage.Role.ASSISTANT,
                             content = response,
-                            reasoning = bridge?.lastReasoningContent
+                            reasoning = bridge?.getLastReasoningContent(chatId)
                         ))
+                        onMessagesChanged(exchangeMsgs.toList())
                     },
                     onError = { error ->
                         statusText = "● 错误"
-                        contextUsage = bridge?.getContextUsageRatio()?.toFloat() ?: 0f
-                        onMessagesChanged(latestMessages + ChatMessage(
+                        contextUsage = bridge?.getContextUsageRatio(chatId)?.toFloat() ?: 0f
+                        exchangeMsgs.add(ChatMessage(
                             id = "err_${System.currentTimeMillis()}",
                             role = ChatMessage.Role.SYSTEM,
                             content = "⚠ $error"
                         ))
-                    }
+                        onMessagesChanged(exchangeMsgs.toList())
+                    },
+                    chatId = chatId
                 )
-                onMessagesChanged(latestMessages + ChatMessage(
-                    id = "user_${System.currentTimeMillis()}",
-                    role = ChatMessage.Role.USER,
-                    content = text
-                ))
             },
-            onStop = { bridge?.stopMessage() }
+            onStop = { bridge?.stopMessage(chatId) }
         )
     }
 }

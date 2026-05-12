@@ -99,25 +99,28 @@ public final class Helpers {
         if (toolCalls == null || toolCalls.isEmpty()) return "";
         List<String> parts = new ArrayList<>();
         for (var tc : toolCalls) {
-            // Prefer file_path argument for display — shows filename in tool card
-            if (tc.getArguments() != null && tc.getArguments().containsKey("file_path")) {
-                Object fp = tc.getArguments().get("file_path");
-                if (fp instanceof String sfp && !sfp.isBlank()) {
-                    String name = sfp.replace('\\', '/');
-                    int lastSlash = name.lastIndexOf('/');
-                    parts.add(tc.getName() + " " + (lastSlash >= 0 ? name.substring(lastSlash + 1) : name));
-                    continue;
+            Map<String, Object> args = tc.getArguments();
+            if (args != null && !args.isEmpty()) {
+                // 构建 toolName(key1="val1", key2="val2", ...) 格式
+                List<String> argParts = new ArrayList<>();
+                for (var entry : args.entrySet()) {
+                    Object v = entry.getValue();
+                    if (v instanceof String s) {
+                        // 文件路径参数只显示文件名
+                        if ("file_path".equals(entry.getKey())) {
+                            String name = s.replace('\\', '/');
+                            int lastSlash = name.lastIndexOf('/');
+                            argParts.add(lastSlash >= 0 ? name.substring(lastSlash + 1) : name);
+                        } else {
+                            argParts.add(s);
+                        }
+                    } else {
+                        argParts.add(String.valueOf(v));
+                    }
                 }
-            }
-            Object val = (tc.getArguments() != null && !tc.getArguments().isEmpty())
-                    ? tc.getArguments().values().iterator().next()
-                    : null;
-            if (!(val instanceof String s)) {
-                parts.add(tc.getName());
+                parts.add(tc.getName() + "(" + String.join(", ", argParts) + ")");
             } else {
-                parts.add(s.length() > 40
-                        ? tc.getName() + "(\"" + s.substring(0, 40) + "…\")"
-                        : tc.getName() + "(\"" + s + "\")");
+                parts.add(tc.getName());
             }
         }
         return String.join(", ", parts);
