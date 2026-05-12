@@ -206,8 +206,6 @@ public class BackgroundAgentExecutor {
                     // Publish completed event
                     publishSubagentProgress(taskId, "completed", null, null, null, null, 0);
 
-                } finally {
-
                 }
 
             } catch (CancellationException e) {
