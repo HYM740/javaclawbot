@@ -2358,6 +2358,9 @@ public class AgentLoop {
                 // 设置当前 sessionKey 供 Tool 使用
                 cliAgentHandler.setCurrentSessionKey(sessionKey);
 
+                // 设置当前 tool_call_id 供工具执行中访问
+                toolContext.setCurrentToolCallId(tc.getId());
+
                 return tools.execute(tc.getName(), tc.getArguments(), toolContext)
                         .whenComplete((result, ex) -> {
                             // 清除 sessionKey 和 ToolUseContext

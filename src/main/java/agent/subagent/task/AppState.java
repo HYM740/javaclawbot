@@ -177,6 +177,17 @@ public class AppState {
         return agentNameRegistry.remove(agentId);
     }
 
+    /**
+     * Gets all active (non-terminal) tasks.
+     *
+     * @return list of active task states
+     */
+    public java.util.List<TaskState> getActiveTasks() {
+        return tasks.values().stream()
+                .filter(t -> !t.isTerminal())
+                .collect(java.util.stream.Collectors.toList());
+    }
+
     // =====================
     // 静态方法（对应 Open-ClaudeCode framework.ts）
     // =====================

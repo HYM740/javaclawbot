@@ -176,6 +176,9 @@ public class ToolUseContext {
     /** 非交互会话标志 */
     private Boolean isNonInteractiveSession;
 
+    /** 当前正在执行的工具调用 ID（动态设置，不在 Builder 中） */
+    private String currentToolCallId;
+
     private ToolUseContext(Builder builder) {
         // 基础字段
         this.tools = builder.tools;
@@ -329,6 +332,7 @@ public class ToolUseContext {
     public Boolean getRequireCanUseTool() { return requireCanUseTool; }
     public Boolean getIsNonInteractiveSession() { return isNonInteractiveSession; }
     public ToolView getToolView() { return toolView; }
+    public String getCurrentToolCallId() { return currentToolCallId; }
 
     // ==================== Setters (用于 Builder 链式调用) ====================
 
@@ -340,6 +344,7 @@ public class ToolUseContext {
     public void setDiscoveredSkillNames(Set<String> discoveredSkillNames) { this.discoveredSkillNames = discoveredSkillNames; }
     public void setQueryTracking(QueryTracking queryTracking) { this.queryTracking = queryTracking; }
     public void setIsNonInteractiveSession(Boolean isNonInteractiveSession) { this.isNonInteractiveSession = isNonInteractiveSession; }
+    public void setCurrentToolCallId(String currentToolCallId) { this.currentToolCallId = currentToolCallId; }
 
     public static Builder builder() {
         return new Builder();
