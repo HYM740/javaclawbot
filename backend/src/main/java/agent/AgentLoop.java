@@ -2367,6 +2367,8 @@ public class AgentLoop {
                                "tool_name", tc.getName(),
                                "tool_call_id", tc.getId())
                 ));
+                // 设置当前 tool_call_id 供工具执行中访问
+                toolContext.setCurrentToolCallId(tc.getId());
 
                 return tools.execute(tc.getName(), tc.getArguments(), toolContext)
                         .whenComplete((result, ex) -> {
