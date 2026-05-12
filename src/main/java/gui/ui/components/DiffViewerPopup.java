@@ -1,338 +1,239 @@
 package gui.ui.components;
 
 import agent.tool.file.FileBackupManager;
-import javafx.application.Platform;
-import javafx.geometry.Insets;
-import javafx.geometry.Pos;
-import javafx.scene.Scene;
-import javafx.scene.control.Label;
-import javafx.scene.control.ScrollPane;
-import javafx.scene.input.KeyCode;
-import javafx.scene.layout.*;
-import javafx.scene.paint.Color;
-import javafx.stage.Stage;
-import javafx.stage.StageStyle;
-
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import javafx.scene.Scene;
+import javafx.scene.input.KeyCode;
+import javafx.scene.layout.StackPane;
+import javafx.scene.paint.Color;
+import javafx.scene.web.WebView;
+import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 
 /**
- * IDEA 分屏风格差异查看器弹窗。
+ * IDEA 分屏风格差异查看器弹窗 — 全 WebView 渲染。
  * <p>
- * 左右分屏对比，白色主题。
- * - 左屏：原始版本（红色背景标记删除行）
- * - 右屏：当前版本（绿色背景标记新增行）
- * - 顶部工具栏：文件信息 + 差异导航 + 回滚按钮
- * - 无边框弹窗，半透明遮罩
+ * 左右分屏对比，白色主题，支持文本选择与复制。
  */
 public class DiffViewerPopup {
 
     private static final double DEFAULT_WIDTH = 700;
     private static final double DEFAULT_HEIGHT = 380;
 
-    /** 差异行类型 */
-    private enum DiffType { UNCHANGED, ADDED, REMOVED }
+    private static final String HTML_TEMPLATE =
+        "<!DOCTYPE html><html style='height:100%;'>"
+        + "<head><meta charset='UTF-8'><style>"
+        + "*{margin:0;padding:0;box-sizing:border-box;}"
+        + "body{font-family:'JetBrains Mono','Fira Code',monospace;font-size:12px;"
+        + "background:#fff;color:rgba(0,0,0,0.7);display:flex;flex-direction:column;height:100%;}"
+        + ".toolbar{display:flex;align-items:center;padding:8px 16px;background:#f8f9fa;"
+        + "border-bottom:1px solid rgba(0,0,0,0.08);flex-shrink:0;}"
+        + ".toolbar .file{font-size:13px;font-weight:500;margin-right:12px;}"
+        + ".toolbar .ts{font-size:11px;color:rgba(0,0,0,0.4);margin-right:auto;}"
+        + ".toolbar button{border:none;background:rgba(0,0,0,0.06);border-radius:4px;"
+        + "padding:2px 10px;font-size:11px;cursor:pointer;margin:0 2px;color:rgba(0,0,0,0.6);}"
+        + ".toolbar button.rollback{background:#ef4444;color:white;font-weight:500;padding:3px 12px;}"
+        + ".toolbar .nav{font-size:11px;color:rgba(0,0,0,0.4);padding:0 4px;}"
+        + ".toolbar .sep{width:1px;height:20px;background:rgba(0,0,0,0.08);margin:0 4px;}"
+        + ".split{display:flex;flex:1;overflow:hidden;}"
+        + ".side{flex:1;display:flex;flex-direction:column;overflow:hidden;}"
+        + ".side:first-child{border-right:2px solid rgba(0,0,0,0.06);}"
+        + ".side-header{display:flex;justify-content:space-between;padding:4px 12px;"
+        + "background:#f8f9fa;border-bottom:1px solid rgba(0,0,0,0.06);font-size:11px;"
+        + "color:rgba(0,0,0,0.5);flex-shrink:0;}"
+        + ".code{flex:1;overflow-y:auto;overflow-x:auto;}"
+        + ".line{display:flex;height:20px;line-height:20px;}"
+        + ".line .ln{width:36px;text-align:right;padding-right:8px;"
+        + "color:rgba(0,0,0,0.25);font-size:11px;user-select:none;flex-shrink:0;}"
+        + ".line .txt{padding-left:4px;white-space:pre;overflow:hidden;flex:1;}"
+        + ".line.removed{background:#fff0f0;}"
+        + ".line.removed .ln{background:#fff0f0;}"
+        + ".line.added{background:#f0fff0;}"
+        + ".line.added .ln{background:#f0fff0;}"
+        + ".line.empty{background:rgba(0,0,0,0.02);}"
+        + ".statusbar{display:flex;justify-content:space-between;padding:4px 16px;"
+        + "background:#f8f9fa;border-top:1px solid rgba(0,0,0,0.06);"
+        + "font-size:11px;color:rgba(0,0,0,0.4);flex-shrink:0;}"
+        + ".statusbar .del{color:#dc2626;}"
+        + ".statusbar .add{color:#16a34a;}"
+        + "</style></head><body>%s</body></html>";
 
-    /** 左右屏配对行 */
+    private enum DiffType { UNCHANGED, ADDED, REMOVED }
     private record DiffLinePair(String oldLine, String newLine, DiffType type,
                                  int oldLineNum, int newLineNum) {}
 
     private DiffViewerPopup() {}
 
-    /**
-     * 显示差异对比弹窗。
-     *
-     * @param originalPath  被修改的文件路径
-     * @param entry         备份版本条目
-     * @param backupManager 备份管理器（用于回滚操作）
-     */
     public static void show(Path originalPath, FileBackupManager.BackupEntry entry,
                             FileBackupManager backupManager) {
-        // 读取内容
         String oldContent;
         String newContent;
         try {
             oldContent = Files.readString(entry.backupFilePath(), StandardCharsets.UTF_8);
             newContent = Files.exists(originalPath)
-                    ? Files.readString(originalPath, StandardCharsets.UTF_8)
-                    : "";
+                    ? Files.readString(originalPath, StandardCharsets.UTF_8) : "";
         } catch (IOException e) {
             return;
         }
 
         List<String> oldLines = List.of(oldContent.split("\n", -1));
         List<String> newLines = List.of(newContent.split("\n", -1));
-
-        // 计算差异
         List<DiffLinePair> diffLines = computeDiff(oldLines, newLines);
+
+        String fileName = originalPath.getFileName().toString();
+        String ts = formatTimestamp(entry.timestamp());
+
+        long removed = diffLines.stream().filter(d -> d.type() == DiffType.REMOVED).count();
+        long added = diffLines.stream().filter(d -> d.type() == DiffType.ADDED).count();
+
+        StringBuilder html = new StringBuilder();
+
+        // Toolbar
+        html.append("<div class='toolbar'>");
+        html.append("<span class='file'>📄 ").append(esc(fileName)).append("</span>");
+        html.append("<span class='ts'>← v1 · ").append(ts).append("</span>");
+        html.append("<button onclick='prevHunk()'>◀</button>");
+        html.append("<span class='nav' id='hunk-nav'>1 / ").append(countHunks(diffLines)).append("</span>");
+        html.append("<button onclick='nextHunk()'>▶</button>");
+        html.append("<span class='sep'></span>");
+        html.append("<button class='rollback' onclick='window.status=\"rollback\"'>↺ 回滚</button>");
+        html.append("<button onclick='window.status=\"close\"' style='font-size:14px;padding:0 4px;'>✕</button>");
+        html.append("</div>");
+
+        // Split
+        html.append("<div class='split'>");
+
+        // Left side (original)
+        html.append("<div class='side'>");
+        html.append("<div class='side-header'><span>原始版本</span><span>v1 · ").append(ts).append("</span></div>");
+        html.append("<div class='code' id='left-code'>");
+        for (int i = 0; i < diffLines.size(); i++) {
+            DiffLinePair d = diffLines.get(i);
+            int ln = d.oldLineNum();
+            String text = esc(d.oldLine());
+            boolean isEmpty = d.type() == DiffType.ADDED;
+            String cls = isEmpty ? "empty" : (d.type() == DiffType.REMOVED ? "removed" : "");
+            html.append(renderLine(ln, isEmpty ? "" : text, cls, i));
+        }
+        html.append("</div></div>");
+
+        // Right side (current)
+        html.append("<div class='side'>");
+        html.append("<div class='side-header'><span>当前版本</span><span>已修改</span></div>");
+        html.append("<div class='code' id='right-code'>");
+        for (int i = 0; i < diffLines.size(); i++) {
+            DiffLinePair d = diffLines.get(i);
+            int ln = d.newLineNum();
+            String text = esc(d.newLine());
+            boolean isEmpty = d.type() == DiffType.REMOVED;
+            String cls = isEmpty ? "empty" : (d.type() == DiffType.ADDED ? "added" : "");
+            html.append(renderLine(ln, isEmpty ? "" : text, cls, i));
+        }
+        html.append("</div></div>");
+
+        html.append("</div>");
+
+        // Status bar
+        html.append("<div class='statusbar'>");
+        html.append("<span><span class='del'>").append(removed).append(" 处删除</span>  <span class='add'>")
+             .append(added).append(" 处新增</span></span>");
+        html.append("<span>分屏对比</span>");
+        html.append("</div>");
+
+        // Hunk navigation script
+        html.append("<script>");
+        html.append("var hunks=[");
+        boolean inHunk = false;
+        List<Integer> hunkStarts = new ArrayList<>();
+        for (int i = 0; i < diffLines.size(); i++) {
+            DiffLinePair d = diffLines.get(i);
+            if (d.type() != DiffType.UNCHANGED) {
+                if (!inHunk) {
+                    hunkStarts.add(i);
+                    inHunk = true;
+                }
+            } else {
+                inHunk = false;
+            }
+        }
+        for (int hi = 0; hi < hunkStarts.size(); hi++) {
+            if (hi > 0) html.append(",");
+            html.append(hunkStarts.get(hi));
+        }
+        html.append("];var currentHunk=0;var totalHunks=hunks.length||1;");
+        html.append("function scrollToHunk(idx){if(hunks.length===0)return;");
+        html.append("var line=hunks[Math.min(idx,hunks.length-1)];");
+        html.append("var left=document.getElementById('left-code');");
+        html.append("var right=document.getElementById('right-code');");
+        html.append("var target=left.children[line];if(target){target.scrollIntoView({block:'center'});}");
+        html.append("if(right.children[line]){right.children[line].scrollIntoView({block:'center'});}");
+        html.append("document.getElementById('hunk-nav').textContent=(idx+1)+' / '+totalHunks;}");
+        html.append("function prevHunk(){if(currentHunk>0)currentHunk--;scrollToHunk(currentHunk);}");
+        html.append("function nextHunk(){if(currentHunk<totalHunks-1)currentHunk++;scrollToHunk(currentHunk);}");
+        html.append("</script>");
+
+        String fullHtml = String.format(HTML_TEMPLATE, html.toString());
 
         Stage stage = new Stage();
         stage.initStyle(StageStyle.TRANSPARENT);
 
-        VBox root = new VBox(0);
+        WebView wv = new WebView();
+        wv.setContextMenuEnabled(true);
+        wv.setStyle("-fx-background-color: white;");
+        wv.getEngine().setOnStatusChanged(event -> {
+            String s = event.getData();
+            if ("close".equals(s)) {
+                stage.close();
+            } else if ("rollback".equals(s) && backupManager != null) {
+                backupManager.restore(originalPath, entry);
+                stage.close();
+            }
+        });
+        wv.getEngine().load(toDataUri(fullHtml));
+
+        StackPane root = new StackPane(wv);
         root.setStyle("-fx-background-color: white; -fx-background-radius: 12px;"
                 + " -fx-border-color: rgba(0,0,0,0.08); -fx-border-radius: 12px;"
                 + " -fx-border-width: 1px;"
                 + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.2), 20, 0, 0, 8);");
 
-        // 构建 UI
-        buildUI(root, originalPath, entry, diffLines, backupManager, stage);
-
-        // 统计变更
-        long removed = diffLines.stream().filter(d -> d.type() == DiffType.REMOVED).count();
-        long added = diffLines.stream().filter(d -> d.type() == DiffType.ADDED).count();
-
-        // 底部状态栏
-        HBox statusBar = new HBox();
-        statusBar.setPadding(new Insets(4, 16, 4, 16));
-        statusBar.setStyle("-fx-background-color: #f8f9fa;"
-                + " -fx-background-radius: 0 0 12px 12px;"
-                + " -fx-border-color: rgba(0,0,0,0.06) transparent transparent transparent;"
-                + " -fx-border-width: 1 0 0 0;");
-
-        String stats = String.format("\u25CF <span style='color:#dc2626;'>%d 处删除</span>"
-                + "  \u25CF <span style='color:#16a34a;'>%d 处新增</span>", removed, added);
-        Label statsLabel = new Label(removed + " 处删除  |  " + added + " 处新增");
-        statsLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.4);");
-
-        Region spacer2 = new Region();
-        HBox.setHgrow(spacer2, Priority.ALWAYS);
-
-        Label modeLabel = new Label("分屏对比");
-        modeLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.2);");
-
-        statusBar.getChildren().addAll(statsLabel, spacer2, modeLabel);
-        root.getChildren().add(statusBar);
-
-        // Scene
         Scene scene = new Scene(root, DEFAULT_WIDTH, DEFAULT_HEIGHT);
         scene.setFill(Color.TRANSPARENT);
-        scene.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ESCAPE) stage.close();
-        });
+        scene.setOnKeyPressed(e -> { if (e.getCode() == KeyCode.ESCAPE) stage.close(); });
         stage.setScene(scene);
 
-        // 居中
         if (stage.getOwner() != null) {
-            stage.setX(stage.getOwner().getX()
-                    + (stage.getOwner().getWidth() - DEFAULT_WIDTH) / 2);
-            stage.setY(stage.getOwner().getY()
-                    + (stage.getOwner().getHeight() - DEFAULT_HEIGHT) / 2);
+            stage.setX(stage.getOwner().getX() + (stage.getOwner().getWidth() - DEFAULT_WIDTH) / 2);
+            stage.setY(stage.getOwner().getY() + (stage.getOwner().getHeight() - DEFAULT_HEIGHT) / 2);
         }
-
         stage.show();
     }
 
-    /** 构建弹窗主体 UI */
-    private static void buildUI(VBox root, Path originalPath,
-                                 FileBackupManager.BackupEntry entry,
-                                 List<DiffLinePair> diffLines,
-                                 FileBackupManager backupManager,
-                                 Stage stage) {
-        // ---- 顶部工具栏 ----
-        HBox toolbar = new HBox();
-        toolbar.setAlignment(Pos.CENTER_LEFT);
-        toolbar.setPadding(new Insets(8, 16, 8, 16));
-        toolbar.setStyle("-fx-background-color: #f8f9fa;"
-                + " -fx-background-radius: 12px 12px 0 0;"
-                + " -fx-border-color: transparent transparent rgba(0,0,0,0.08) transparent;"
-                + " -fx-border-width: 0 0 1 0;");
+    // ===== Diff Algorithm (LCS) =====
 
-        Label fileLabel = new Label("\uD83D\uDCC4 " + originalPath.getFileName());
-        fileLabel.setStyle("-fx-font-size: 13px; -fx-font-weight: 500; -fx-text-fill: rgba(0,0,0,0.8);");
-
-        String displayTs = entry.timestamp() != null && !entry.timestamp().isEmpty()
-                ? entry.timestamp().replace("_", " ") : "";
-        if (displayTs.length() > 19) displayTs = displayTs.substring(0, 19);
-        Label tsLabel = new Label("\u2190 v1 \u00B7 " + displayTs);
-        tsLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.4);");
-        tsLabel.setPadding(new Insets(0, 0, 0, 12));
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-
-        // 差异导航
-        Label prevBtn = new Label("\u25C0"); // ◀
-        prevBtn.setStyle("-fx-background-color: rgba(0,0,0,0.06); -fx-background-radius: 4px;"
-                + " -fx-padding: 2px 10px; -fx-font-size: 11px;"
-                + " -fx-text-fill: rgba(0,0,0,0.6); -fx-cursor: hand;");
-
-        Label navLabel = new Label("1 / " + countHunks(diffLines));
-        navLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.4);");
-        navLabel.setPadding(new Insets(0, 4, 0, 4));
-
-        Label nextBtn = new Label("\u25B6"); // ▶
-        nextBtn.setStyle("-fx-background-color: rgba(0,0,0,0.06); -fx-background-radius: 4px;"
-                + " -fx-padding: 2px 10px; -fx-font-size: 11px;"
-                + " -fx-text-fill: rgba(0,0,0,0.6); -fx-cursor: hand;");
-
-        // 分隔线
-        Label sep1 = new Label("|");
-        sep1.setStyle("-fx-text-fill: rgba(0,0,0,0.08); -fx-font-size: 14px; -fx-padding: 0 4px;");
-
-        // 回滚按钮
-        Label rollbackBtn = new Label("\u21BA 回滚");
-        rollbackBtn.setStyle("-fx-background-color: #ef4444; -fx-text-fill: white;"
-                + " -fx-background-radius: 4px; -fx-padding: 3px 12px; -fx-font-size: 11px;"
-                + " -fx-cursor: hand; -fx-font-weight: 500;");
-
-        // 关闭按钮
-        Label closeBtn = new Label("\u2715"); // ✕
-        closeBtn.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.3);"
-                + " -fx-cursor: hand; -fx-padding: 0 4px;");
-
-        toolbar.getChildren().addAll(fileLabel, tsLabel, spacer,
-                prevBtn, navLabel, nextBtn, sep1, rollbackBtn, closeBtn);
-        root.getChildren().add(toolbar);
-
-        // ---- 左右分屏 ----
-        HBox splitPane = new HBox();
-        splitPane.setStyle("-fx-background-color: white;");
-
-        // 左屏（原始版本）
-        VBox leftPane = createSidePanel("原始版本", "v1 \u00B7 " + displayTs, diffLines, true);
-        // 右屏（当前版本）
-        VBox rightPane = createSidePanel("当前版本", "已修改", diffLines, false);
-
-        splitPane.getChildren().addAll(leftPane, rightPane);
-        VBox.setVgrow(splitPane, Priority.ALWAYS);
-        root.getChildren().add(splitPane);
-
-        // ---- 事件绑定 ----
-        closeBtn.setOnMouseClicked(e -> stage.close());
-        rollbackBtn.setOnMouseClicked(e -> {
-            if (backupManager != null) {
-                backupManager.restore(originalPath, entry);
-                stage.close();
-            }
-        });
-    }
-
-    /** 创建一侧面板（左屏或右屏） */
-    private static VBox createSidePanel(String title, String subtitle,
-                                         List<DiffLinePair> diffLines, boolean isLeft) {
-        VBox panel = new VBox(0);
-        HBox.setHgrow(panel, Priority.ALWAYS);
-
-        // 侧边边框：左屏右边界，右屏无边框
-        String borderStyle = isLeft
-                ? "-fx-border-color: transparent rgba(0,0,0,0.06) transparent transparent;"
-                + " -fx-border-width: 0 2px 0 0;"
-                : "";
-
-        // 头部
-        HBox header = new HBox();
-        header.setPadding(new Insets(4, 12, 4, 12));
-        header.setStyle("-fx-background-color: #f8f9fa;"
-                + " -fx-border-color: transparent transparent rgba(0,0,0,0.06) transparent;"
-                + " -fx-border-width: 0 0 1 0;" + borderStyle);
-
-        Label titleLabel = new Label(title);
-        titleLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.5);");
-
-        Region hSpacer = new Region();
-        HBox.setHgrow(hSpacer, Priority.ALWAYS);
-
-        Label subLabel = new Label(subtitle);
-        subLabel.setStyle("-fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.4);");
-
-        header.getChildren().addAll(titleLabel, hSpacer, subLabel);
-        panel.getChildren().add(header);
-
-        // 代码区域
-        VBox codeBox = new VBox(0);
-        codeBox.setStyle("-fx-background-color: white; -fx-font-family: 'JetBrains Mono', 'Fira Code', monospace;"
-                + " -fx-font-size: 12px;" + borderStyle);
-
-        int lineHeight = 20;
-        for (int i = 0; i < diffLines.size(); i++) {
-            DiffLinePair line = diffLines.get(i);
-            int lineNum = isLeft ? line.oldLineNum() : line.newLineNum();
-            String text = isLeft ? line.oldLine() : line.newLine();
-            boolean isEmpty = (isLeft && line.type() == DiffType.ADDED)
-                    || (!isLeft && line.type() == DiffType.REMOVED);
-
-            String bg;
-            if (isEmpty) {
-                bg = "rgba(0,0,0,0.02)"; // 空占位行
-            } else if (line.type() == DiffType.REMOVED) {
-                bg = isLeft ? "#fff0f0" : "rgba(0,0,0,0.02)"; // 删除行在左屏高亮
-            } else if (line.type() == DiffType.ADDED) {
-                bg = isLeft ? "rgba(0,0,0,0.02)" : "#f0fff0"; // 新增行在右屏高亮
-            } else {
-                bg = "white";
-            }
-
-            HBox lineRow = new HBox(0);
-            lineRow.setStyle("-fx-background-color: " + bg + ";");
-
-            // 行号
-            Label numLabel = new Label(lineNum > 0 ? String.valueOf(lineNum) : "");
-            numLabel.setStyle("-fx-background-color: " + bg + ";"
-                    + " -fx-min-width: 32px; -fx-max-width: 32px;"
-                    + " -fx-alignment: center-right;"
-                    + " -fx-padding: 0 8px 0 0;"
-                    + " -fx-text-fill: rgba(0,0,0,0.25);"
-                    + " -fx-font-size: 11px;");
-            numLabel.setMinWidth(32);
-            numLabel.setPrefHeight(lineHeight);
-
-            // 代码内容
-            Label codeLabel = new Label(isEmpty ? "" : text);
-            codeLabel.setStyle("-fx-background-color: " + bg + ";"
-                    + " -fx-padding: 0 8px 0 4px;"
-                    + " -fx-text-fill: rgba(0,0,0,0.7);"
-                    + " -fx-font-size: 12px;");
-            codeLabel.setPrefHeight(lineHeight);
-            HBox.setHgrow(codeLabel, Priority.ALWAYS);
-
-            lineRow.getChildren().addAll(numLabel, codeLabel);
-            codeBox.getChildren().add(lineRow);
-        }
-
-        ScrollPane scrollPane = new ScrollPane(codeBox);
-        scrollPane.setStyle("-fx-background-color: white; -fx-border-color: transparent;");
-        scrollPane.setFitToWidth(true);
-        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        VBox.setVgrow(scrollPane, Priority.ALWAYS);
-
-        panel.getChildren().add(scrollPane);
-        return panel;
-    }
-
-    // ===== Diff 算法 =====
-
-    /**
-     * LCS 差异算法，返回左右分屏对齐的行列表。
-     */
     private static List<DiffLinePair> computeDiff(List<String> oldLines, List<String> newLines) {
-        int m = oldLines.size();
-        int n = newLines.size();
+        int m = oldLines.size(), n = newLines.size();
         int[][] dp = new int[m + 1][n + 1];
-
-        for (int i = 1; i <= m; i++) {
-            for (int j = 1; j <= n; j++) {
-                if (oldLines.get(i - 1).equals(newLines.get(j - 1))) {
+        for (int i = 1; i <= m; i++)
+            for (int j = 1; j <= n; j++)
+                if (oldLines.get(i - 1).equals(newLines.get(j - 1)))
                     dp[i][j] = dp[i - 1][j - 1] + 1;
-                } else {
+                else
                     dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-                }
-            }
-        }
 
-        // 回溯
         List<DiffLinePair> reversed = new ArrayList<>();
         int i = m, j = n;
         while (i > 0 || j > 0) {
             if (i > 0 && j > 0 && oldLines.get(i - 1).equals(newLines.get(j - 1))) {
                 reversed.add(new DiffLinePair(oldLines.get(i - 1), newLines.get(j - 1),
                         DiffType.UNCHANGED, i, j));
-                i--;
-                j--;
+                i--; j--;
             } else if (j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j])) {
                 reversed.add(new DiffLinePair("", newLines.get(j - 1),
                         DiffType.ADDED, 0, j));
@@ -343,28 +244,47 @@ public class DiffViewerPopup {
                 i--;
             }
         }
-
         List<DiffLinePair> result = new ArrayList<>(reversed.size());
-        for (int k = reversed.size() - 1; k >= 0; k--) {
-            result.add(reversed.get(k));
-        }
+        for (int k = reversed.size() - 1; k >= 0; k--) result.add(reversed.get(k));
         return result;
     }
 
-    /** 统计差异块数量（用于导航） */
     private static int countHunks(List<DiffLinePair> lines) {
-        int hunks = 0;
-        boolean inHunk = false;
-        for (DiffLinePair line : lines) {
-            if (line.type() != DiffType.UNCHANGED) {
-                if (!inHunk) {
-                    hunks++;
-                    inHunk = true;
-                }
-            } else {
-                inHunk = false;
-            }
+        int hunks = 0; boolean inHunk = false;
+        for (DiffLinePair d : lines) {
+            if (d.type() != DiffType.UNCHANGED) { if (!inHunk) { hunks++; inHunk = true; } }
+            else { inHunk = false; }
         }
         return Math.max(hunks, 1);
+    }
+
+    // ===== Helpers =====
+
+    private static String renderLine(int ln, String text, String cls, int idx) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<div class='line ").append(cls).append("' id='line-").append(idx).append("'>");
+        sb.append("<span class='ln'>").append(ln > 0 ? ln : "").append("</span>");
+        sb.append("<span class='txt'>").append(text).append("</span>");
+        sb.append("</div>");
+        return sb.toString();
+    }
+
+    private static String formatTimestamp(String ts) {
+        if (ts == null || ts.isEmpty()) return "";
+        String s = ts.replace("_", " ");
+        return s.length() > 19 ? s.substring(0, 19) : s;
+    }
+
+    private static String esc(String s) {
+        if (s == null) return "";
+        return s.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;");
+    }
+
+    private static String toDataUri(String html) {
+        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
+        return "data:text/html;charset=UTF-8;base64," + Base64.getEncoder().encodeToString(bytes);
     }
 }
