@@ -65,13 +65,15 @@ public class BackgroundAgentExecutor {
         final String sessionKey;
         final String channel;
         final String chatId;
+        final String parentToolCallId;
 
-        TaskMetadata(String agentType, String prompt, String sessionKey, String channel, String chatId) {
+        TaskMetadata(String agentType, String prompt, String sessionKey, String channel, String chatId, String parentToolCallId) {
             this.agentType = agentType;
             this.prompt = prompt;
             this.sessionKey = sessionKey;
             this.channel = channel;
             this.chatId = chatId;
+            this.parentToolCallId = parentToolCallId;
         }
     }
 
@@ -111,7 +113,8 @@ public class BackgroundAgentExecutor {
      */
     public String executeAsync(String agentType, String prompt, String systemPrompt,
                                ToolUseContext parentContext,
-                               String sessionKey, String channel, String chatId) {
+                               String sessionKey, String channel, String chatId,
+                               String parentToolCallId) {
         String taskId = UUID.randomUUID().toString().substring(0, 8);
 
         log.info("BackgroundAgentExecutor: starting async agent taskId={}, type={}, prompt={}",
@@ -134,7 +137,7 @@ public class BackgroundAgentExecutor {
         AppState.registerTask(taskState, setAppState);
 
         // Store metadata for notification
-        taskMetadata.put(taskId, new TaskMetadata(agentType, prompt, sessionKey, channel, chatId));
+        taskMetadata.put(taskId, new TaskMetadata(agentType, prompt, sessionKey, channel, chatId, parentToolCallId));
 
         // Create CompletableFuture for result tracking
         CompletableFuture<String> resultFuture = new CompletableFuture<>();
@@ -157,14 +160,28 @@ public class BackgroundAgentExecutor {
                         return t;
                     });
 
-                    // Execute query loop
+                    // Publish running event
+                    publishSubagentProgress(taskId, "running", null, null, null, null, 0);
+
+                    // Execute query loop with progress publishing
                     String result = RunAgent.executeQueryLoopAsync(
                             systemPrompt,
                             prompt,
                             agentType,
                             null,  // model
                             null,  // provider
-                            isolatedContext
+                            isolatedContext,
+                            (progress) -> {
+                                String status = (String) progress.get("_subagent_status");
+                                String toolName = (String) progress.get("_subagent_tool_name");
+                                String toolParams = (String) progress.get("_subagent_tool_params");
+                                String toolResult = (String) progress.get("_subagent_tool_result");
+                                String toolCallId = (String) progress.get("_subagent_tool_call_id");
+                                int iteration = progress.containsKey("_subagent_iteration")
+                                    ? ((Number) progress.get("_subagent_iteration")).intValue()
+                                    : 0;
+                                publishSubagentProgress(taskId, status, toolName, toolParams, toolResult, toolCallId, iteration);
+                            }
                     );
 
                     // Mark task as completed
@@ -182,6 +199,9 @@ public class BackgroundAgentExecutor {
 
                     // Send completion notification
                     notifyCompletion(taskId, result);
+
+                    // Publish completed event
+                    publishSubagentProgress(taskId, "completed", null, null, null, null, 0);
 
                 } finally {
 
@@ -260,6 +280,25 @@ public class BackgroundAgentExecutor {
                         }
                     });
         }
+    }
+
+    private void publishSubagentProgress(String taskId, String status, String toolName, String toolParams, String toolResult, String toolCallId, int iteration) {
+        if (messageBus == null) return;
+        TaskMetadata meta = taskMetadata.get(taskId);
+        if (meta == null) return;
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("_progress", true);
+        metadata.put("_subagent_progress", true);
+        metadata.put("_subagent_task_id", taskId);
+        metadata.put("_subagent_type", meta.agentType);
+        metadata.put("_subagent_status", status);
+        metadata.put("_subagent_iteration", iteration);
+        if (meta.parentToolCallId != null) metadata.put("_parent_tool_call_id", meta.parentToolCallId);
+        if (toolName != null) metadata.put("_subagent_tool_name", toolName);
+        if (toolParams != null) metadata.put("_subagent_tool_params", toolParams);
+        if (toolResult != null) metadata.put("_subagent_tool_result", toolResult);
+        if (toolCallId != null) metadata.put("_subagent_tool_call_id", toolCallId);
+        messageBus.publishOutbound(new OutboundMessage(meta.channel, meta.chatId, "", List.of(), metadata));
     }
 
     private String truncateResult(String result) {
