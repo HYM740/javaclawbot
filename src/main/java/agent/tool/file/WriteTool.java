@@ -48,16 +48,22 @@ public final class WriteTool extends Tool {
     private final Path workspace;
     private final Path allowedDir;
     private final FileStateCache fileStateCache;
+    private final FileBackupManager fileBackupManager;
 
-    public WriteTool(Path workspace, Path allowedDir, FileStateCache fileStateCache) {
+    public WriteTool(Path workspace, Path allowedDir, FileStateCache fileStateCache, FileBackupManager fileBackupManager) {
         this.workspace = workspace;
         this.allowedDir = allowedDir;
         this.fileStateCache = fileStateCache != null ? fileStateCache : new FileStateCache.NoOp();
+        this.fileBackupManager = fileBackupManager;
+    }
+
+    public WriteTool(Path workspace, Path allowedDir, FileStateCache fileStateCache) {
+        this(workspace, allowedDir, fileStateCache, null);
     }
 
     /** Backward-compatible constructor (no cache enforcement) */
     public WriteTool(Path workspace, Path allowedDir) {
-        this(workspace, allowedDir, new FileStateCache.NoOp());
+        this(workspace, allowedDir, new FileStateCache.NoOp(), null);
     }
 
     // ---- Port of TOOL_NAME ----
@@ -227,6 +233,11 @@ public final class WriteTool extends Tool {
             // Port of CC: await fs.mkdir(dirname(fullFilePath))
             Path parent = resolvedPath.getParent();
             if (parent != null) Files.createDirectories(parent);
+
+            // ---- backup original file before write ----
+            if (fileBackupManager != null && oldContent != null) {
+                fileBackupManager.backup(resolvedPath, oldContent);
+            }
 
             // ---- call: writeTextContent ----
             // Port of CC: writeTextContent(fullFilePath, content, enc, 'LF')

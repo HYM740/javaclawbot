@@ -51,16 +51,22 @@ public final class EditTool extends Tool {
     private final Path workspace;
     private final Path allowedDir;
     private final FileStateCache fileStateCache;
+    private final FileBackupManager fileBackupManager;
 
-    public EditTool(Path workspace, Path allowedDir, FileStateCache fileStateCache) {
+    public EditTool(Path workspace, Path allowedDir, FileStateCache fileStateCache, FileBackupManager fileBackupManager) {
         this.workspace = workspace;
         this.allowedDir = allowedDir;
         this.fileStateCache = fileStateCache != null ? fileStateCache : new FileStateCache.NoOp();
+        this.fileBackupManager = fileBackupManager;
+    }
+
+    public EditTool(Path workspace, Path allowedDir, FileStateCache fileStateCache) {
+        this(workspace, allowedDir, fileStateCache, null);
     }
 
     /** Backward-compatible constructor (no cache enforcement) */
     public EditTool(Path workspace, Path allowedDir) {
-        this(workspace, allowedDir, new FileStateCache.NoOp());
+        this(workspace, allowedDir, new FileStateCache.NoOp(), null);
     }
 
     // ---- Port of TOOL_NAME ----
@@ -314,6 +320,11 @@ public final class EditTool extends Tool {
             // Generate unified diff patch (port of CC's getPatchFromContents)
             String patchOutput = generatePatch(resolvedPath.getFileName().toString(),
                     normalizedContent, updatedContent);
+
+            // ---- backup original file before write ----
+            if (fileBackupManager != null && fileExists) {
+                fileBackupManager.backup(resolvedPath, fileContent);
+            }
 
             // ---- call: writeTextContent (preserve encoding/line endings/BOM) ----
             log.debug("写入文件内容: {}", resolvedPath);

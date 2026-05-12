@@ -13,12 +13,17 @@ public class ToolCallCard extends VBox {
     private final VBox contentBox;
     private final Label expandIcon;
     private final Label statusIcon;
+    private final Label timestampLabel;
 
     public ToolCallCard(String toolName, String status, String params) {
-        this(toolName, status, params, false);
+        this(toolName, status, params, false, "");
     }
 
     public ToolCallCard(String toolName, String status, String params, boolean startExpanded) {
+        this(toolName, status, params, startExpanded, "");
+    }
+
+    public ToolCallCard(String toolName, String status, String params, boolean startExpanded, String timestamp) {
         setSpacing(0);
         getStyleClass().add("tool-call-card");
         this.expanded = startExpanded;
@@ -38,11 +43,14 @@ public class ToolCallCard extends VBox {
         Label nameLabel = new Label(toolName);
         nameLabel.setStyle("-fx-font-family: monospace; -fx-font-size: 12px;");
 
+        timestampLabel = new Label(timestamp);
+        timestampLabel.setStyle("-fx-font-size: 10px; -fx-text-fill: rgba(0,0,0,0.3);");
+
         expandIcon = new Label(startExpanded ? "▼" : "▶");
         HBox.setHgrow(expandIcon, Priority.ALWAYS);
         expandIcon.setAlignment(Pos.CENTER_RIGHT);
 
-        header.getChildren().addAll(statusIcon, toolIcon, nameLabel, expandIcon);
+        header.getChildren().addAll(statusIcon, toolIcon, nameLabel, timestampLabel, expandIcon);
 
         // Content
         contentBox = new VBox(8);
@@ -86,6 +94,11 @@ public class ToolCallCard extends VBox {
     /** 更新工具卡片的状态显示 */
     public void setStatus(String status) {
         applyStatusStyle(status);
+    }
+
+    /** 设置时间戳显示 */
+    public void setTimestamp(String timestamp) {
+        timestampLabel.setText(timestamp);
     }
 
     public void setParams(String params) {

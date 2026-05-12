@@ -11,6 +11,8 @@ import gui.ui.components.ProjectPopover;
 import gui.ui.components.ProjectStatusBadge;
 import gui.ui.components.TodoFloatBadge;
 import gui.ui.components.ToolCallCard;
+import gui.ui.components.FileDiffBadge;
+import gui.ui.components.DiffViewerPopup;
 import providers.cli.ProjectRegistry;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -55,6 +57,8 @@ public class ChatPage extends VBox {
 
     /** 悬浮 Todo 进度浮标 */
     private final TodoFloatBadge todoFloatBadge;
+    /** 文件差异回滚浮标 */
+    private final FileDiffBadge fileDiffBadge;
     /** 思考中占位气泡 */
     private HBox thinkingPlaceholder;
     /** 思考中动画 */
@@ -94,6 +98,7 @@ public class ChatPage extends VBox {
 
         // 悬浮
         todoFloatBadge = new TodoFloatBadge();
+        fileDiffBadge = new FileDiffBadge();
 
         // 消息区域
         messageContainer = new VBox(16);
@@ -138,13 +143,17 @@ public class ChatPage extends VBox {
             lastContentHeight = contentHeight;
         });
 
-        // 消息滚动区域 + 悬浮按钮（Todo 浮标、回到底部）
+        // 消息滚动区域 + 悬浮按钮（Todo 浮标、文件变更浮标、回到底部）
         scrollStack = new StackPane();
-        scrollStack.getChildren().addAll(scrollPane, todoFloatBadge, scrollToBottomBtn);
+        scrollStack.getChildren().addAll(scrollPane, fileDiffBadge, todoFloatBadge, scrollToBottomBtn);
         StackPane.setAlignment(scrollToBottomBtn, Pos.BOTTOM_RIGHT);
         StackPane.setMargin(scrollToBottomBtn, new Insets(0, 24, 12, 0));
+        // FileDiffBadge 在右下方、TodoFloatBadge 上方
+        StackPane.setAlignment(fileDiffBadge, Pos.BOTTOM_RIGHT);
+        StackPane.setMargin(fileDiffBadge, new Insets(0, 16, 58, 0));
+        // TodoFloatBadge 在右下底部
         StackPane.setAlignment(todoFloatBadge, Pos.BOTTOM_RIGHT);
-        StackPane.setMargin(todoFloatBadge, new Insets(0, 16, 50, 0));
+        StackPane.setMargin(todoFloatBadge, new Insets(0, 16, 16, 0));
 
         // 输入区域
         chatInput = new ChatInput();
@@ -392,7 +401,9 @@ public class ChatPage extends VBox {
     }
 
     public ToolCallCard addToolCallCard(String toolName, String status, String params, boolean startExpanded) {
-        ToolCallCard card = new ToolCallCard(toolName, status, params, startExpanded);
+        String timestamp = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        ToolCallCard card = new ToolCallCard(toolName, status, params, startExpanded, timestamp);
         card.setMaxWidth(700);
         // Wrap in HBox like assistant bubble (avatar + card)
         HBox wrapper = new HBox(12);
@@ -687,6 +698,10 @@ public class ChatPage extends VBox {
         return todoFloatBadge;
     }
 
+    public FileDiffBadge getFileDiffBadge() {
+        return fileDiffBadge;
+    }
+
     public ChatInput getChatInput() {
         return chatInput;
     }
@@ -705,6 +720,7 @@ public class ChatPage extends VBox {
     public void clearMessages() {
         messageContainer.getChildren().clear();
         todoFloatBadge.setVisible(false);
+        fileDiffBadge.clearFiles();
         thinkingPlaceholder = null;
         lastStreamingBubble = null;
         if (thinkingAnimation != null) {

@@ -108,6 +108,9 @@ public class AgentLoop {
     private volatile String reasoningEffort;
     private final CronService cronService;
     private final boolean restrictToWorkspace;
+    /** 会话级 FileBackupManager 缓存 */
+    private final java.util.concurrent.ConcurrentHashMap<String, agent.tool.file.FileBackupManager> backupManagers
+            = new java.util.concurrent.ConcurrentHashMap<>();
     /**
      * 是否启用思考模式（保留推理内容）
      */
@@ -732,6 +735,11 @@ public class AgentLoop {
         // MCP 动态工具快照
         ToolRegistry mcpTools = mcpManager.snapshotRegistry();
 
+        // ---- 添加会话级 EditTool/WriteTool（带 FileBackupManager） ----
+        agent.tool.file.FileBackupManager fbm = getOrCreateBackupManager(sessionKy);
+        localTools.register(new EditTool(workspace, null, sharedFileCache, fbm));
+        localTools.register(new WriteTool(workspace, null, sharedFileCache, fbm));
+
         ToolView toolView = new CompositeToolView(sharedTools, mcpTools, localTools);
 
         // Plan mode: filter out write/edit tools so the LLM can only explore
@@ -845,6 +853,26 @@ public class AgentLoop {
         localTools.register(new PruneMessagesTool(sessions, sessionKey));
 
         return new CompositeToolView(localTools, sharedTools);
+    }
+
+    /**
+     * 获取或创建会话级 FileBackupManager。
+     * 路径策略：
+     * - restrictToWorkspace=true（非开发者模式）：用户数据目录 backup/{sessionKey}
+     * - restrictToWorkspace=false（开发者模式）：workspace/.backup/{sessionKey}
+     */
+    private agent.tool.file.FileBackupManager getOrCreateBackupManager(String sessionKey) {
+        return backupManagers.computeIfAbsent(sessionKey, key -> {
+            java.nio.file.Path backupRoot;
+            String safeKey = key.replaceAll("[:\\\\/]", "_");
+            if (restrictToWorkspace) {
+                backupRoot = utils.Helpers.getDataPath().resolve("backup").resolve(safeKey);
+            } else {
+                backupRoot = workspace.resolve(".backup").resolve(safeKey);
+            }
+            log.debug("创建会话备份目录: {} (sessionKey={})", backupRoot, key);
+            return new agent.tool.file.FileBackupManager(backupRoot);
+        });
     }
 
     public CronTool getCronTool() {
@@ -976,7 +1004,7 @@ public class AgentLoop {
         log.info("检测到系统命令: {}", trimmed);
 
         // 处理 /stop 命令
-        if ("/stop".equalsIgnoreCase(trimmed)) {
+        if ("/stop".equalsIgnoreCase(trimmed.trim())) {
             log.info("直接处理 /stop 命令");
             handleStopCommand(msg).toCompletableFuture().join();
             return true;
@@ -1126,13 +1154,13 @@ public class AgentLoop {
             ));
         }
 
-        if ("/context-press".equalsIgnoreCase(cmd)) {
+        if ("/context-press".equalsIgnoreCase(cmd.trim())) {
             String output = "上下文压缩命令已触发";
             commandManager.addLocalCommand(new LocalCommand(cmd, output));
             return handleContextPress(msg, sessions.getOrCreate(msg.getSessionKey()));
         }
 
-        if ("/memory".equalsIgnoreCase(cmd)) {
+        if ("/memory".equalsIgnoreCase(cmd.trim())) {
             String output = "记忆整理命令已触发";
             commandManager.addLocalCommand(new LocalCommand(cmd, output));
             return handleMemoryCommand(msg, sessions.getOrCreate(msg.getSessionKey()));
@@ -1143,8 +1171,8 @@ public class AgentLoop {
             return handleForkCommand(msg);
         }
 
-        if ("/help".equalsIgnoreCase(cmd)) {
-            String output = "🐱 javaclawbot 命令:\n\n" +
+        if ("/help".equalsIgnoreCase(cmd.trim())) {
+            String output = "🐱 NexusAI 命令:\n\n" +
                     "对话管理:\n" +
                     "  /new — 开始新会话\n" +
                     "  /clear — 清空当前会话\n" +
@@ -1179,7 +1207,7 @@ public class AgentLoop {
             ));
         }
 
-        if ("/mcp-reload".equalsIgnoreCase(cmd) || "/mcp-init".equalsIgnoreCase(cmd)) {
+        if ("/mcp-reload".equalsIgnoreCase(cmd.trim()) || "/mcp-init".equalsIgnoreCase(cmd.trim())) {
             String cmdResp = mcpManager.refreshTools().toCompletableFuture().join();
             String output = StrUtil.isBlank(cmdResp) ? "🐱 MCP 插件已重新加载。" : cmdResp;
             commandManager.addLocalCommand(new LocalCommand(cmd, output));
@@ -1557,7 +1585,7 @@ public class AgentLoop {
         String cmd = msg.getContent() == null ? "" : msg.getContent().trim().toLowerCase(Locale.ROOT);
 
         // init初始化命令
-        if ("/init".equalsIgnoreCase(cmd)) {
+        if ("/init".equalsIgnoreCase(cmd.trim())) {
             String initPrompt;
             try (var in = AgentLoop.class.getResourceAsStream("/templates/init/INIT.md")) {
                 if (in == null) {
@@ -1575,14 +1603,42 @@ public class AgentLoop {
                 ));
             }
             commandManager.addLocalCommand(new LocalCommand(cmd, ""));
-            bus.publishInbound(new InboundMessage("system", msg.getSenderId(), msg.getChatId(), initPrompt));
-            return CompletableFuture.completedFuture(new OutboundMessage(
-                    msg.getChannel(),
-                    msg.getChatId(),
-                    "init命令已执行",
-                    List.of(),
-                    Map.of()
-            ));
+
+            String channel = msg.getChannel();
+            String chatId = msg.getChatId();
+            String sessionKey = msg.getSessionKey();
+            clearStopRequested(sessionKey);
+            Session session = sessions.getOrCreate(sessionKey);
+            lazyRestorePlanMode(sessionKey, session);
+
+            ToolView requestTools = buildRequestToolsAndSetContext(
+                    sessionKey, channel, chatId, extractMessageId(msg.getMetadata()));
+
+            var mtool = requestTools.get("message");
+            if (mtool instanceof MessageTool m) m.startTurn();
+
+            context.setCurrentModelType(runtimeSnapshot().modelType());
+            List<Map<String, Object>> history = session.getHistory();
+            List<Map<String, Object>> initialMessages = context.buildMessages(
+                    history, initPrompt, null, channel, chatId);
+
+            ProgressCallback progress = (ctx, toolHit) -> {
+                Map<String, Object> meta = new LinkedHashMap<>();
+                meta.put("_progress", true);
+                meta.put("_tool_hint", toolHit);
+                bus.publishOutbound(new OutboundMessage(
+                        channel, chatId, ctx, List.of(), meta
+                ));
+            };
+
+            return runAgentLoop(msg, initialMessages, requestTools, true, progress).thenApply(rr -> {
+                String finalContent = (rr != null && rr.finalContent != null && !rr.finalContent.isBlank())
+                        ? rr.finalContent : "✅ 项目初始化完成";
+                return new OutboundMessage(
+                        channel, chatId, finalContent, List.of(),
+                        Map.of("_system_command", true)
+                );
+            });
         }
 
         String sessionKey = (sessionKeyOverride != null) ? sessionKeyOverride : msg.getSessionKey();
@@ -1702,12 +1758,12 @@ public class AgentLoop {
                     ? rr.finalContent
                     : "✅ 记忆整理完成";
             return CompletableFuture.completedFuture(new OutboundMessage(
-                    channel, chatId, finalContent, List.of(), Map.of()
+                    channel, chatId, finalContent, List.of(), Map.of("_system_command", true)
             ));
         } catch (Exception e) {
             log.warn("记忆整理失败", e);
             return CompletableFuture.completedFuture(new OutboundMessage(
-                    channel, chatId, "❌ 记忆整理失败，请重试", List.of(), Map.of()
+                    channel, chatId, "❌ 记忆整理失败，请重试", List.of(), Map.of("_system_command", true)
             ));
         }
     }
