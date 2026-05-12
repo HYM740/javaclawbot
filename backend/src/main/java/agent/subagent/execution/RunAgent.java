@@ -29,7 +29,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
-import utils.GsonFactory;
 
 /**
  * 代理执行循环
@@ -82,7 +81,7 @@ public class RunAgent {
             // 创建子代理上下文，包含解析后的工具
             ToolUseContext context = createSubagentContextWithTools(parentContext, agentType, resolvedTools.resolvedTools, parentContext.getToolView());
 
-            String result = executeQueryLoop(systemPrompt, prompt, agentType, null, null, context, null);
+            String result = executeQueryLoop(systemPrompt, prompt, agentType, null, null, context);
             log.info("=== RunAgent.runGeneralPurpose END === result length={}，result:\n{}", result != null ? result.length() : 0, result);
             return result;
         } catch (Exception e) {
@@ -116,7 +115,7 @@ public class RunAgent {
             // 创建子代理上下文，包含解析后的工具
             ToolUseContext context = createSubagentContextWithTools(parentContext, agentType, resolvedTools.resolvedTools,  parentContext.getToolView());
 
-            String result = executeQueryLoop(systemPrompt, prompt, agentType, model, null, context, null);
+            String result = executeQueryLoop(systemPrompt, prompt, agentType, model, null, context);
             log.info("=== RunAgent.runExplore END === result length={}", result != null ? result.length() : 0);
             return result;
         } catch (Exception e) {
@@ -149,7 +148,7 @@ public class RunAgent {
             // 创建子代理上下文，包含解析后的工具
             ToolUseContext context = createSubagentContextWithTools(parentContext, agentType, resolvedTools.resolvedTools, parentContext.getToolView());
 
-            String result = executeQueryLoop(systemPrompt, prompt, agentType, null, null, context, null);
+            String result = executeQueryLoop(systemPrompt, prompt, agentType, null, null, context);
             log.info("=== RunAgent.runPlan END ===");
             return result;
         } catch (Exception e) {
@@ -168,9 +167,8 @@ public class RunAgent {
      */
     public static String executeQueryLoopAsync(String systemPrompt, String userPrompt,
                                                String agentType, String model,
-                                               LLMProvider provider, ToolUseContext toolUseContext,
-                                               Consumer<Map<String, Object>> progressConsumer) {
-        return executeQueryLoop(systemPrompt, userPrompt, agentType, model, provider, toolUseContext, progressConsumer);
+                                               LLMProvider provider, ToolUseContext toolUseContext) {
+        return executeQueryLoop(systemPrompt, userPrompt, agentType, model, provider, toolUseContext);
     }
 
     /**
@@ -192,11 +190,10 @@ public class RunAgent {
      */
     private static String executeQueryLoop(String systemPrompt, String userPrompt,
                                           String agentType, String model,
-                                          LLMProvider provider, ToolUseContext toolUseContext,
-                                          Consumer<Map<String, Object>> progressConsumer) {
+                                          LLMProvider provider, ToolUseContext toolUseContext) {
         // 关键：将 toolUseContext 设置到 ThreadLocal 中，以便 executeTool 能够获取
         // 使用 runWithContext 确保上下文正确设置和清理
-        return executeQueryLoopWithContext(systemPrompt, userPrompt, agentType, model, provider, toolUseContext, progressConsumer);
+        return executeQueryLoopWithContext(systemPrompt, userPrompt, agentType, model, provider, toolUseContext);
     }
 
     /**
@@ -204,8 +201,7 @@ public class RunAgent {
      */
     private static String executeQueryLoopWithContext(String systemPrompt, String userPrompt,
                                           String agentType, String model,
-                                          LLMProvider provider, ToolUseContext toolUseContext,
-                                          Consumer<Map<String, Object>> progressConsumer) {
+                                          LLMProvider provider, ToolUseContext toolUseContext) {
         // 构建消息列表
         List<Map<String, Object>> messages = buildMessages(systemPrompt, userPrompt);
 
@@ -294,27 +290,7 @@ public class RunAgent {
 
                         log.info("[子代理 {}] [{}] 循环次数 {} 执行工具: name={}, id={}", agentType, shortId, iterations.get(), toolName, toolCallId);
 
-                        if (progressConsumer != null) {
-                            progressConsumer.accept(Map.of(
-                                "_subagent_status", "tool_call",
-                                "_subagent_tool_name", toolName,
-                                "_subagent_tool_params", safeTruncate(GsonFactory.toJson(toolArgs), 500),
-                                "_subagent_tool_call_id", toolCallId,
-                                "_subagent_iteration", iterations.get()
-                            ));
-                        }
-
                         String toolResult = executeTool(toolName, toolArgs, toolUseContext);
-
-                        if (progressConsumer != null) {
-                            progressConsumer.accept(Map.of(
-                                "_subagent_status", "tool_result",
-                                "_subagent_tool_name", toolName,
-                                "_subagent_tool_result", safeTruncate(toolResult, 10240),
-                                "_subagent_tool_call_id", toolCallId,
-                                "_subagent_iteration", iterations.get()
-                            ));
-                        }
 
                         String toolResultForLog = toolResult;
                         if (toolResult.length() > 500) {
@@ -854,12 +830,6 @@ public class RunAgent {
         }
     }
 
-    private static String safeTruncate(String s, int maxLen) {
-        if (s == null) return null;
-        if (s.length() <= maxLen) return s;
-        return s.substring(0, maxLen) + "...";
-    }
-
     private static String escapeJson(String input) {
         if (input == null) return "";
         return input
@@ -914,8 +884,7 @@ public class RunAgent {
                     params.agentType,
                     params.defaultModel,
                     null, // provider - 需要从上下文获取
-                    isolatedContext,
-                    null
+                    isolatedContext
             );
 
             // 3. 返回结果

@@ -233,7 +233,7 @@ public class AgentTool extends Tool {
 
                 return backgroundExecutor.executeAsync(
                         subagentType, prompt, systemPrompt, parentContext,
-                        sessionKey, channel, chatId, null);
+                        sessionKey, channel, chatId);
             }
 
             // 同步执行 - 传递父上下文给静态入口点
