@@ -16,7 +16,7 @@ jobs:
           distribution: 'temurin'
           cache: gradle
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :compose-app:distZip --no-daemon
+      - run: chmod +x gradlew && ./gradlew :compose-app:distZip --no-daemon
       - uses: actions/upload-artifact@v4
         with:
           name: javaclawbot-${{ github.ref_name }}

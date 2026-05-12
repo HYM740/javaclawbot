@@ -17,4 +17,4 @@ jobs:
           distribution: 'temurin'
           cache: gradle
       - uses: gradle/actions/setup-gradle@v4
-      - run: ./gradlew :compose-app:compileKotlin --no-daemon
+      - run: chmod +x gradlew && ./gradlew :compose-app:compileKotlin --no-daemon
