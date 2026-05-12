@@ -2358,6 +2358,16 @@ public class AgentLoop {
                 // 设置当前 sessionKey 供 Tool 使用
                 cliAgentHandler.setCurrentSessionKey(sessionKey);
 
+                // 在工具执行前发布 _tool_hint，携带 tool_name/tool_call_id 供 UI 匹配
+                bus.publishOutbound(new OutboundMessage(
+                        msg.getChannel(), msg.getChatId(),
+                        Helpers.toolHint(List.of(tc)),
+                        List.of(),
+                        Map.of("_progress", true, "_tool_hint", true,
+                               "tool_name", tc.getName(),
+                               "tool_call_id", tc.getId())
+                ));
+
                 return tools.execute(tc.getName(), tc.getArguments(), toolContext)
                         .whenComplete((result, ex) -> {
                             // 清除 sessionKey 和 ToolUseContext
@@ -2391,7 +2401,10 @@ public class AgentLoop {
                                     msg.getChatId(),
                                     "❌ 工具执行失败: " + tc.getName() + " - " + errMsg,
                                     List.of(),
-                                    Map.of("_progress", true)
+                                    Map.of("_progress", true, "_tool_result", true,
+                                           "tool_name", tc.getName(),
+                                           "tool_call_id", tc.getId(),
+                                           "_tool_error", true)
                             ));
 
                             String err = formatToolError(tc.getName(), ex);

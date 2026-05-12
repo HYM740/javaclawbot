@@ -199,6 +199,7 @@ private fun ToolCallCard(tc: ToolCall) {
 
             // Collapsible result
             if (!tc.result.isNullOrBlank()) {
+                var showFullResult by remember { mutableStateOf(false) }
                 Spacer(Modifier.height(4.dp))
                 Row(
                     Modifier.clickable { expandedResult = !expandedResult },
@@ -213,22 +214,77 @@ private fun ToolCallCard(tc: ToolCall) {
                     Text("结果", fontSize = 11.sp, color = AppColors.TextSecondary)
                 }
                 if (expandedResult) {
+                    val displayResult = trimToolResult(tc.result!!)
+                    val isTruncated = displayResult != tc.result
                     Text(
-                        trimToolResult(tc.result!!),
+                        displayResult,
                         fontSize = 12.sp,
                         fontFamily = FontFamily.Monospace,
                         color = AppColors.TextSecondary,
                         modifier = Modifier.padding(start = 14.dp, top = 2.dp)
                     )
+                    if (isTruncated) {
+                        Text(
+                            "查看完整结果",
+                            fontSize = 11.sp,
+                            color = AppColors.Accent,
+                            modifier = Modifier.padding(start = 14.dp, top = 2.dp).clickable { showFullResult = true }
+                        )
+                    }
+                }
+                if (showFullResult) {
+                    val rawWindowState = rememberWindowState(
+                        position = WindowPosition.Aligned(Alignment.Center),
+                        width = 600.dp,
+                        height = 400.dp
+                    )
+                    Window(
+                        onCloseRequest = { showFullResult = false },
+                        title = "工具结果 - ${tc.name}",
+                        state = rawWindowState,
+                        resizable = true
+                    ) {
+                        (window as? java.awt.Window)?.minimumSize = java.awt.Dimension(400, 300)
+                        val rawScrollState = rememberScrollState()
+                        Row(Modifier.fillMaxSize()) {
+                            Box(
+                                Modifier.weight(1f).fillMaxHeight().background(AppColors.Surface).padding(16.dp).verticalScroll(rawScrollState)
+                            ) {
+                                SelectionContainer {
+                                    Text(
+                                        tc.result!!,
+                                        style = AppTheme.typography.mono,
+                                        color = AppColors.TextPrimary
+                                    )
+                                }
+                            }
+                            VerticalScrollbar(
+                                modifier = Modifier.width(8.dp).padding(vertical = 2.dp),
+                                adapter = rememberScrollbarAdapter(scrollState = rawScrollState)
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
-private fun trimToolResult(result: String, maxLines: Int = 10): String {
-    val lines = result.split("\n")
+private fun trimToolResult(result: String, maxLines: Int = 5): String {
+    val lines = result.split("\n").flatMap { wrapLine(it, 80) }
     return if (lines.size > maxLines) {
         lines.take(maxLines).joinToString("\n") + "\n... (共 ${lines.size} 行)"
-    } else result
+    } else lines.joinToString("\n")
+}
+
+private fun wrapLine(line: String, maxChars: Int): List<String> {
+    if (line.length <= maxChars) return listOf(line)
+    val result = mutableListOf<String>()
+    var start = 0
+    while (start < line.length) {
+        val end = minOf(start + maxChars, line.length)
+        result.add(line.substring(start, end))
+        start = end
+    }
+    return result
 }

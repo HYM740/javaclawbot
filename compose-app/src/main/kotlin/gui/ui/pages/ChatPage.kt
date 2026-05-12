@@ -46,7 +46,7 @@ fun ChatPage(
     }
 
     LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+        if (messages.isNotEmpty()) listState.scrollToItem(messages.size - 1)
     }
 
     Column(modifier = modifier.fillMaxSize()) {
@@ -117,22 +117,21 @@ fun ChatPage(
                     text = text,
                     mediaPaths = mediaPaths,
                     onProgress = { progress ->
-                        if (progress.isToolHint) {
-                            // Tool 调用开始时添加运行中条目
-                            val toolName = progress.toolName ?: progress.content ?: "unknown"
+                        if (progress.isToolHint && progress.toolName != null) {
+                            // 每个工具独立 hint（来自 AgentLoop 执行前发布的 OutboundMessage），
+                            // 跳过 toolName==null 的旧版拼接提示
                             exchangeMsgs.add(ChatMessage(
-                                id = "tool_${System.currentTimeMillis()}_${toolName}",
+                                id = "tool_${System.currentTimeMillis()}_${progress.toolName}",
                                 role = ChatMessage.Role.ASSISTANT,
                                 content = "",
                                 toolCalls = listOf(ToolCall(
-                                    name = toolName,
+                                    name = progress.toolName,
                                     status = ToolStatus.RUNNING,
                                     params = progress.content
                                 ))
                             ))
                             onMessagesChanged(exchangeMsgs.toList())
                         } else if (progress.isToolResult) {
-                            // Tool 返回结果：更新最后一条 RUNNING tool 调用的状态
                             val resultContent = progress.content ?: ""
                             val tn = progress.toolName
                             val lastToolIdx = exchangeMsgs.indexOfLast { msg ->
@@ -140,9 +139,10 @@ fun ChatPage(
                             }
                             if (lastToolIdx >= 0) {
                                 val lastMsg = exchangeMsgs[lastToolIdx]
+                                val newStatus = if (progress.isToolError) ToolStatus.ERROR else ToolStatus.COMPLETED
                                 val updatedCalls = lastMsg.toolCalls.map { call ->
                                     if (call.status == ToolStatus.RUNNING && (tn == null || call.name == tn)) {
-                                        call.copy(status = ToolStatus.COMPLETED, result = resultContent)
+                                        call.copy(status = newStatus, result = resultContent)
                                     } else call
                                 }
                                 exchangeMsgs[lastToolIdx] = lastMsg.copy(toolCalls = updatedCalls)

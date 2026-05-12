@@ -13,7 +13,8 @@ class Bridge(
         val isToolResult: Boolean = false,
         val toolName: String? = null,
         val toolCallId: String? = null,
-        val isReasoning: Boolean = false
+        val isReasoning: Boolean = false,
+        val isToolError: Boolean = false
     )
 
     fun initialize(onReady: () -> Unit) {
@@ -39,7 +40,8 @@ class Bridge(
                     isToolResult = event.isToolResult(),
                     toolName = event.toolName(),
                     toolCallId = event.toolCallId(),
-                    isReasoning = event.isReasoning()
+                    isReasoning = event.isReasoning(),
+                    isToolError = event.isToolError()
                 ))
             }
         }

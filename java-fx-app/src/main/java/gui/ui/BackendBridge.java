@@ -64,9 +64,9 @@ public class BackendBridge {
     /** 进度事件：区分思考内容、工具调用、工具结果 */
     public record ProgressEvent(String content, boolean isToolHint,
                                 boolean isToolResult, String toolName, String toolCallId,
-                                boolean isReasoning) {
+                                boolean isReasoning, boolean isToolError) {
         public ProgressEvent(String content, boolean isToolHint) {
-            this(content, isToolHint, false, null, null, false);
+            this(content, isToolHint, false, null, null, false, false);
         }
     }
 
@@ -248,6 +248,7 @@ public class BackendBridge {
             boolean isToolHint = Boolean.TRUE.equals(meta.get("_tool_hint"));
             boolean isToolResult = Boolean.TRUE.equals(meta.get("_tool_result"));
             boolean isReasoning = Boolean.TRUE.equals(meta.get("_reasoning"));
+            boolean isToolError = Boolean.TRUE.equals(meta.get("_tool_error"));
             boolean isSystemCommand = Boolean.TRUE.equals(meta.get("_system_command"));
             String toolName = meta.get("tool_name") instanceof String s ? s : null;
             String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
@@ -259,14 +260,14 @@ public class BackendBridge {
                 String content = out.getContent() != null ? out.getContent() : "";
                 Consumer<ProgressEvent> cb = ctx.currentProgressCallback.get();
                 if (cb != null) {
-                    uiDispatcher.accept(() -> cb.accept(new ProgressEvent(content, false)));
+                    uiDispatcher.accept(() -> cb.accept(new ProgressEvent(content, false, false, null, null, false, false)));
                 }
             } else if (isProgress) {
                 String content = out.getContent() != null ? out.getContent() : "";
                 Consumer<ProgressEvent> cb = ctx.currentProgressCallback.get();
                 if (cb != null) {
                     uiDispatcher.accept(() -> cb.accept(
-                        new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId, isReasoning)));
+                        new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId, isReasoning, isToolError)));
                 }
             } else {
                 // 最终回复
