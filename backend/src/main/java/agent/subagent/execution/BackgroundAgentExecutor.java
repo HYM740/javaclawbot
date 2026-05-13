@@ -290,6 +290,10 @@ public class BackgroundAgentExecutor {
         Long last = lastPublishTime.get(throttleKey);
         if (last != null && (now - last) < 200) return;
         lastPublishTime.put(throttleKey, now);
+        if (log.isDebugEnabled()) {
+            log.debug("BackgroundAgent [{}] publish progress: status={}, iteration={}, tool={}",
+                taskId, status, iteration, toolName);
+        }
         Map<String, Object> metadata = new java.util.LinkedHashMap<>();
         metadata.put("_progress", true);
         metadata.put("_subagent_progress", true);

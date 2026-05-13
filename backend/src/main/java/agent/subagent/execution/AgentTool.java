@@ -217,6 +217,9 @@ public class AgentTool extends Tool {
     private String runNamedAgent(String subagentType, String prompt, Boolean background, ToolUseContext parentContext) {
 
         try {
+            // 提取父工具调用 ID 用于子代理事件关联
+            String parentToolCallId = parentContext != null ? parentContext.getCurrentToolCallId() : null;
+
             // 如果是后台执行且有 BackgroundAgentExecutor，使用异步执行
             if (background != null && background && backgroundExecutor != null) {
                 String systemPrompt = getSystemPromptForType(subagentType);
@@ -233,7 +236,7 @@ public class AgentTool extends Tool {
 
                 return backgroundExecutor.executeAsync(
                         subagentType, prompt, systemPrompt, parentContext,
-                        sessionKey, channel, chatId, null);
+                        sessionKey, channel, chatId, parentToolCallId);
             }
 
             // 同步执行 - 传递父上下文给静态入口点
@@ -282,6 +285,17 @@ public class AgentTool extends Tool {
         log.info("Running fork agent: prompt={}, background={}, hasContext={}", prompt, background, parentContext != null);
 
         try {
+            // 提取父工具调用 ID 和 channel/chatId 用于子代理事件关联
+            String parentToolCallId = parentContext != null ? parentContext.getCurrentToolCallId() : null;
+            String sessionKey = parentContext != null ? parentContext.getSessionId() : null;
+            String channel = null;
+            String chatId = null;
+            if (sessionKey != null && sessionKey.contains(":")) {
+                String[] parts = sessionKey.split(":", 2);
+                channel = parts[0];
+                chatId = parts.length > 1 ? parts[1] : "";
+            }
+
             // 检查 ForkExecutor 是否可用
             if (forkExecutor == null || sessionsDir == null || sessions == null) {
                 log.warn("ForkExecutor not available, falling back to RunAgent");
@@ -289,7 +303,6 @@ public class AgentTool extends Tool {
             }
 
             // 获取当前会话
-            String sessionKey = parentContext != null ? parentContext.getSessionId() : null;
             session.Session currentSession = (sessionKey != null && sessions != null) ? sessions.getOrCreate(sessionKey) : null;
             List<Map<String, Object>> parentMessages = currentSession != null ? currentSession.getMessages() : List.of();
             String sessionId = currentSession != null ? currentSession.getSessionId() : sessionKey;
@@ -319,7 +332,7 @@ public class AgentTool extends Tool {
                 // Async: 立即返回任务ID，后台执行
                 CompletableFuture<ForkAgentExecutor.ForkResult> future =
                         forkExecutor.execute(sessionId, forkContext, subagentContext,
-                            null, null, null);
+                            parentToolCallId, channel, chatId);
 
                 String forkId = java.util.UUID.randomUUID().toString().substring(0, 8);
                 future.whenComplete((result, ex) -> {
@@ -332,7 +345,7 @@ public class AgentTool extends Tool {
             } else {
                 // Sync: 阻塞等待结果
                 ForkAgentExecutor.ForkResult result = forkExecutor.execute(sessionId, forkContext, subagentContext,
-                        null, null, null)
+                        parentToolCallId, channel, chatId)
                         .toCompletableFuture().join();
                 return result.toJson();
             }

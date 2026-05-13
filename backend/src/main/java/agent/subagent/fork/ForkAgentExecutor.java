@@ -395,6 +395,10 @@ public class ForkAgentExecutor {
         Long last = lastPublishTime.get(throttleKey);
         if (last != null && (now - last) < 200) return;
         lastPublishTime.put(throttleKey, now);
+        if (log.isDebugEnabled()) {
+            log.debug("ForkAgent [{}] publish progress: status={}, iteration={}, tool={}, channel={}, chatId={}",
+                runId, status, iteration, toolName, channel, chatId);
+        }
         Map<String, Object> metadata = new java.util.LinkedHashMap<>();
         metadata.put("_progress", true);
         metadata.put("_subagent_progress", true);
@@ -411,7 +415,7 @@ public class ForkAgentExecutor {
     }
 
     private String safeTruncate(String s, int maxLen) {
-        if (s == null) return null;
+        if (s == null) return "";
         if (s.length() <= maxLen) return s;
         return s.substring(0, maxLen) + "...";
     }
