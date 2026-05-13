@@ -1,13 +1,13 @@
 ; ============================================================
 ; NexusAI Windows 全离线一键安装脚本
-; 生成: NexusAI-Setup-2.3.2.exe
+; 生成: NexusAI-Setup-2.3.5.exe
 ; 所有运行时依赖预打包于安装器内，零网络下载，零外部依赖
 ; 构建前需: 1) mvn package 生成 NexusAI.jar
 ;           2) runtime/ 目录准备好 JDK/Git/Python/Node.js 离线包
 ; ============================================================
 
 #define MyAppName "NexusAI"
-#define MyAppVersion "2.3.2"
+#define MyAppVersion "2.3.5"
 #define MyAppPublisher "NexusAI"
 ; 全离线安装 — 运行时依赖从本地目录捆绑
 #define RuntimeDir "..\runtime"
