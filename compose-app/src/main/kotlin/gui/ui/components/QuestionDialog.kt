@@ -8,16 +8,41 @@ import androidx.compose.material.Text
 import androidx.compose.material.TextField
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.DialogWindow
+import androidx.compose.ui.window.WindowPosition
+import androidx.compose.ui.window.rememberDialogState
 import com.google.gson.Gson
 import gui.ui.theme.AppColors
-import gui.ui.theme.CjkFontResolver
 import gui.ui.theme.AppTheme
+import gui.ui.theme.CjkFontResolver
+
+@Composable
+fun QuestionDialogWindow(
+    questionsJson: String,
+    onAnswer: (Map<String, String>) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val windowState = rememberDialogState(
+        position = WindowPosition.Aligned(Alignment.Center),
+        width = 550.dp,
+        height = 450.dp
+    )
+    DialogWindow(
+        onCloseRequest = onDismiss,
+        title = "AI 提问",
+        state = windowState,
+        resizable = true
+    ) {
+        QuestionDialog(questionsJson, onAnswer, onDismiss)
+    }
+}
 
 @Composable
 fun QuestionDialog(

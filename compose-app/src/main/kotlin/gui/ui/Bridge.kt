@@ -141,6 +141,9 @@ class Bridge(
         oldName: String, newName: String, jdbcUrl: String, username: String,
         password: String, driverClass: String, maxPoolSize: Int, connectionTimeout: Long
     ) = bridge.updateDataSource(oldName, newName, jdbcUrl, username, password, driverClass, maxPoolSize, connectionTimeout)
+    fun answerUserQuestion(toolCallId: String, answers: Map<String, String>) =
+        bridge.answerUserQuestion(toolCallId, answers)
+
     fun reconnectDataSource(name: String): Boolean = bridge.reconnectDataSource(name)
     fun toggleDataSource(name: String, enable: Boolean): Boolean = bridge.toggleDataSource(name, enable)
     fun getDataSourceStatus(name: String): String = bridge.getDataSourceStatus(name).toString()

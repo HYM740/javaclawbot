@@ -34,6 +34,8 @@ fun ChatPage(
     val listState = rememberLazyListState()
     var statusText by remember { mutableStateOf("") }
     var contextUsage by remember { mutableStateOf(0f) }
+    var pendingQuestionJson by remember { mutableStateOf<String?>(null) }
+    var pendingQuestionToolCallId by remember { mutableStateOf<String?>(null) }
     // 保持最新消息引用，避免异步 lambda 捕获过时值
     var latestMessages by remember { mutableStateOf(messages) }
     SideEffect { latestMessages = messages }
@@ -179,6 +181,11 @@ fun ChatPage(
                             }
                         } else if (progress.isToolResult) {
                             val resultContent = progress.content ?: ""
+                            // LLM 调用 AskUserQuestion 工具时，触发提问弹窗
+                            if (resultContent.contains("awaiting_response")) {
+                                pendingQuestionJson = resultContent
+                                pendingQuestionToolCallId = progress.toolCallId
+                            }
                             val tn = progress.toolName
                             val lastToolIdx = exchangeMsgs.indexOfLast { msg ->
                                 msg.toolCalls.any { it.status == ToolStatus.RUNNING && (tn == null || it.name == tn) }
@@ -222,5 +229,21 @@ fun ChatPage(
             },
             onStop = { bridge?.stopMessage(chatId) }
         )
+
+        // AI 提问弹窗
+        pendingQuestionJson?.let { json ->
+            QuestionDialogWindow(
+                questionsJson = json,
+                onAnswer = { answers ->
+                    pendingQuestionToolCallId?.let { tid -> bridge?.answerUserQuestion(tid, answers) }
+                    pendingQuestionJson = null
+                    pendingQuestionToolCallId = null
+                },
+                onDismiss = {
+                    pendingQuestionJson = null
+                    pendingQuestionToolCallId = null
+                }
+            )
+        }
     }
 }
