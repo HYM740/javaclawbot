@@ -37,7 +37,8 @@ public class FileBackupManager {
             Path backupFilePath,
             String timestamp,
             Path originalPath,
-            long fileSize
+            long fileSize,
+            String toolCallId
     ) {}
 
     /** 备份根目录 */
@@ -74,6 +75,18 @@ public class FileBackupManager {
      * @return 备份条目，如果跳过备份则返回 null
      */
     public synchronized BackupEntry backup(Path originalPath, String content) {
+        return backup(originalPath, content, null);
+    }
+
+    /**
+     * 备份指定文件的内容（带工具调用 ID）。
+     *
+     * @param originalPath 原文件路径
+     * @param content      原文件内容（修改前的完整内容）
+     * @param toolCallId   触发备份的工具调用 ID（edit_file/write_file）
+     * @return 备份条目，如果跳过备份则返回 null
+     */
+    public synchronized BackupEntry backup(Path originalPath, String content, String toolCallId) {
         if (content == null || content.isEmpty()) return null;
         try {
             long size = content.getBytes(StandardCharsets.UTF_8).length;
@@ -92,14 +105,16 @@ public class FileBackupManager {
             Files.createDirectories(backupRoot);
             Files.writeString(backupFile, content, StandardCharsets.UTF_8);
 
-            BackupEntry entry = new BackupEntry(backupFile, timestamp, originalPath.normalize(), size);
+            BackupEntry entry = new BackupEntry(backupFile, timestamp, originalPath.normalize(), size, toolCallId);
             index.computeIfAbsent(originalPath.normalize(), k -> new ArrayList<>()).add(entry);
 
             // 修剪超出版本限制的旧备份
             pruneVersions(originalPath.normalize());
             saveIndex();
 
-            log.debug("文件已备份: {} -> {}", originalPath, backupFile);
+            if (log.isDebugEnabled()) {
+                log.debug("文件已备份: {} -> {} (toolCallId={})", originalPath, backupFile, toolCallId);
+            }
             return entry;
         } catch (Exception e) {
             log.error("备份文件失败: {}", originalPath, e);
@@ -234,11 +249,12 @@ public class FileBackupManager {
                     if (!first) json.append(",");
                     first = false;
                     json.append(String.format(
-                            "{\"original\":\"%s\",\"backup\":\"%s\",\"timestamp\":\"%s\",\"size\":%d}",
+                            "{\"original\":\"%s\",\"backup\":\"%s\",\"timestamp\":\"%s\",\"size\":%d,\"toolCallId\":\"%s\"}",
                             escapeJson(entry.getKey().toString()),
                             escapeJson(be.backupFilePath().toString()),
                             escapeJson(be.timestamp()),
-                            be.fileSize()
+                            be.fileSize(),
+                            escapeJson(be.toolCallId() != null ? be.toolCallId() : "")
                     ));
                 }
             }
@@ -273,6 +289,7 @@ public class FileBackupManager {
                 String backup = extractJsonValue(item, "backup");
                 String ts = extractJsonValue(item, "timestamp");
                 String sizeStr = extractJsonValue(item, "size");
+                String tcId = extractJsonValue(item, "toolCallId");
                 if (orig == null || backup == null || ts == null) continue;
 
                 Path origPath = Path.of(orig);
@@ -283,11 +300,30 @@ public class FileBackupManager {
                 } catch (NumberFormatException ignored) {}
 
                 index.computeIfAbsent(origPath, k -> new ArrayList<>())
-                        .add(new BackupEntry(backupPath, ts, origPath, size));
+                        .add(new BackupEntry(backupPath, ts, origPath, size,
+                                (tcId != null && !tcId.isEmpty()) ? tcId : null));
             }
         } catch (IOException e) {
             log.warn("加载备份索引失败", e);
         }
+    }
+
+    /**
+     * 根据工具调用 ID 查找对应的备份条目。
+     * 用于历史会话恢复时精确匹配工具卡片与备份版本。
+     *
+     * @param originalPath 原文件路径
+     * @param toolCallId   工具调用 ID
+     * @return 匹配的备份条目，未找到返回 null
+     */
+    public BackupEntry getBackupByToolCallId(Path originalPath, String toolCallId) {
+        if (toolCallId == null) return null;
+        List<BackupEntry> entries = index.get(originalPath.normalize());
+        if (entries == null) return null;
+        for (BackupEntry be : entries) {
+            if (toolCallId.equals(be.toolCallId())) return be;
+        }
+        return null;
     }
 
     /**

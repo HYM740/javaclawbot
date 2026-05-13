@@ -1,5 +1,6 @@
 package context.auto;
 
+import lombok.extern.slf4j.Slf4j;
 import providers.CancelChecker;
 import providers.LLMProvider;
 import providers.LLMResponse;
@@ -31,10 +32,11 @@ import java.util.regex.Pattern;
  * - Create compact boundary with preserved segment
  * - Post-compact file attachment restoration
  */
+@Slf4j
 public class CompactService {
 
     /** Compact API call timeout */
-    private static final int COMPACT_API_TIMEOUT_SECONDS = 120;
+    private static final int COMPACT_API_TIMEOUT_SECONDS = 600;
 
     /** Maximum PTL retry attempts */
     private static final int MAX_PTL_RETRY_ATTEMPTS = 2;
@@ -701,7 +703,12 @@ public class CompactService {
                 return CompactSummaryResult.success(summary, ptlRetryCount);
 
             } catch (TimeoutException e) {
-                return CompactSummaryResult.error("Compaction timed out");
+                log.error("上下文压缩失败，超时", e);
+                ptlRetryCount++;
+                if (ptlRetryCount > MAX_PTL_RETRY_ATTEMPTS) {
+                    return CompactSummaryResult.error(ERROR_MESSAGE_PROMPT_TOO_LONG);
+                }
+                continue;
             } catch (CancellationException e) {
                 return CompactSummaryResult.error(ERROR_MESSAGE_USER_ABORT);
             } catch (CompletionException e) {

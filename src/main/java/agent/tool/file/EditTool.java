@@ -323,7 +323,8 @@ public final class EditTool extends Tool {
 
             // ---- backup original file before write ----
             if (fileBackupManager != null && fileExists) {
-                fileBackupManager.backup(resolvedPath, fileContent);
+                String tcId = agent.tool.ToolCallContext.getToolCallId();
+                fileBackupManager.backup(resolvedPath, fileContent, tcId);
             }
 
             // ---- call: writeTextContent (preserve encoding/line endings/BOM) ----

@@ -1,34 +1,29 @@
 package gui.ui.components;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextArea;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import javafx.scene.web.WebView;
+import lombok.extern.slf4j.Slf4j;
 
 /**
  * 工具调用卡片。
  * Header 使用 JavaFX（状态图标、工具名、时间戳、展开箭头），保持交互。
- * 工具参数和结果内容使用 WebView 渲染，支持文本选择与复制。
+ * 文本工具使用 TextArea 渲染（确定性高度），edit_file/write_file/TodoWrite 使用专属 JavaFX 组件。
  */
+@Slf4j
 public class ToolCallCard extends VBox {
-
-    private static final String HTML_TEMPLATE = "<!DOCTYPE html><html style='height:100%;background:transparent;'>"
-        + "<head><meta charset='UTF-8'><style>"
-        + "body{font-family:'JetBrains Mono','Fira Code',monospace;"
-        + "font-size:11px;line-height:1.5;color:rgba(0,0,0,0.7);background:rgba(0,0,0,0.02);"
-        + "margin:0;padding:8px;overflow-x:auto;white-space:pre-wrap;word-break:break-all;"
-        + "border-radius:6px;}"
-        + "</style></head><body>%s</body></html>";
 
     private boolean expanded;
     private final VBox contentBox;
-    private final WebView contentWebView;
+    private final TextArea contentTextArea;
+    private final ScrollPane contentScrollPane;
     private final Label expandIcon;
     private final Label statusIcon;
     private final Label timestampLabel;
@@ -71,31 +66,30 @@ public class ToolCallCard extends VBox {
         header.getChildren().addAll(statusIcon, toolIcon, nameLabel, timestampLabel, expandIcon);
         header.setOnMouseClicked(e -> toggle());
 
-        // ===== Content WebView =====
-        contentWebView = new WebView();
-        contentWebView.setContextMenuEnabled(true);  // enable right-click for copy
-        contentWebView.setStyle("-fx-background-color: transparent;");
-        contentWebView.setMaxHeight(400);
+        // ===== Content TextArea (replaces WebView — no HTML/JS, deterministic sizing) =====
+        contentTextArea = new TextArea();
+        contentTextArea.setEditable(false);
+        contentTextArea.setWrapText(true);
+        contentTextArea.setStyle("-fx-font-family: 'JetBrains Mono', 'Fira Code', monospace; "
+                + "-fx-font-size: 11px; -fx-control-inner-background: rgba(0,0,0,0.02); "
+                + "-fx-background-color: transparent; -fx-text-fill: rgba(0,0,0,0.7);");
 
-        // Wrap WebView in ScrollPane to prevent uncontrolled size growth
-        ScrollPane contentScrollPane = new ScrollPane(contentWebView);
-        contentScrollPane.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
-        contentScrollPane.setFitToWidth(true);
-        contentScrollPane.setMaxHeight(400);
-        contentScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        this.contentScrollPane = new ScrollPane(contentTextArea);
+        this.contentScrollPane.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
+        this.contentScrollPane.setFitToWidth(true);
+        this.contentScrollPane.setMaxHeight(400);
+        this.contentScrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
 
         contentBox = new VBox(0);
-        contentBox.getChildren().add(contentScrollPane);
+        contentBox.getChildren().add(this.contentScrollPane);
         contentBox.setPadding(new Insets(0, 12, 8, 12));
         contentBox.setVisible(startExpanded);
         contentBox.setManaged(startExpanded);
 
-        // Load initial params
-        StringBuilder html = new StringBuilder();
+        // Load initial params as plain text
         if (params != null && !params.isBlank()) {
-            html.append(escapeHtml(params));
+            setContent(params);
         }
-        loadContent(html.toString());
 
         getChildren().addAll(header, contentBox);
     }
@@ -116,7 +110,7 @@ public class ToolCallCard extends VBox {
 
     /** Append tool result text */
     public void addResult(String result) {
-        String current = readBodyText();
+        String current = contentTextArea.getText();
         StringBuilder sb = new StringBuilder();
         if (current != null && !current.isBlank()) {
             sb.append(current);
@@ -124,13 +118,15 @@ public class ToolCallCard extends VBox {
             sb.append("━━━━━━━━━━━━━━━━━━━━");
             sb.append("\n\n");
         }
-        sb.append(escapeHtml(result));
-        loadContent(sb.toString());
+        sb.append(result);
+        setContent(sb.toString());
     }
 
-    /** Append structured HTML content (e.g., diff, table).
-     *  For backward compatibility, also handles javafx.scene.Node. */
+    /** Append structured JavaFX content (e.g., TodoWrite result).
+     *  Hides the TextArea since native content replaces it — eliminates blank space. */
     public void addStructuredContent(javafx.scene.Node node) {
+        contentScrollPane.setVisible(false);
+        contentScrollPane.setManaged(false);
         contentBox.getChildren().add(node);
     }
 
@@ -146,24 +142,155 @@ public class ToolCallCard extends VBox {
 
     /** Replace params content */
     public void setParams(String params) {
-        loadContent(escapeHtml(params));
+        setContent(params);
+    }
+
+    // ===== File Edit Structured Display (unchanged — pure JavaFX HBox) =====
+
+    /** File path for edit_file/write_file cards (set by MainStage) */
+    private java.nio.file.Path fileEditPath;
+    /** BackupManager reference for rollback/diff (set by MainStage) */
+    private agent.tool.file.FileBackupManager fileBackupManager;
+    /** Diff/rollback callback target (MainStage or ChatPage) */
+    private java.util.function.BiConsumer<String, agent.tool.file.FileBackupManager.BackupEntry> onFileEditAction;
+
+    /**
+     * Render a structured file-change summary for edit_file/write_file results.
+     * Uses pure JavaFX HBox — no WebView, no height measurement, no blank space.
+     */
+    public void setFileEditResult(String filePath, int addedLines, int removedLines,
+                                   agent.tool.file.FileBackupManager backupManager,
+                                   java.util.function.BiConsumer<String, agent.tool.file.FileBackupManager.BackupEntry> actionHandler) {
+        this.fileEditPath = java.nio.file.Path.of(filePath);
+        this.fileBackupManager = backupManager;
+        this.onFileEditAction = actionHandler;
+
+        // Hide TextArea — file content is now rendered natively
+        contentScrollPane.setVisible(false);
+        contentScrollPane.setManaged(false);
+
+        // Remove any previous file rows
+        contentBox.getChildren().removeIf(n -> n != contentScrollPane && (n instanceof HBox));
+
+        // Build native JavaFX file row
+        HBox fileRow = new HBox(8);
+        fileRow.setAlignment(Pos.CENTER_LEFT);
+        fileRow.setPadding(new Insets(4, 10, 4, 10));
+        fileRow.setStyle("-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 8px;");
+
+        Label fileIcon = new Label("\uD83D\uDCC4"); // 📄
+        fileIcon.setStyle("-fx-font-size: 14px;");
+
+        String fileName = this.fileEditPath.getFileName().toString();
+        Label nameLabel = new Label(fileName);
+        nameLabel.setStyle("-fx-font-weight: 500; -fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.8);");
+        nameLabel.setMaxWidth(140);
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+
+        if (addedLines > 0) {
+            Label added = new Label("+" + addedLines);
+            added.setStyle("-fx-font-size: 10px; -fx-text-fill: #16a34a; -fx-font-weight: 600;");
+            fileRow.getChildren().add(added);
+        }
+        if (removedLines > 0) {
+            Label removed = new Label("-" + removedLines);
+            removed.setStyle("-fx-font-size: 10px; -fx-text-fill: #dc2626; -fx-font-weight: 600;");
+            fileRow.getChildren().add(removed);
+        }
+
+        Button diffBtn = new Button("查看对比");
+        diffBtn.setStyle("-fx-font-size: 10px; -fx-background-color: #3b82f6; -fx-text-fill: white; "
+                + "-fx-padding: 2px 8px; -fx-background-radius: 4px; -fx-cursor: hand;");
+        diffBtn.setOnAction(e -> handleDiffAction());
+
+        Button rollbackBtn = new Button("回滚");
+        rollbackBtn.setStyle("-fx-font-size: 10px; -fx-background-color: #ef4444; -fx-text-fill: white; "
+                + "-fx-padding: 2px 8px; -fx-background-radius: 4px; -fx-cursor: hand;");
+        rollbackBtn.setOnAction(e -> handleRollbackAction());
+
+        fileRow.getChildren().addAll(fileIcon, nameLabel);
+        fileRow.getChildren().add(spacer);
+        fileRow.getChildren().addAll(diffBtn, rollbackBtn);
+
+        contentBox.getChildren().add(fileRow);
+    }
+
+    private void handleDiffAction() {
+        if (fileEditPath == null) {
+            log.error("[ToolCallCard] handleDiffAction: fileEditPath is null");
+            return;
+        }
+        if (fileBackupManager == null) {
+            log.error("[ToolCallCard] handleDiffAction: fileBackupManager is null for " + fileEditPath);
+            return;
+        }
+        java.util.List<agent.tool.file.FileBackupManager.BackupEntry> versions =
+                fileBackupManager.getVersions(fileEditPath);
+        if (versions.isEmpty()) {
+            log.error("[ToolCallCard] handleDiffAction: no backup versions found for {}", fileEditPath);
+            return;
+        }
+        agent.tool.file.FileBackupManager.BackupEntry entry = versions.get(versions.size() - 1);
+        DiffViewerPopup.show(fileEditPath, entry, fileBackupManager);
+    }
+
+    private void handleRollbackAction() {
+        if (fileEditPath == null) {
+            log.error("[ToolCallCard] handleRollbackAction: fileEditPath is null");
+            return;
+        }
+        if (fileBackupManager == null) {
+            log.error("[ToolCallCard] handleRollbackAction: fileBackupManager is null for " + fileEditPath);
+            return;
+        }
+        java.util.List<agent.tool.file.FileBackupManager.BackupEntry> versions =
+                fileBackupManager.getVersions(fileEditPath);
+        if (versions.isEmpty()) {
+            log.error("[ToolCallCard] handleRollbackAction: no backup versions found for " + fileEditPath);
+            return;
+        }
+        agent.tool.file.FileBackupManager.BackupEntry entry = versions.get(versions.size() - 1);
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(
+                javafx.scene.control.Alert.AlertType.CONFIRMATION);
+        alert.setTitle("确认回滚");
+        alert.setHeaderText("回滚文件: " + fileEditPath.getFileName());
+        alert.setContentText("将文件回滚到修改前的版本？\n此操作将覆盖当前文件内容。");
+        alert.showAndWait().ifPresent(response -> {
+            if (response == javafx.scene.control.ButtonType.OK) {
+                fileBackupManager.restore(fileEditPath, entry);
+            }
+        });
     }
 
     // ===== Internal =====
 
-    private String readBodyText() {
-        try {
-            Object result = contentWebView.getEngine().executeScript("document.body.innerText");
-            return result instanceof String ? (String) result : "";
-        } catch (Exception e) {
-            return "";
-        }
+    /** Set plain text content and recalculate height deterministically */
+    private void setContent(String text) {
+        contentTextArea.setText(text != null ? text : "");
+        recalculateTextAreaHeight();
     }
 
-    private void loadContent(String bodyHtml) {
-        String fullHtml = String.format(HTML_TEMPLATE,
-                (bodyHtml != null && !bodyHtml.isBlank()) ? bodyHtml : "");
-        contentWebView.getEngine().load(toDataUri(fullHtml));
+    /** Calculate height from line count — deterministic, no async JS measurement */
+    private void recalculateTextAreaHeight() {
+        String text = contentTextArea.getText();
+        if (text == null || text.isEmpty()) return;
+
+        // Estimate visual lines: count \n lines + account for wrapping on long lines
+        int charsPerLine = 80; // conservative for 11px monospace in ~400px wide area
+        int visualLines = 0;
+        for (String line : text.split("\n", -1)) {
+            visualLines += Math.max(1, (line.length() + charsPerLine - 1) / charsPerLine);
+        }
+
+        double lineHeight = 17; // 11px font + spacing
+        double height = Math.min(visualLines * lineHeight + 16, 400);
+
+        contentTextArea.setPrefHeight(height);
+        contentTextArea.setMaxHeight(Math.min(height, 400));
+        contentScrollPane.setMaxHeight(Math.min(height + 2, 400));
+        contentScrollPane.setPrefHeight(Math.min(height + 2, 400));
     }
 
     private void toggle() {
@@ -171,22 +298,9 @@ public class ToolCallCard extends VBox {
         contentBox.setVisible(expanded);
         contentBox.setManaged(expanded);
         expandIcon.setText(expanded ? "▼" : "▶");
-    }
-
-    // ===== Static helpers =====
-
-    private static String escapeHtml(String s) {
-        if (s == null) return "";
-        return s.replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;")
-                .replace("\"", "&quot;")
-                .replace("'", "&#39;");
-    }
-
-    private static String toDataUri(String html) {
-        byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
-        String b64 = Base64.getEncoder().encodeToString(bytes);
-        return "data:text/html;charset=UTF-8;base64," + b64;
+        // Recalculate height on expand (only when TextArea is visible — native content needs no measurement)
+        if (expanded && contentScrollPane.isVisible()) {
+            recalculateTextAreaHeight();
+        }
     }
 }

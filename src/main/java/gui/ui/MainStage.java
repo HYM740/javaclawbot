@@ -49,6 +49,8 @@ public class MainStage {
     private ToolCallCard lastToolCard;
     /** 用于"新对话"按钮触发时阻止 pageChangeListener 恢复历史会话 */
     private volatile boolean suppressPageResume = false;
+    /** 跟踪 edit_file/write_file 的参数 (toolCallId → file_path) */
+    private final Map<String, String> fileEditParams = new HashMap<>();
 
     /** 窗口边缘拖拽缩放（6px 热区覆盖边缘+四角） */
     private static final double RESIZE_BORDER = 6;
@@ -350,8 +352,19 @@ public class MainStage {
                                 String sid = (String) recent.get("session_id");
                                 if (sid != null && !sid.isBlank()) {
                                     backendBridge.resumeSession(sid);
+                                    // setBackupManager 必须在 loadMessages 之前设置，
+                                    // 否则历史工具卡片的 [查看对比]/[回滚] 按钮无法找到备份文件
+                                    agent.tool.file.FileBackupManager fbm2 = backendBridge.getFileBackupManager();
+                                    if (fbm2 != null) {
+                                        chatPage.getFileDiffBadge().setBackupManager(fbm2);
+                                        // loadFromBackupManager 在 loadMessages 之后调用
+                                    }
                                     List<Map<String, Object>> history = backendBridge.getSessionHistory(sid);
                                     chatPage.loadMessages(history);
+                                    // 在 loadMessages 清空后再重新加载备份数据
+                                    if (fbm2 != null) {
+                                        chatPage.getFileDiffBadge().loadFromBackupManager();
+                                    }
                                     chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                                     chatPage.refreshProjectBadge();
                                     return;
@@ -365,6 +378,7 @@ public class MainStage {
                         chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                         chatPage.refreshProjectBadge();
                         sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
+                        resetFileBadgeForNewSession();
                     });
                 });
             }
@@ -380,6 +394,7 @@ public class MainStage {
                     chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                     chatPage.refreshProjectBadge();
                     sidebar.refreshHistory(backendBridge.getSessionManager().listSessions());
+                    resetFileBadgeForNewSession();
                 });
             }
         });
@@ -387,9 +402,23 @@ public class MainStage {
             if (backendBridge != null) {
                 CompletableFuture.runAsync(() -> {
                     backendBridge.resumeSession(sessionId);
+                    // setBackupManager 必须在 loadMessages 之前设置，
+                    // 否则历史工具卡片的 [查看对比]/[回滚] 按钮无法找到备份文件
+                    agent.tool.file.FileBackupManager fbm = backendBridge.getFileBackupManager();
+                    Platform.runLater(() -> {
+                        if (fbm != null) {
+                            chatPage.getFileDiffBadge().setBackupManager(fbm);
+                            // loadFromBackupManager 要在 loadMessages 之后调用，
+                            // 因为 loadMessages 内部的 clearMessages → clearFiles 会清掉刚加载的数据
+                        }
+                    });
                     List<Map<String, Object>> history = backendBridge.getSessionHistory(sessionId);
                     Platform.runLater(() -> {
                         chatPage.loadMessages(history);
+                        // 在 loadMessages 清空后再重新加载备份数据到 fileDiffBadge
+                        if (fbm != null) {
+                            chatPage.getFileDiffBadge().loadFromBackupManager();
+                        }
                         chatPage.setContextUsage(backendBridge.getContextUsageRatio());
                         chatPage.refreshProjectBadge();
                         showPage("chat");
@@ -442,12 +471,13 @@ public class MainStage {
     private void handleToolResult(BackendBridge.ProgressEvent progress) {
         String tn = progress.toolName();
         String content = progress.content();
+        String tcId = progress.toolCallId();
         if (content == null || content.isBlank()) return;
 
         // 仅当结果为合法 JSON 且 status="awaiting_response" 时进入对话框流程，
         // 避免文件内容中包含 "awaiting_response" 字符串导致误触发（对齐 AgentLoop.isAwaitingResponse）
         if (isAwaitingResponse(content)) {
-            showAskUserQuestionDialog(content, progress.toolCallId());
+            showAskUserQuestionDialog(content, tcId);
         } else if ("AskUserQuestion".equals(tn)) {
             if (content.contains("\"questions\"")) {
                 if (lastToolCard != null) {
@@ -459,10 +489,36 @@ public class MainStage {
                 lastToolCard.addResult(content);
             }
         } else if ("TodoWrite".equals(tn)) {
-            chatPage.getTodoFloatBadge().updateFromJson(content);
+            chatPage.getFileDiffBadge().updateTodoFromJson(content);
             if (lastToolCard != null) {
                 lastToolCard.setStatus("completed");
                 lastToolCard.addStructuredContent(TodoResultView.build(content));
+            }
+        } else if ("edit_file".equals(tn) || "write_file".equals(tn)) {
+            // Structured file-change summary
+            String filePath = tcId != null ? fileEditParams.remove(tcId) : null;
+            if (filePath == null) {
+                filePath = extractFilePathFromResult(content);
+            }
+            if (lastToolCard != null) {
+                lastToolCard.setStatus("completed");
+                if (filePath != null && backendBridge != null) {
+                    agent.tool.file.FileBackupManager fbm = backendBridge.getFileBackupManager();
+                    int[] stats = parseDiffStats(content);
+                    lastToolCard.setFileEditResult(filePath, stats[0], stats[1], fbm, null);
+                    // Notify FileDiffBadge
+                    if (fbm != null) {
+                        try {
+                            java.nio.file.Path p = java.nio.file.Path.of(filePath);
+                            java.util.List<agent.tool.file.FileBackupManager.BackupEntry> vers = fbm.getVersions(p);
+                            if (!vers.isEmpty()) {
+                                chatPage.getFileDiffBadge().addModifiedFile(p, vers.get(vers.size() - 1));
+                            }
+                        } catch (Exception ignored) {}
+                    }
+                } else {
+                    lastToolCard.addResult(content);
+                }
             }
         } else {
             if (lastToolCard != null) {
@@ -480,6 +536,19 @@ public class MainStage {
 
         if ("TodoWrite".equals(toolName)) {
             params = "更新任务列表";
+        }
+
+        // Store file_path for edit_file/write_file cards
+        if (("edit_file".equals(toolName) || "write_file".equals(toolName))
+                && progress.toolCallId() != null) {
+            String filePath = extractFilePathFromParams(params);
+            if (filePath != null) {
+                fileEditParams.put(progress.toolCallId(), filePath);
+            }
+            // Show friendly params
+            if (filePath != null) {
+                params = java.nio.file.Path.of(filePath).getFileName().toString();
+            }
         }
 
         ToolCallCard card = chatPage.addToolCallCard(
@@ -643,6 +712,13 @@ public class MainStage {
                         backendBridge.getProjectRegistry(),
                         backendBridge.getConfig().getWorkspacePath());
 
+                    // Inject FileBackupManager into FileDiffBadge (for rollback/diff actions)
+                    agent.tool.file.FileBackupManager fbm = backendBridge.getFileBackupManager();
+                    if (fbm != null) {
+                        chatPage.getFileDiffBadge().setBackupManager(fbm);
+                        chatPage.getFileDiffBadge().loadFromBackupManager();
+                    }
+
                     // Initial status
                     chatPage.setStatusText("\u25CF 模型就绪 \u00B7 "
                         + backendBridge.getConfig().getAgents().getDefaults().getModel());
@@ -686,4 +762,69 @@ public class MainStage {
         }
     }
 
+    // ===== File-edit helpers =====
+
+    /** Extract file_path from tool params string (e.g., "file_path=D:\...\Config.java, old_string=...") */
+    private static String extractFilePathFromParams(String params) {
+        if (params == null || params.isBlank()) return null;
+        // Try to find "file_path=" pattern
+        int idx = params.indexOf("file_path=");
+        if (idx < 0) return null;
+        String after = params.substring(idx + "file_path=".length());
+        // Find end: comma, space, or end-of-string (but skip commas inside paths)
+        // Simple heuristic: find the next " old_string=" or " content=" or end
+        int end = after.length();
+        for (String delim : new String[]{", old_string=", ", new_string=", ", content=", ", replace_all="}) {
+            int d = after.indexOf(delim);
+            if (d > 0 && d < end) end = d;
+        }
+        return after.substring(0, end).trim();
+    }
+
+    /** Extract file_path from edit_file/write_file result content.
+     *  Looks for "The file X has been updated" or "File created successfully at: X" */
+    private static String extractFilePathFromResult(String result) {
+        if (result == null || result.isBlank()) return null;
+        // Pattern: "The file D:\...\File.java has been updated"
+        String prefix = "The file ";
+        int start = result.indexOf(prefix);
+        if (start >= 0) {
+            String after = result.substring(start + prefix.length());
+            String[] endMarkers = {" has been updated", " has been updated successfully", "."};
+            for (String m : endMarkers) {
+                int end = after.indexOf(m);
+                if (end > 0) return after.substring(0, end).trim();
+            }
+        }
+        // Pattern: "File created successfully at: D:\...\File.java"
+        String createPrefix = "File created successfully at: ";
+        start = result.indexOf(createPrefix);
+        if (start >= 0) {
+            String after = result.substring(start + createPrefix.length());
+            int end = after.indexOf('\n');
+            return end > 0 ? after.substring(0, end).trim() : after.trim();
+        }
+        return null;
+    }
+
+    /** Parse unified diff to extract [addedLines, removedLines] */
+    private static int[] parseDiffStats(String result) {
+        int added = 0, removed = 0;
+        if (result == null || result.isBlank()) return new int[]{added, removed};
+        for (String line : result.split("\n")) {
+            if (line.startsWith("+") && !line.startsWith("+++")) added++;
+            else if (line.startsWith("-") && !line.startsWith("---")) removed++;
+        }
+        return new int[]{added, removed};
+    }
+
+    /** 重置 FileDiffBadge 到当前会话的备份上下文 */
+    private void resetFileBadgeForNewSession() {
+        if (backendBridge == null) return;
+        agent.tool.file.FileBackupManager fbm = backendBridge.getFileBackupManager();
+        if (fbm != null) {
+            chatPage.getFileDiffBadge().setBackupManager(fbm);
+            chatPage.getFileDiffBadge().loadFromBackupManager();
+        }
+    }
 }

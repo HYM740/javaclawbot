@@ -23,8 +23,8 @@ import javafx.stage.StageStyle;
  */
 public class DiffViewerPopup {
 
-    private static final double DEFAULT_WIDTH = 700;
-    private static final double DEFAULT_HEIGHT = 380;
+    private static final double DEFAULT_WIDTH = 1000;
+    private static final double DEFAULT_HEIGHT = 680;
 
     private static final String HTML_TEMPLATE =
         "<!DOCTYPE html><html style='height:100%;'>"
@@ -176,9 +176,15 @@ public class DiffViewerPopup {
         html.append("document.getElementById('hunk-nav').textContent=(idx+1)+' / '+totalHunks;}");
         html.append("function prevHunk(){if(currentHunk>0)currentHunk--;scrollToHunk(currentHunk);}");
         html.append("function nextHunk(){if(currentHunk<totalHunks-1)currentHunk++;scrollToHunk(currentHunk);}");
+        // 同步滚动：左右分屏同时滚动
+        html.append("var syncing=false;");
+        html.append("document.getElementById('left-code').addEventListener('scroll',function(){");
+        html.append("if(!syncing){syncing=true;document.getElementById('right-code').scrollTop=this.scrollTop;syncing=false;}});");
+        html.append("document.getElementById('right-code').addEventListener('scroll',function(){");
+        html.append("if(!syncing){syncing=true;document.getElementById('left-code').scrollTop=this.scrollTop;syncing=false;}});");
         html.append("</script>");
 
-        String fullHtml = String.format(HTML_TEMPLATE, html.toString());
+        String fullHtml = HTML_TEMPLATE.replace("%s", html.toString());
 
         Stage stage = new Stage();
         stage.initStyle(StageStyle.TRANSPARENT);
@@ -211,6 +217,12 @@ public class DiffViewerPopup {
         if (stage.getOwner() != null) {
             stage.setX(stage.getOwner().getX() + (stage.getOwner().getWidth() - DEFAULT_WIDTH) / 2);
             stage.setY(stage.getOwner().getY() + (stage.getOwner().getHeight() - DEFAULT_HEIGHT) / 2);
+        } else {
+            // 无人所有者时用屏幕居中
+            double sw = javafx.stage.Screen.getPrimary().getVisualBounds().getWidth();
+            double sh = javafx.stage.Screen.getPrimary().getVisualBounds().getHeight();
+            stage.setX((sw - DEFAULT_WIDTH) / 2);
+            stage.setY((sh - DEFAULT_HEIGHT) / 2);
         }
         stage.show();
     }

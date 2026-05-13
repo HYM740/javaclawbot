@@ -11,6 +11,8 @@ import java.nio.file.Path;
  * 右下角项目状态徽标。
  * 普通用户：显示工作空间路径，点击复制/打开文件夹。
  * 开发者：显示主项目名 + 数量徽标 + 设置图标，点击弹出 ProjectPopover。
+ * <p>
+ * 开发者模式下始终显示项目绑定界面，即使注册表中尚无项目绑定。
  */
 public class ProjectStatusBadge extends HBox {
 
@@ -24,6 +26,7 @@ public class ProjectStatusBadge extends HBox {
 
     private Runnable onClickHandler;
     private Mode currentMode = Mode.WORKSPACE;
+    private boolean developerMode = false;
 
     public ProjectStatusBadge() {
         setAlignment(Pos.CENTER_RIGHT);
@@ -69,8 +72,19 @@ public class ProjectStatusBadge extends HBox {
         this.onClickHandler = handler;
     }
 
+    /** 设置是否为开发者模式。开发者模式下始终显示项目绑定界面。 */
+    public void setDeveloperMode(boolean devMode) {
+        this.developerMode = devMode;
+    }
+
+    public boolean isDeveloperMode() {
+        return developerMode;
+    }
+
     /**
-     * 刷新显示内容
+     * 刷新显示内容。
+     * 开发者模式下：始终显示项目模式（有项目显示名称，无项目显示"绑定项目"提示）。
+     * 普通模式下：有主项目显示项目模式，否则显示工作空间路径。
      */
     public void refresh(providers.cli.ProjectRegistry registry, Path workspacePath) {
         if (registry == null) return;
@@ -84,7 +98,27 @@ public class ProjectStatusBadge extends HBox {
         }
         int totalCount = registry.size();
 
-        if (mainProjectName != null && totalCount > 0) {
+        if (developerMode) {
+            // 开发者模式：始终显示项目绑定界面
+            currentMode = Mode.PROJECT;
+            if (mainProjectName != null && totalCount > 0) {
+                textLabel.setText("\uD83D\uDCC1 " + mainProjectName + " \u2B50");
+                if (totalCount > 1) {
+                    badgeLabel.setText("+" + (totalCount - 1));
+                    badgeLabel.setVisible(true);
+                    badgeLabel.setManaged(true);
+                } else {
+                    badgeLabel.setVisible(false);
+                    badgeLabel.setManaged(false);
+                }
+            } else {
+                textLabel.setText("\uD83D\uDCC1 绑定项目");
+                badgeLabel.setVisible(false);
+                badgeLabel.setManaged(false);
+            }
+            settingsIcon.setVisible(true);
+            settingsIcon.setManaged(true);
+        } else if (mainProjectName != null && totalCount > 0) {
             currentMode = Mode.PROJECT;
             textLabel.setText("\uD83D\uDCC1 " + mainProjectName + " \u2B50");
             if (totalCount > 1) {

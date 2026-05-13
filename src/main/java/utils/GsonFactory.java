@@ -19,6 +19,7 @@ public final class GsonFactory {
         return GSON;
     }
 
+    // 将对象序列化为 JSON 字符串，失败时返回对象的字符串表示
     public static String toJson(Object o) {
         try {
             return M.writeValueAsString(o);

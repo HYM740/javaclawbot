@@ -30,6 +30,8 @@ public class MessageBubble extends HBox {
     private static final Parser PARSER;
     private static final HtmlRenderer RENDERER;
     private static final String HTML_TEMPLATE;
+    /** 用户消息气泡 HTML 模板（蓝底白字，与 .user-bubble CSS 一致） */
+    private static final String HTML_TEMPLATE_USER;
 
     static {
         MutableDataSet options = new MutableDataSet();
@@ -37,6 +39,7 @@ public class MessageBubble extends HBox {
         PARSER = Parser.builder(options).build();
         RENDERER = HtmlRenderer.builder(options).build();
 
+        // 助手消息模板（灰底黑字）
         HTML_TEMPLATE = "<!DOCTYPE html><html style='height:100%;background:transparent;'>"
             + "<head><meta charset='UTF-8'><style>"
             + "html,body{overflow:hidden;}"
@@ -67,6 +70,56 @@ public class MessageBubble extends HBox {
             + "pre:hover .copy-btn,.copy-btn.copied{opacity:1;}"
             + ".copy-btn:hover{background:rgba(0,0,0,0.1);color:rgba(0,0,0,0.7);}"
             + ".copy-btn.copied{color:#16a34a;}"
+            + "</style></head><body>%s<script>"
+            + "(function(){var svg='<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"13\" height=\"13\" rx=\"2\" ry=\"2\"/><path d=\"M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1\"/></svg>';"
+            + "var pres=document.querySelectorAll('pre');"
+            + "for(var i=0;i<pres.length;i++){(function(pre){pre.style.position='relative';"
+            + "var btn=document.createElement('button');btn.className='copy-btn';btn.innerHTML=svg;"
+            + "btn.onclick=function(e){e.stopPropagation();"
+            + "var code=pre.querySelector('code')||pre;var text=code.textContent;"
+            + "var done=function(){btn.classList.add('copied');btn.textContent='已复制';"
+            + "setTimeout(function(){btn.classList.remove('copied');btn.innerHTML=svg;},2000);};"
+            + "try{navigator.clipboard.writeText(text).then(done).catch(function(){fallback();});}"
+            + "catch(_){fallback();}"
+            + "function fallback(){var ta=document.createElement('textarea');ta.value=text;"
+            + "ta.style.cssText='position:fixed;opacity:0;';document.body.appendChild(ta);ta.select();"
+            + "document.execCommand('copy');document.body.removeChild(ta);done();}};"
+            + "pre.appendChild(btn);})(pres[i]);}})();"
+            + "</script></body></html>";
+
+        // 用户消息模板（蓝底白字，与 .user-bubble CSS #0a84ff 一致）
+        HTML_TEMPLATE_USER = "<!DOCTYPE html><html style='height:100%;background:#0a84ff;'>"
+            + "<head><meta charset='UTF-8'><style>"
+            + "html,body{overflow:hidden;}"
+            + "html{height:100%;}body{min-height:100%;}"
+            + "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif;"
+            + "font-size:14px;line-height:1.6;color:#ffffff;background:#0a84ff;margin:0;padding:12px 16px;}"
+            + "pre{background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);border-radius:8px;"
+            + "padding:12px 16px;overflow-x:auto;font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;line-height:1.5;"
+            + "color:#ffffff;}"
+            + "code{font-family:'JetBrains Mono','Fira Code',monospace;font-size:13px;"
+            + "background:rgba(255,255,255,0.12);padding:2px 6px;border-radius:3px;color:#ffffff;}"
+            + "pre code{background:transparent;padding:0;border-radius:0;}"
+            + "blockquote{border-left:3px solid rgba(255,255,255,0.3);margin:8px 0;padding:4px 12px;"
+            + "color:rgba(255,255,255,0.8);background:rgba(255,255,255,0.06);border-radius:0 4px 4px 0;}"
+            + "h1,h2,h3{color:#ffffff;}"
+            + "h1{font-size:20px;font-weight:700;margin:12px 0 4px;}"
+            + "h2{font-size:17px;font-weight:700;margin:10px 0 4px;}"
+            + "h3{font-size:15px;font-weight:600;margin:8px 0 4px;}"
+            + "ul,ol{padding-left:20px;margin:4px 0;}li{margin:2px 0;}"
+            + "a{color:rgba(255,255,255,0.9);text-decoration:underline;}"
+            + "table{border-collapse:collapse;margin:8px 0;font-size:13px;}"
+            + "th,td{border:1px solid rgba(255,255,255,0.2);padding:6px 12px;text-align:left;}"
+            + "th{background:rgba(255,255,255,0.1);}"
+            + "hr{border:none;border-top:1px solid rgba(255,255,255,0.15);margin:12px 0;}"
+            + "p{margin:4px 0;}img{max-width:100%;border-radius:8px;}"
+            + ".copy-btn{position:absolute;top:6px;right:8px;display:flex;align-items:center;gap:4px;"
+            + "background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.18);border-radius:6px;"
+            + "padding:4px 10px;cursor:pointer;font-size:12px;color:rgba(255,255,255,0.6);"
+            + "opacity:0;transition:opacity 0.2s;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Segoe UI Emoji','Apple Color Emoji','Noto Color Emoji',sans-serif;}"
+            + "pre:hover .copy-btn,.copy-btn.copied{opacity:1;}"
+            + ".copy-btn:hover{background:rgba(255,255,255,0.2);color:#ffffff;}"
+            + ".copy-btn.copied{color:#a3e635;}"
             + "</style></head><body>%s<script>"
             + "(function(){var svg='<svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><rect x=\"9\" y=\"9\" width=\"13\" height=\"13\" rx=\"2\" ry=\"2\"/><path d=\"M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1\"/></svg>';"
             + "var pres=document.querySelectorAll('pre');"
@@ -148,10 +201,60 @@ public class MessageBubble extends HBox {
             Region spacer = new Region();
             HBox.setHgrow(spacer, Priority.ALWAYS);
 
-            Label bubble = new Label(content);
-            bubble.getStyleClass().add("user-bubble");
-            bubble.setWrapText(true);
-            bubble.setMaxWidth(MAX_WIDTH);
+            // 使用 WebView 替代 Label，避免 JavaFX TextRun.getWrapIndex 数组越界 bug
+            // （某些 Unicode 字符序列会触发 PrismTextLayout 崩溃）
+            String htmlBody = RENDERER.render(PARSER.parse(content));
+            String html = HTML_TEMPLATE_USER.replace("%s", htmlBody);
+
+            WebView webView = new WebView();
+            webView.setContextMenuEnabled(false);
+            double initW = estimateContentWidth(content);
+            webView.setPrefWidth(initW);
+            webView.setMaxWidth(initW);
+            int lineCount = (int) content.lines().count();
+            webView.setPrefHeight(Math.max(40, lineCount * 22 + 24));
+
+            webView.getEngine().documentProperty().addListener((obs, old, doc) -> {
+                if (doc != null) {
+                    Platform.runLater(() -> {
+                        adjustWebViewHeight(webView);
+                        if (onHeightAdjusted != null) {
+                            onHeightAdjusted.run();
+                        }
+                    });
+                }
+            });
+
+            // 蓝底气泡容器（与 .user-bubble CSS #0a84ff 一致）
+            StackPane bubble = new StackPane(webView);
+            bubble.setStyle("-fx-background-color: #0a84ff;"
+                + " -fx-background-radius: 16px;"
+                + " -fx-padding: 0;");
+
+            Rectangle clip = new Rectangle();
+            clip.widthProperty().bind(bubble.widthProperty());
+            clip.heightProperty().bind(bubble.heightProperty());
+            clip.setArcWidth(32);
+            clip.setArcHeight(32);
+            bubble.setClip(clip);
+
+            // 滚轮转发
+            webView.addEventFilter(ScrollEvent.SCROLL, e -> {
+                e.consume();
+                javafx.event.Event.fireEvent(bubble, e.copyFor(bubble, bubble));
+            });
+
+            // 延迟加载：等进入场景后加载，确保宽度已确定
+            sceneProperty().addListener((obs, o, s) -> {
+                if (s != null) {
+                    updateBubbleWidth(webView, bubble, s.getWidth(), content);
+                    Platform.runLater(() -> webView.getEngine().load(toDataUri(html)));
+                    s.widthProperty().addListener((wObs, wOld, wNew) -> {
+                        updateBubbleWidth(webView, bubble, wNew.doubleValue(), content);
+                        Platform.runLater(() -> adjustWebViewHeight(webView));
+                    });
+                }
+            });
 
             getChildren().addAll(spacer, bubble);
         } else {

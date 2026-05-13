@@ -236,7 +236,8 @@ public final class WriteTool extends Tool {
 
             // ---- backup original file before write ----
             if (fileBackupManager != null && oldContent != null) {
-                fileBackupManager.backup(resolvedPath, oldContent);
+                String tcId = agent.tool.ToolCallContext.getToolCallId();
+                fileBackupManager.backup(resolvedPath, oldContent, tcId);
             }
 
             // ---- call: writeTextContent ----

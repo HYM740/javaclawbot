@@ -107,6 +107,7 @@
 你已被召唤在以下环境中操作：
 - 当前语言环境： 中文
 - 主工作目录：{workspace}
+- 各个会话对应备份文件目录：{workspace}/.backup/{sessionId}/
 - 项目目录(存在多个项目，分为主项目和各种项目): {project_dir}
 - 是 git 仓库：{is_git}
 - 是 svn 仓库：{is_svn}

@@ -215,17 +215,16 @@ public class BackendBridge {
                     String toolCallId = meta.get("tool_call_id") instanceof String s ? s : null;
 
                     if (isSystemCommand) {
-                        // 系统命令回复（/stop、/help 等）
-                        // 重置等待状态，避免 stop 后无法继续对话
-                        waitingForResponse = false;
-                        currentResponseCallback.set(null);
-
+                        // 系统命令回复（/stop、/help、/init、/memory 等）
+                        // 走 responseCallback 路径以确保正确渲染为最终消息（而非流式替换气泡）
                         String content = out.getContent() != null ? out.getContent() : "";
-                        Consumer<ProgressEvent> cb = currentProgressCallback.get();
-                        if (cb != null) {
-                            Platform.runLater(() -> cb.accept(
-                                new ProgressEvent(content, false)));
-                        }
+                        Consumer<String> cb = currentResponseCallback.getAndSet(null);
+                        waitingForResponse = false;
+                        Platform.runLater(() -> {
+                            if (cb != null) {
+                                cb.accept(content);
+                            }
+                        });
                     } else if (isProgress) {
                         String content = out.getContent() != null ? out.getContent() : "";
                         Consumer<ProgressEvent> cb = currentProgressCallback.get();
@@ -964,6 +963,15 @@ public class BackendBridge {
 
     public AgentLoop getAgentLoop() {
         return agentLoop;
+    }
+
+    /** 获取当前会话的 FileBackupManager（用于 UI 层 diff/回滚操作，按 sessionId 隔离） */
+    public agent.tool.file.FileBackupManager getFileBackupManager() {
+        if (agentLoop == null) return null;
+        if (currentSession != null) {
+            return agentLoop.getOrCreateBackupManager(currentSession.getSessionId());
+        }
+        return agentLoop.getOrCreateBackupManager(sessionKey);
     }
 
     public CronService getCronService() {

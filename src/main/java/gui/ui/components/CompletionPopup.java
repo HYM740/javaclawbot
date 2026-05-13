@@ -53,7 +53,7 @@ public class CompletionPopup {
         new CompletionItem("/stop", "停止当前任务", CompletionKind.COMMAND),
         new CompletionItem("/help", "显示帮助信息", CompletionKind.COMMAND),
         new CompletionItem("/clear", "清空对话历史", CompletionKind.COMMAND),
-        new CompletionItem("/memory", "搜索记忆", CompletionKind.COMMAND),
+        new CompletionItem("/memory", "自我进化", CompletionKind.COMMAND),
         new CompletionItem("/mcp-reload", "重新加载 MCP 工具", CompletionKind.COMMAND),
         new CompletionItem("/mcp-init", "初始化 MCP 连接", CompletionKind.COMMAND),
         new CompletionItem("/context-press", "压缩上下文", CompletionKind.COMMAND),
