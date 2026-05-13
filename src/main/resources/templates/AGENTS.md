@@ -169,6 +169,7 @@
 你已被召唤在以下环境中操作：
 - 当前语言环境： 中文
 - 主工作目录：{workspace}
+- 各个会话对应备份文件目录：{workspace}/.backup/{sessionId}/ ，**重要提示** ：在执行回滚时：每次 edit_file/write_file 调用，系统自动在 .backup/各自sessionId/ 下创建 {path}_{timestamp}_before.{ext} 快照。下次回滚只需 cp 对应快照覆盖目标文件即可，效率远高于逐段 edit_file 还原。
 - 项目目录(存在多个项目，分为主项目和各种项目): {project_dir}
 - 是 git 仓库：{is_git}
 - 是 svn 仓库：{is_svn}
