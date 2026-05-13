@@ -2,6 +2,65 @@
 
 All notable changes to NexusAI will be documented in this file.
 
+## [2.3.5] - 2026-05-13
+
+### Fixed
+- **菜单栏中文化**：侧栏导航项（Chat/Models/Agents/Channels/Skills/MCP/Databases/Cron Tasks→对话/模型/代理/通道/技能/MCP/数据库/定时任务）及底部菜单（Settings/Dev Console/Help→设置/开发者控制台/帮助）全面中文化，新增 `pageKey` 字段保持路由不变
+- **历史对话取消横向滚动条**：侧栏历史区域 ScrollPane 添加 `setHbarPolicy(NEVER)` 彻底禁用横向滚动条
+- **Settings 自动更新报错 `this.input is null`**：`UpdateService.checkForUpdates()` 增加服务端返回的 `version` 和 `url` 字段空值校验，缺失时抛出明确 IOException 而非 NPE；`SettingsPage.startDownload()` 增加 `pendingUpdate.getUrl()` 空值前置检查
+- **`/memory` 命令 LLM 回复未发送到 GUI**："⏳ 正在整理记忆..." 消息缺少 `_progress` 元数据，被 BackendBridge 误当作"最终回复"消费了 `currentResponseCallback`，导致后续真正的 LLM 回复无回调可用。修复：添加 `Map.of("_progress", true)` 元数据，确保走进度回调通道
+- **备份文件被「新对话」自动清除**：`FileDiffBadge.clearFiles()` 内部调用 `backupManager.clearAll()` 删除所有持久化备份，而 `clearFiles()` 被 `ChatPage.clearMessages()` 在「新对话」时调用 → 每次开新对话自动清空上一轮备份。修复：拆分 `clearFiles()`（仅清 UI）与 `clearFilesAndBackups()`（清 UI + 删除备份），后者仅由用户手动点击弹窗「🗑 清除全部」按钮触发
+
+## [2.3.4] - 2026-05-12
+
+### Fixed
+- **修复恢复历史对话时 JavaFX 文本布局崩溃**：
+  - `MessageBubble` USER 消息气泡从 `Label`（`wrapText=true`）切换为 `WebView` 渲染，避免 JavaFX 内部 `TextRun.getWrapIndex` 数组越界导致的 `ArrayIndexOutOfBoundsException`
+  - 根本原因：会话文件中的特定 Unicode 字符序列（如双编码乱码字符）触发 JavaFX `PrismTextLayout` 内部 bug（JDK-8087498 类问题）
+  - `ChatPage.loadMessages()` 新增逐消息 try-catch 防御层，单条消息恢复失败不阻断整个历史加载流程
+  - USER 气泡视觉保持一致：蓝底（`#0a84ff`）白字，支持 Markdown 渲染
+- **修复 `String.format()` 误解析 CSS `%` 导致 `UnknownFormatConversionException`**：
+  - `ToolCallCard.java`、`DiffViewerPopup.java`、`FileDiffBadge.java` 的 HTML 模板中 CSS 含 `height:100%` 等百分比值
+  - `String.format(TEMPLATE, arg)` 将 CSS 中的 `%` 解析为格式说明符（如 `%;` → 非法转换字符），触发 `UnknownFormatConversionException: Conversion = ';'`
+  - 修复：统一替换为 `TEMPLATE.replace("%s", arg)` 字面量替换，不触发表单格式解析器
+- **修复 write_file/edit_file 工具卡片展开后大量空白**：
+  - `ToolCallCard.setFileEditResult()` 自适应高度测量使用 `Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)`
+  - 当 HTML 模板使用 `html{height:100%}` 保证背景色时，`documentElement.scrollHeight` 恒等于 WebView 视口高度（400px），而非内容实际高度
+  - 修复：改用仅 `document.body.scrollHeight` 测量，body 为 `height:auto`，其 scrollHeight 精确等于内容高度
+- **TodoFloatBadge + FileDiffBadge 合并为连体常驻浮标**：
+  - 移除独立 `TodoFloatBadge`，合并到 `FileDiffBadge` 中，双行连体布局（文件变更 + 任务进度）
+  - 始终可见（无数据时显示 0 / 0/0），不再依赖事件激活
+  - 固定 210×82px，右下角定位，`setPickOnBounds(false)` 防止拦截背景点击
+  - 点击弹出中间 Stage 弹窗，带关闭按钮 (ESC)，重复点击 `toFront()` 不重复创建
+- **修复 Stage 弹窗定位漂移（首次打开在左上角）**：
+  - `centerOnOwner()` 在 `show()` 前调用时 `stage.getWidth()/getHeight()` 为 NaN
+  - 修复：`sizeToScene()` 后用 `scene.getWidth()/scene.getHeight()` 替代，新增重载 `centerOnOwner(Stage, knownW, knownH)`
+- **edit_file/write_file 工具卡片改用纯 JavaFX HBox 渲染**：
+  - 移除 WebView + HTML 模板 + JS 回调 + `document.body.scrollHeight` 异步高度测量
+  - 文件行使用 JavaFX HBox（📄 图标 + 文件名 + +/-统计 + [查看对比] 按钮 + [回滚] 按钮）
+  - 按钮通过 `setOnAction` 直接绑定 Java 方法，不再经过 JS `window.status` 桥接
+  - 彻底消除卡片展开后的 300px+ 空白区域
+- **TodoWrite 工具卡片展开时隐藏 WebView**：
+  - `addStructuredContent()` 调用时设置 `contentScrollPane.setVisible(false) + setManaged(false)`
+  - 消除 TodoWrite 卡片中 WebView 占位导致的空白区域
+- **bash/read_file/Grep/Glob 等文本工具改用 TextArea 替代 WebView**：
+  - 移除 WebView、HTML 模板、`escapeHtml()`、`toDataUri()`、`readBodyText()`（JS 桥接）、`loadContent()`（异步监听器链）
+  - 改用 JavaFX `TextArea`（只读、等宽字体、自动换行），支持原生 Ctrl+C 复制
+  - 高度计算从 JS 异步 `scrollHeight` 改为确定性 `行数 × 行高` 计算（`recalculateTextAreaHeight()`）
+  - `toggle()` 移除嵌套 `Platform.runLater` + JS 执行，改为同步 `recalculateTextAreaHeight()` 调用
+  - bash 命令完整显示（不再截断），净减少 ~65 行代码
+- **修复历史对话恢复时 [查看对比]/[回滚] 按钮无反应**：
+  - 根因：`MainStage` 中 `chatPage.loadMessages(history)` 在 `fileDiffBadge.setBackupManager(fbm)` 之前执行，导致历史工具卡片拿到 null 或错误会话的 `FileBackupManager`
+  - 修复：将 `setBackupManager` + `loadFromBackupManager` 移到 `loadMessages` 之前（`addResumeListener` 和 Chat 菜单恢复两条路径）
+  - `ToolCallCard.handleDiffAction()/handleRollbackAction()` 新增 stderr 诊断日志，替代静默返回
+- **backup-index.json 增加 toolCallId 字段**：
+  - `FileBackupManager.BackupEntry` 新增 `toolCallId` 字段，记录触发备份的工具调用 ID
+  - 新增 `backup(Path, String, String)` 重载方法和 `getBackupByToolCallId()` 查询方法
+  - `saveIndex()/loadIndex()` 同步读写 `toolCallId`，兼容旧索引（缺失字段回退为 null）
+- **新增 `ToolCallContext` ThreadLocal**：
+  - `AgentLoop.executeToolCallsSequential()` 在工具执行前设置 `ToolCallContext.setToolCallId(tc.getId())`，执行后清除
+  - `EditTool/WriteTool` 通过 `ToolCallContext.getToolCallId()` 获取当前 toolCallId 并传递给 `backup()`
+
 ## [2.3.3] - 2026-05-11
 
 ### Fixed

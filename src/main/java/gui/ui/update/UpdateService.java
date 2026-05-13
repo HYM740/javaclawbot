@@ -71,6 +71,17 @@ public class UpdateService {
         }
 
         UpdateInfo info = mapper.readValue(response.body(), UpdateInfo.class);
+
+        // 验证必要字段
+        if (info.getVersion() == null || info.getVersion().isBlank()) {
+            log.warn("服务端返回的版本信息无效: version 为空");
+            throw new IOException("服务器返回的版本信息无效");
+        }
+        if (info.getUrl() == null || info.getUrl().isBlank()) {
+            log.warn("服务端返回的更新信息缺少下载 URL: version={}", info.getVersion());
+            throw new IOException("服务器返回的下载地址无效");
+        }
+
         String current = getCurrentVersion();
 
         if (log.isDebugEnabled()) {

@@ -120,22 +120,24 @@ public class Sidebar extends VBox {
         VBox container = new VBox(2);
         container.setPadding(new Insets(4, 8, 4, 8));
 
+        // icon, displayText, pageKey
         String[][] navData = {
-            {"\uD83D\uDCAC", "Chat"},
-            {"\uD83E\uDD16", "Models"},
-            {"\uD83D\uDC64", "Agents"},
-            {"\uD83D\uDCE1", "Channels"},
-            {"\u26A1", "Skills"},
-            {"\uD83D\uDD0C", "MCP"},
-            {"\uD83D\uDDC4", "Databases"},
-            {"\u23F0", "Cron Tasks"}
+            {"\uD83D\uDCAC", "对话", "chat"},
+            {"\uD83E\uDD16", "模型", "models"},
+            {"\uD83D\uDC64", "代理", "agents"},
+            {"\uD83D\uDCE1", "通道", "channels"},
+            {"\u26A1", "技能", "skills"},
+            {"\uD83D\uDD0C", "MCP", "mcp"},
+            {"\uD83D\uDDC4", "数据库", "databases"},
+            {"\u23F0", "定时任务", "crontasks"}
         };
 
         for (String[] item : navData) {
             NavigationItem navItem = new NavigationItem(item[0], item[1]);
+            String pageKey = item[2];
             navItem.setOnMouseClicked(e -> {
                 setActiveNavItem(navItem);
-                notifyPageChange(item[1].toLowerCase().replace(" ", ""));
+                notifyPageChange(pageKey);
             });
             navItems.add(navItem);
             container.getChildren().add(navItem);
@@ -184,6 +186,7 @@ public class Sidebar extends VBox {
         ScrollPane scrollPane = new ScrollPane(container);
         scrollPane.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
         scrollPane.setFitToWidth(true);
+        scrollPane.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         VBox.setVgrow(scrollPane, Priority.ALWAYS);
 
         return scrollPane;
@@ -211,13 +214,13 @@ public class Sidebar extends VBox {
         separator.setStyle("-fx-stroke: rgba(0, 0, 0, 0.05);");
         container.getChildren().add(separator);
 
-        NavigationItem settingsItem = new NavigationItem("\u2699\uFE0F", "Settings");
+        NavigationItem settingsItem = new NavigationItem("\u2699\uFE0F", "设置");
         settingsItem.setOnMouseClicked(e -> notifyPageChange("settings"));
 
-        NavigationItem devItem = new NavigationItem("\uD83D\uDD27", "Dev Console");
+        NavigationItem devItem = new NavigationItem("\uD83D\uDD27", "开发者控制台");
         devItem.setOnMouseClicked(e -> notifyPageChange("devconsole"));
 
-        NavigationItem helpItem = new NavigationItem("\u2753", "Help");
+        NavigationItem helpItem = new NavigationItem("\u2753", "帮助");
         helpItem.setOnMouseClicked(e -> openHelp());
 
         container.getChildren().addAll(settingsItem, devItem, helpItem);

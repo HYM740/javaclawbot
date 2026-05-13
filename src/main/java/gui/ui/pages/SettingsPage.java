@@ -941,6 +941,12 @@ public class SettingsPage extends VBox {
 
     private void startDownload() {
         if (pendingUpdate == null) return;
+        if (pendingUpdate.getUrl() == null || pendingUpdate.getUrl().isBlank()) {
+            updateErrorMessage = "下载地址无效";
+            updateState = UpdateState.ERROR;
+            Platform.runLater(this::refresh);
+            return;
+        }
         updateState = UpdateState.DOWNLOADING;
         Platform.runLater(this::refresh);
 

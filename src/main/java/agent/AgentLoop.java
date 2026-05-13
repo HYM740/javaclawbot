@@ -703,7 +703,7 @@ public class AgentLoop {
      * 优先级：
      * local > mcp > shared
      */
-    private ToolView buildRequestToolsAndSetContext(String sessionKy, String channel, String chatId, String messageId) {
+    private ToolView buildRequestToolsAndSetContext(String sessionKy, String channel, String chatId, String messageId, String backupSessionId) {
         ToolRegistry localTools = new ToolRegistry();
 
         // 每次请求独立创建 MessageTool，避免串会话
@@ -735,8 +735,8 @@ public class AgentLoop {
         // MCP 动态工具快照
         ToolRegistry mcpTools = mcpManager.snapshotRegistry();
 
-        // ---- 添加会话级 EditTool/WriteTool（带 FileBackupManager） ----
-        agent.tool.file.FileBackupManager fbm = getOrCreateBackupManager(sessionKy);
+        // ---- 添加会话级 EditTool/WriteTool（带 FileBackupManager，按 sessionId 隔离） ----
+        agent.tool.file.FileBackupManager fbm = getOrCreateBackupManager(backupSessionId);
         localTools.register(new EditTool(workspace, null, sharedFileCache, fbm));
         localTools.register(new WriteTool(workspace, null, sharedFileCache, fbm));
 
@@ -861,7 +861,7 @@ public class AgentLoop {
      * - restrictToWorkspace=true（非开发者模式）：用户数据目录 backup/{sessionKey}
      * - restrictToWorkspace=false（开发者模式）：workspace/.backup/{sessionKey}
      */
-    private agent.tool.file.FileBackupManager getOrCreateBackupManager(String sessionKey) {
+    public agent.tool.file.FileBackupManager getOrCreateBackupManager(String sessionKey) {
         return backupManagers.computeIfAbsent(sessionKey, key -> {
             java.nio.file.Path backupRoot;
             String safeKey = key.replaceAll("[:\\\\/]", "_");
@@ -1561,10 +1561,10 @@ public class AgentLoop {
             String chatId = (chat != null && chat.contains(":")) ? chat.split(":", 2)[1] : chat;
             String sessionKy = channel + ":" + chatId;
 
-            ToolView requestTools = buildRequestToolsAndSetContext(sessionKy, channel, chatId, extractMessageId(msg.getMetadata()));
-
             Session session = sessions.getOrCreate(sessionKy);
             lazyRestorePlanMode(sessionKy, session);
+
+            ToolView requestTools = buildRequestToolsAndSetContext(sessionKy, channel, chatId, extractMessageId(msg.getMetadata()), session.getSessionId());
             List<Map<String, Object>> history = session.getHistory();
             List<Map<String, Object>> initial = context.buildMessages(
                     history, msg.getContent(), null, channel, chatId
@@ -1612,7 +1612,7 @@ public class AgentLoop {
             lazyRestorePlanMode(sessionKey, session);
 
             ToolView requestTools = buildRequestToolsAndSetContext(
-                    sessionKey, channel, chatId, extractMessageId(msg.getMetadata()));
+                    sessionKey, channel, chatId, extractMessageId(msg.getMetadata()), session.getSessionId());
 
             var mtool = requestTools.get("message");
             if (mtool instanceof MessageTool m) m.startTurn();
@@ -1653,7 +1653,8 @@ public class AgentLoop {
         ToolView requestTools = buildRequestToolsAndSetContext(
                 sessionKey, msg.getChannel(),
                 msg.getChatId(),
-                extractMessageId(msg.getMetadata())
+                extractMessageId(msg.getMetadata()),
+                session.getSessionId()
         );
 
         var mtool = requestTools.get("message");
@@ -1728,9 +1729,10 @@ public class AgentLoop {
         String chatId = msg.getChatId();
         String sessionKey = session.getKey();
 
-        // 通知用户
+        // 通知用户（标记为进度消息，避免消费 responseCallback）
         bus.publishOutbound(new OutboundMessage(
-                channel, chatId, "⏳ 正在整理记忆...", List.of(), Map.of()
+                channel, chatId, "⏳ 正在整理记忆...", List.of(),
+                Map.of("_progress", true)
         ));
 
         try {
@@ -2413,11 +2415,14 @@ public class AgentLoop {
 
                 // 设置当前 sessionKey 供 Tool 使用
                 cliAgentHandler.setCurrentSessionKey(sessionKey);
+                // 设置当前 toolCallId 供 EditTool/WriteTool 备份时记录
+                agent.tool.ToolCallContext.setToolCallId(tc.getId());
 
                 return tools.execute(tc.getName(), tc.getArguments(), toolContext)
                         .whenComplete((result, ex) -> {
                             // 清除 sessionKey 和 ToolUseContext
                             cliAgentHandler.clearCurrentSessionKey();
+                            agent.tool.ToolCallContext.clear();
                         })
                         .thenCompose(rawResult -> {
                             // 仅当结果为合法 JSON 且 status="awaiting_response" 时进入暂停流程，
