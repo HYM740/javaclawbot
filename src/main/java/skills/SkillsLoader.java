@@ -107,8 +107,8 @@ public class SkillsLoader {
                     Path skillFile = skillDir.resolve("SKILL.md");
 
                     if (Files.exists(skillFile) && Files.isRegularFile(skillFile)) {
-                        // name = skillsRoot 到 skillDir 的相对路径
-                        String name = skillsRoot.relativize(skillDir).toString();
+                        // name = skillsRoot 到 skillDir 的相对路径，统一使用 / 分隔符
+                        String name = skillsRoot.relativize(skillDir).toString().replace('\\', '/');
                         skills.add(skillInfo(name, skillFile, "workspace"));
                     } else {
                         // 继续递归，skillsRoot 保持不变
@@ -135,7 +135,7 @@ public class SkillsLoader {
         if (Files.exists(workspaceSkills) && Files.isDirectory(workspaceSkills)) {
             listSkillsRecursive(workspaceSkills, workspaceSkills, skills, new HashSet<>());
             for (Map<String, String> s : skills) {
-                addedNames.add(s.get("name"));
+                addedNames.add(getSkillName(s));
             }
         }
 
@@ -144,7 +144,7 @@ public class SkillsLoader {
             List<Map<String, String>> builtinList = new ArrayList<>();
             listSkillsRecursive(builtinSkills, builtinSkills, builtinList, new HashSet<>());
             for (Map<String, String> s : builtinList) {
-                String name = s.get("name");
+                String name = getSkillName(s);
                 if (!addedNames.contains(name)) {
                     s.put("source", "builtin");
                     skills.add(s);
@@ -159,12 +159,20 @@ public class SkillsLoader {
 
         List<Map<String, String>> filtered = new ArrayList<>();
         for (Map<String, String> s : skills) {
-            Map<String, Object> meta = getSkillMeta(s.get("name"));
+            String name = getSkillName(s);
+            // 过滤已禁用的技能
+            if (!isSkillEnabled(name)) continue;
+            // 过滤依赖不满足的技能
+            Map<String, Object> meta = getSkillMeta(name);
             if (checkRequirements(meta)) {
                 filtered.add(s);
             }
         }
         return filtered;
+    }
+
+    private static String getSkillName(Map<String, String> s) {
+        return s.get("name");
     }
 
 

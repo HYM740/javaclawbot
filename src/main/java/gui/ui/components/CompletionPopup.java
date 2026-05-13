@@ -14,6 +14,7 @@ import javafx.stage.Popup;
 import javafx.stage.Window;
 
 import agent.tool.file.RipgrepConfig;
+import skills.SkillsLoader;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -23,6 +24,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -43,6 +45,7 @@ public class CompletionPopup {
     private final List<CompletionItem> filtered = new ArrayList<>();
     private int selectedIndex = -1;
 
+    private SkillsLoader skillsLoader;
     private Path workspacePath;
     private Path projectPath;
 
@@ -135,6 +138,11 @@ public class CompletionPopup {
         this.projectPath = projectPath;
     }
 
+    /** 设置技能加载器，用于 / 自动补全时列出已启用技能 */
+    public void setSkillsLoader(SkillsLoader loader) {
+        this.skillsLoader = loader;
+    }
+
     public boolean isShowing() {
         return popup.isShowing();
     }
@@ -184,11 +192,30 @@ public class CompletionPopup {
     private void filterCommands(String prefix) {
         String lower = prefix.toLowerCase();
         filtered.clear();
+
+        // 1. 硬编码命令
         for (CompletionItem item : COMMANDS) {
             if (item.text().toLowerCase().startsWith(lower)) {
                 filtered.add(item);
             }
         }
+
+        // 2. 已启用的技能（合并显示）
+        if (skillsLoader != null) {
+            List<Map<String, String>> allSkills = skillsLoader.listSkills(false);
+            for (Map<String, String> s : allSkills) {
+                String name = s.get("name");
+                if (!skillsLoader.isSkillEnabled(name)) continue;
+                // 统一路径分隔符为 /（Windows 上 Path.relativize 会产生 \）
+                String skillCmd = "/" + name.replace('\\', '/');
+                if (skillCmd.toLowerCase().startsWith(lower)) {
+                    String desc = skillsLoader.getSkillDescription(name);
+                    filtered.add(new CompletionItem(skillCmd, desc, CompletionKind.COMMAND));
+                }
+            }
+        }
+
+        // 只限制前 MAX_VISIBLE 条，但保留所有匹配记录（若需要截断展示数量）
         if (filtered.isEmpty()) { hide(); return; }
         selectedIndex = 0;
         showPopup();

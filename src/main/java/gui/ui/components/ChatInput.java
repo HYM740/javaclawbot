@@ -794,6 +794,10 @@ public class ChatInput extends VBox {
      */
     public void setBackendBridge(BackendBridge bridge) {
         this.backendBridge = bridge;
+        // 传递 SkillsLoader 给自动补全弹窗，用于 / 列出已启用技能
+        if (bridge != null) {
+            completionPopup.setSkillsLoader(bridge.getSkillsLoader());
+        }
     }
 
     /**

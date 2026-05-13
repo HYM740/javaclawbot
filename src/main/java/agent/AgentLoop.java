@@ -1572,15 +1572,13 @@ public class AgentLoop {
                     history, msg.getContent(), null, channel, chatId
             );
 
-            return runAgentLoop(msg, initial, requestTools, true, onProgress).thenApply(rr -> {
-                return new OutboundMessage(
-                        channel,
-                        chatId,
-                        rr.finalContent != null ? rr.finalContent : "后台任务已完成。",
-                        List.of(),
-                        Map.of()
-                );
-            });
+            return runAgentLoop(msg, initial, requestTools, true, onProgress).thenApply(rr -> new OutboundMessage(
+                    channel,
+                    chatId,
+                    rr.finalContent != null ? rr.finalContent : "后台任务已完成。",
+                    List.of(),
+                    Map.of()
+            ));
         }
 
         // 获取命令

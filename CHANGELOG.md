@@ -19,6 +19,7 @@ All notable changes to NexusAI will be documented in this file.
 - **备份文件被「新对话」自动清除**：`FileDiffBadge.clearFiles()` 内部调用 `backupManager.clearAll()` 删除所有持久化备份，而 `clearFiles()` 被 `ChatPage.clearMessages()` 在「新对话」时调用 → 每次开新对话自动清空上一轮备份。修复：拆分 `clearFiles()`（仅清 UI）与 `clearFilesAndBackups()`（清 UI + 删除备份），后者仅由用户手动点击弹窗「🗑 清除全部」按钮触发
 - **设置页更新检查报"下载地址无效"**：服务端 JSON 将 JAR 下载 URL 嵌套在 `jar.url` 中，但 `UpdateInfo` 类只映射顶层 `url` 字段 → Jackson 反序列化后 `getUrl()` 返回 null → 校验失败。修复：新增 `UpdateInfo.JarInfo` 嵌套类映射 `jar` 对象，`getUrl()`/`getSize()` 优先读取 `jar.*`，回退顶层字段保持向下兼容
 - **开发者模式右下角显示非开发者界面**：`ProjectStatusBadge` 按注册表中项目数量判断显示模式，但 `newSession()` 会清空注册表 → badge 退化显示工作空间路径而非项目绑定界面。修复：新增 `developerMode` 字段，开发者模式下始终显示项目绑定入口（无项目时显示"📁 绑定项目"提示 + 齿轮图标），且禁止弹出"打开文件夹"菜单
+- **对话框 `/` 自动补全不显示已启用技能**：`CompletionPopup.filterCommands()` 仅列出硬编码命令（`/stop`、`/help` 等），不包含通过 `enable` 开关管理的技能。修复：`CompletionPopup` 新增 `SkillsLoader` 注入 + `setSkillsLoader()` 方法；`filterCommands()` 合并显示硬编码命令与已启用技能（含完整路径如 `/zjkycode/brainstorming` 及描述说明）；`ChatInput.setBackendBridge()` 顺带传递 `SkillsLoader` 引用
 
 ## [2.3.4] - 2026-05-12
 
