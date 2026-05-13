@@ -1,6 +1,6 @@
 package gui.ui
 
-import gui.ui.model.StatusInfo
+import gui.ui.model.AgentTaskInfo
 import kotlinx.coroutines.*
 
 class Bridge(
@@ -14,7 +14,17 @@ class Bridge(
         val toolName: String? = null,
         val toolCallId: String? = null,
         val isReasoning: Boolean = false,
-        val isToolError: Boolean = false
+        val isToolError: Boolean = false,
+        val isSubagentProgress: Boolean = false,
+        val subagentTaskId: String? = null,
+        val subagentType: String? = null,
+        val subagentStatus: String? = null,
+        val subagentToolName: String? = null,
+        val subagentToolParams: String? = null,
+        val subagentToolResult: String? = null,
+        val subagentToolCallId: String? = null,
+        val subagentIteration: Int = 0,
+        val parentToolCallId: String? = null
     )
 
     fun initialize(onReady: () -> Unit) {
@@ -41,7 +51,17 @@ class Bridge(
                     toolName = event.toolName(),
                     toolCallId = event.toolCallId(),
                     isReasoning = event.isReasoning(),
-                    isToolError = event.isToolError()
+                    isToolError = event.isToolError(),
+                    isSubagentProgress = event.isSubagentProgress(),
+                    subagentTaskId = event.subagentTaskId(),
+                    subagentType = event.subagentType(),
+                    subagentStatus = event.subagentStatus(),
+                    subagentToolName = event.subagentToolName(),
+                    subagentToolParams = event.subagentToolParams(),
+                    subagentToolResult = event.subagentToolResult(),
+                    subagentToolCallId = event.subagentToolCallId(),
+                    subagentIteration = event.subagentIteration(),
+                    parentToolCallId = event.parentToolCallId()
                 ))
             }
         }
@@ -124,4 +144,21 @@ class Bridge(
     fun reconnectDataSource(name: String): Boolean = bridge.reconnectDataSource(name)
     fun toggleDataSource(name: String, enable: Boolean): Boolean = bridge.toggleDataSource(name, enable)
     fun getDataSourceStatus(name: String): String = bridge.getDataSourceStatus(name).toString()
+
+    fun getActiveAgentTasks(): List<AgentTaskInfo> {
+        val agentLoop = bridge.agentLoop ?: return emptyList()
+        val state = agentLoop.appState ?: return emptyList()
+        val result = mutableListOf<AgentTaskInfo>()
+        for (task in state.getActiveTasks()) {
+            result.add(AgentTaskInfo(
+                taskId = task.getId() ?: "",
+                agentType = task.getType()?.name ?: "",
+                status = task.getStatus()?.name ?: "",
+                currentTool = null,
+                iteration = 0,
+                chatId = null
+            ))
+        }
+        return result
+    }
 }

@@ -37,8 +37,11 @@ fun StatusBar(status: StatusInfo, modifier: Modifier = Modifier) {
                 "●", "模型 ${status.modelName}", StatusDetail.MODEL, detail,
                 { detail = if (detail == StatusDetail.MODEL) StatusDetail.NONE else StatusDetail.MODEL }
             )
+            val agentDot = if (status.activeAgentTasks.isNotEmpty()) "🟢" else "⚪"
+            val agentCount = status.activeAgentTasks.size
             segment(
-                "▓", "Agent ${status.agentName}", StatusDetail.AGENT, detail,
+                agentDot, "Agent ${status.agentName}${if (agentCount > 0) " $agentCount" else ""}",
+                StatusDetail.AGENT, detail,
                 { detail = if (detail == StatusDetail.AGENT) StatusDetail.NONE else StatusDetail.AGENT }
             )
             segment(

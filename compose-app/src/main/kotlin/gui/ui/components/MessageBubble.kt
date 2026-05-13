@@ -20,6 +20,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import gui.ui.model.ChatMessage
+import gui.ui.model.SubagentCall
 import gui.ui.model.ToolCall
 import gui.ui.model.ToolStatus
 import androidx.compose.ui.window.Window
@@ -274,6 +275,60 @@ private fun ToolCallCard(tc: ToolCall) {
                         }
                     }
                 }
+            }
+
+            // Subagent sub-calls
+            if (tc.subCalls.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text("子代理", fontSize = 11.sp, color = AppColors.TextSecondary)
+                Spacer(Modifier.height(4.dp))
+                tc.subCalls.forEach { sub -> SubagentCard(sub) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SubagentCard(sub: SubagentCall) {
+    var expanded by remember { mutableStateOf(false) }
+    val statusIcon = when (sub.status) {
+        ToolStatus.RUNNING -> "⏳"
+        ToolStatus.COMPLETED -> "✅"
+        ToolStatus.ERROR -> "❌"
+    }
+    Column(
+        Modifier.fillMaxWidth().padding(start = 8.dp, top = 2.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFFF1F5F9))
+            .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(6.dp))
+            .clickable { expanded = !expanded }
+            .padding(6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("🤖", fontSize = 10.sp)
+            Spacer(Modifier.width(4.dp))
+            Text(sub.agentType, fontSize = 11.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+                color = AppColors.TextPrimary)
+            Spacer(Modifier.width(2.dp))
+            Text("#${sub.taskId.take(8)}", fontSize = 10.sp, color = AppColors.TextSecondary)
+            Spacer(Modifier.weight(1f))
+            Text(sub.toolName, fontSize = 10.sp, color = AppColors.TextSecondary, maxLines = 1)
+            Spacer(Modifier.width(4.dp))
+            Text(statusIcon, fontSize = 11.sp)
+        }
+        if (expanded && (!sub.toolParams.isNullOrBlank() || !sub.toolResult.isNullOrBlank())) {
+            if (!sub.toolParams.isNullOrBlank()) {
+                Text("参数", fontSize = 10.sp, color = AppColors.TextSecondary,
+                    modifier = Modifier.padding(top = 4.dp))
+                Text(sub.toolParams!!, fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace, color = AppColors.TextSecondary)
+            }
+            if (!sub.toolResult.isNullOrBlank()) {
+                Text("结果", fontSize = 10.sp, color = AppColors.TextSecondary,
+                    modifier = Modifier.padding(top = 4.dp))
+                Text(sub.toolResult!!, fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace, color = AppColors.TextSecondary)
             }
         }
     }

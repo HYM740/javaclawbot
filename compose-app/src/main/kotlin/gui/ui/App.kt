@@ -108,6 +108,16 @@ fun main() = application {
         }
     }
 
+    // Poll active agent tasks every 1s for status bar
+    LaunchedEffect(bridge) {
+        val b = bridge ?: return@LaunchedEffect
+        while (true) {
+            kotlinx.coroutines.delay(1000)
+            val tasks = b.getActiveAgentTasks()
+            statusInfo = statusInfo.copy(activeAgentTasks = tasks)
+        }
+    }
+
     Window(
         onCloseRequest = {
             bridge?.stopMessage()

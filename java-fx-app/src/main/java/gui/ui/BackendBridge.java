@@ -61,12 +61,19 @@ import java.util.Properties;
 public class BackendBridge {
 
 
-    /** 进度事件：区分思考内容、工具调用、工具结果 */
+    /** 进度事件：区分思考内容、工具调用、工具结果、子代理进度 */
     public record ProgressEvent(String content, boolean isToolHint,
                                 boolean isToolResult, String toolName, String toolCallId,
-                                boolean isReasoning, boolean isToolError) {
+                                boolean isReasoning, boolean isToolError,
+                                boolean isSubagentProgress,
+                                String subagentTaskId, String subagentType,
+                                String subagentStatus, String subagentToolName,
+                                String subagentToolParams, String subagentToolResult,
+                                String subagentToolCallId, int subagentIteration,
+                                String parentToolCallId) {
         public ProgressEvent(String content, boolean isToolHint) {
-            this(content, isToolHint, false, null, null, false, false);
+            this(content, isToolHint, false, null, null, false, false,
+                 false, null, null, null, null, null, null, null, 0, null);
         }
     }
 
@@ -260,14 +267,29 @@ public class BackendBridge {
                 String content = out.getContent() != null ? out.getContent() : "";
                 Consumer<ProgressEvent> cb = ctx.currentProgressCallback.get();
                 if (cb != null) {
-                    uiDispatcher.accept(() -> cb.accept(new ProgressEvent(content, false, false, null, null, false, false)));
+                    uiDispatcher.accept(() -> cb.accept(new ProgressEvent(content, false)));
                 }
             } else if (isProgress) {
                 String content = out.getContent() != null ? out.getContent() : "";
                 Consumer<ProgressEvent> cb = ctx.currentProgressCallback.get();
                 if (cb != null) {
+                    boolean isSubagentProgress = Boolean.TRUE.equals(meta.get("_subagent_progress"));
+                    String subagentTaskId = meta.get("_subagent_task_id") instanceof String s ? s : null;
+                    String subagentType = meta.get("_subagent_type") instanceof String s ? s : null;
+                    String subagentStatus = meta.get("_subagent_status") instanceof String s ? s : null;
+                    String subagentToolName = meta.get("_subagent_tool_name") instanceof String s ? s : null;
+                    String subagentToolParams = meta.get("_subagent_tool_params") instanceof String s ? s : null;
+                    String subagentToolResult = meta.get("_subagent_tool_result") instanceof String s ? s : null;
+                    String subagentToolCallId = meta.get("_subagent_tool_call_id") instanceof String s ? s : null;
+                    int subagentIteration = meta.get("_subagent_iteration") instanceof Number n ? n.intValue() : 0;
+                    String parentToolCallId = meta.get("_parent_tool_call_id") instanceof String s ? s : null;
                     uiDispatcher.accept(() -> cb.accept(
-                        new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId, isReasoning, isToolError)));
+                        new ProgressEvent(content, isToolHint, isToolResult, toolName, toolCallId,
+                                          isReasoning, isToolError,
+                                          isSubagentProgress, subagentTaskId, subagentType,
+                                          subagentStatus, subagentToolName, subagentToolParams,
+                                          subagentToolResult, subagentToolCallId, subagentIteration,
+                                          parentToolCallId)));
                 }
             } else {
                 // 最终回复

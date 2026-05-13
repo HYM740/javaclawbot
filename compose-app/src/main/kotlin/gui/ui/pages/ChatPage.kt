@@ -127,10 +127,56 @@ fun ChatPage(
                                 toolCalls = listOf(ToolCall(
                                     name = progress.toolName,
                                     status = ToolStatus.RUNNING,
-                                    params = progress.content
+                                    params = progress.content,
+                                    toolCallId = progress.toolCallId
                                 ))
                             ))
                             onMessagesChanged(exchangeMsgs.toList())
+                        } else if (progress.isSubagentProgress) {
+                            val parentToolCallId = progress.parentToolCallId
+                            if (parentToolCallId != null) {
+                                val parentMsgIdx = exchangeMsgs.indexOfLast { msg ->
+                                    msg.toolCalls.any { it.toolCallId == parentToolCallId }
+                                }
+                                if (parentMsgIdx >= 0) {
+                                    val parentMsg = exchangeMsgs[parentMsgIdx]
+                                    val updatedCalls = parentMsg.toolCalls.map { call ->
+                                        if (call.toolCallId == parentToolCallId) {
+                                            val exists = call.subCalls.indexOfFirst { it.taskId == progress.subagentTaskId }
+                                            val updatedSubCalls = if (exists >= 0) {
+                                                call.subCalls.toMutableList().also { list ->
+                                                    list[exists] = list[exists].copy(
+                                                        toolName = progress.subagentToolName ?: list[exists].toolName,
+                                                        toolParams = progress.subagentToolParams ?: list[exists].toolParams,
+                                                        toolResult = progress.subagentToolResult ?: list[exists].toolResult,
+                                                        status = when (progress.subagentStatus) {
+                                                            "completed" -> ToolStatus.COMPLETED
+                                                            "error" -> ToolStatus.ERROR
+                                                            else -> ToolStatus.RUNNING
+                                                        },
+                                                        toolCallId = progress.subagentToolCallId ?: list[exists].toolCallId,
+                                                        iteration = progress.subagentIteration
+                                                    )
+                                                }
+                                            } else {
+                                                call.subCalls + SubagentCall(
+                                                    taskId = progress.subagentTaskId ?: "",
+                                                    agentType = progress.subagentType ?: "",
+                                                    toolName = progress.subagentToolName ?: "",
+                                                    toolParams = progress.subagentToolParams,
+                                                    toolResult = progress.subagentToolResult,
+                                                    status = ToolStatus.RUNNING,
+                                                    toolCallId = progress.subagentToolCallId,
+                                                    iteration = progress.subagentIteration
+                                                )
+                                            }
+                                            call.copy(subCalls = updatedSubCalls)
+                                        } else call
+                                    }
+                                    exchangeMsgs[parentMsgIdx] = parentMsg.copy(toolCalls = updatedCalls)
+                                    onMessagesChanged(exchangeMsgs.toList())
+                                }
+                            }
                         } else if (progress.isToolResult) {
                             val resultContent = progress.content ?: ""
                             val tn = progress.toolName
