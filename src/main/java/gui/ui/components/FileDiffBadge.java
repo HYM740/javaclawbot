@@ -5,6 +5,10 @@ import com.google.gson.Gson;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.*;
+import javafx.animation.Interpolator;
+import javafx.animation.KeyFrame;
+import javafx.animation.KeyValue;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -21,14 +25,16 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.web.WebView;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+import javafx.util.Duration;
 
 /**
- * 连体状态浮标 — 文件变更 + 任务进度，常驻展示。
+ * 连体状态浮标 — 文件变更 + 任务进度，默认折叠，点击向左展开。
  * <p>
- * 固定在右下角，两个区域上下排列，始终可见（无数据时显示 0 / 0/0）。
- * 点击任一区域弹出中间 Stage 弹窗展示详情。
+ * 折叠态（44px 竖条）：双行图标+数字 + ◀ 展开提示，贴右侧边缘。
+ * 展开态（210px 面板）：完整两行信息 + ▶ 收起，向左滑出。
+ * 点击任一行的 ▶ 弹出中间 Stage 弹窗展示详情。
  */
-public class FileDiffBadge extends VBox {
+public class FileDiffBadge extends StackPane {
 
     // ===== 文件面板 HTML 模板 =====
     private static final String FILE_PANEL_HTML = "<!DOCTYPE html><html style='height:100%;background:white;'>"
@@ -74,6 +80,8 @@ public class FileDiffBadge extends VBox {
 
     // ===== 布局常量 =====
     private static final double BADGE_WIDTH = 210;
+    private static final double COLLAPSED_WIDTH = 48;
+    private static final double BADGE_HEIGHT = 82;
     private static final double POPUP_WIDTH = 320;
     private static final double POPUP_MAX_HEIGHT = 500;
 
@@ -87,96 +95,269 @@ public class FileDiffBadge extends VBox {
     private int todoTotal = 0;
     private List<Map<String, Object>> todoItems = new ArrayList<>();
 
-    // ===== UI 组件 =====
-    private final Label fileCountLabel;
-    private final Label todoCountLabel;
-    private final Label fileArrowLabel;
-    private final Label todoArrowLabel;
+    // ===== 展开态 UI（210px 完整面板）=====
+    private final VBox expandedPanel;
+    private Label fileCountLabel;
+    private Label todoCountLabel;
+    private Label fileArrowLabel;
+    private Label todoArrowLabel;
 
-    // ===== 弹窗追踪（防止重复打开） =====
+    // ===== 折叠态 UI（44px 竖条）=====
+    private final VBox collapsedTab;
+    private Label collapsedFileCount;
+    private Label collapsedTodoCount;
+
+    // ===== 动画与状态 =====
+    private final Rectangle clipRect;
+    private boolean isExpanded = false;
+    private Timeline currentAnimation;
+
+    // ===== 弹窗追踪（防止重复打开）=====
     private Stage currentFilePopup;
     private Stage currentTodoPopup;
 
     public FileDiffBadge() {
-        // 始终可见（常驻）
         setVisible(true);
         setManaged(true);
-        setPickOnBounds(false);   // 自身不拦截点击，仅子节点（HBox行）响应
+        setPickOnBounds(false);   // 自身不拦截点击
 
-        setStyle("-fx-background-color: white; -fx-background-radius: 16px;"
+        // 默认折叠尺寸
+        setMinWidth(COLLAPSED_WIDTH);
+        setMaxWidth(COLLAPSED_WIDTH);
+        setPrefWidth(COLLAPSED_WIDTH);
+        setMinHeight(BADGE_HEIGHT);
+        setMaxHeight(BADGE_HEIGHT);
+        setPrefHeight(BADGE_HEIGHT);
+
+        setStyle("-fx-background-color: transparent;");
+
+        // ===== 1. 构建展开面板（210px，当前完整内容）=====
+        expandedPanel = buildExpandedPanel();
+        expandedPanel.setVisible(false);   // 折叠态：完全隐藏，避免 dropshadow 透出
+        expandedPanel.setManaged(false);
+        expandedPanel.setMinWidth(BADGE_WIDTH);
+        expandedPanel.setMaxWidth(BADGE_WIDTH);
+        expandedPanel.setPrefWidth(BADGE_WIDTH);
+        expandedPanel.setMinHeight(BADGE_HEIGHT);
+        expandedPanel.setMaxHeight(BADGE_HEIGHT);
+
+        // ===== 2. 构建折叠面板（44px 竖条）=====
+        collapsedTab = buildCollapsedTab();
+        collapsedTab.setMinWidth(COLLAPSED_WIDTH);
+        collapsedTab.setMaxWidth(COLLAPSED_WIDTH);
+        collapsedTab.setPrefWidth(COLLAPSED_WIDTH);
+        collapsedTab.setMinHeight(BADGE_HEIGHT);
+        collapsedTab.setMaxHeight(BADGE_HEIGHT);
+
+        // ===== 3. Clip 矩形（用于展开动画）=====
+        clipRect = new Rectangle(COLLAPSED_WIDTH, BADGE_HEIGHT);
+        clipRect.setArcWidth(16);
+        clipRect.setArcHeight(16);
+        expandedPanel.setClip(clipRect);
+
+        // ===== 4. 组装 =====
+        getChildren().addAll(expandedPanel, collapsedTab);
+        StackPane.setAlignment(expandedPanel, Pos.CENTER_RIGHT);
+        StackPane.setAlignment(collapsedTab, Pos.CENTER_RIGHT);
+
+        // ===== 5. 注册外部点击折叠 =====
+        sceneProperty().addListener((obs, oldScene, newScene) -> {
+            if (newScene != null) {
+                newScene.addEventFilter(javafx.scene.input.MouseEvent.MOUSE_CLICKED, ev -> {
+                    if (isExpanded && !isInsideBadge(ev.getSceneX(), ev.getSceneY())) {
+                        collapse();
+                    }
+                });
+            }
+        });
+    }
+
+    // ===== 构建展开面板 =====
+
+    private VBox buildExpandedPanel() {
+        VBox panel = new VBox();
+        panel.setStyle("-fx-background-color: white; -fx-background-radius: 16px;"
                 + " -fx-border-color: rgba(0,0,0,0.08); -fx-border-width: 1px;"
                 + " -fx-border-radius: 16px;"
                 + " -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.1), 16, 0, 0, 6);");
-        setMinWidth(BADGE_WIDTH);
-        setMaxWidth(BADGE_WIDTH);
-        setPrefWidth(BADGE_WIDTH);
-        // 固定高度：两行 + 分隔线 ≈ 82px
-        setMinHeight(82);
-        setMaxHeight(82);
-        setPrefHeight(82);
 
-        // ===== 上行：文件变更 =====
-        HBox fileRow = createRow(
-                "\uD83D\uDCDD",                              // 📝
-                "rgba(245,158,11,0.12)",                     // orange bg
-                "文件变更",
-                fileCountLabel = createCountBadge("0", "rgba(245,158,11,0.1)", "#d97706"),
-                fileArrowLabel = new Label("\u25B6")
-        );
+        // 文件变更行
+        HBox fileRow = new HBox(10);
+        fileRow.setAlignment(Pos.CENTER_LEFT);
+        fileRow.setPadding(new Insets(9, 14, 9, 14));
         fileRow.setCursor(Cursor.HAND);
+
+        Label fileIcon = iconCircle("\uD83D\uDCDD", "rgba(245,158,11,0.12)");   // 📝
+        Label fileTitle = new Label("文件变更");
+        fileTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: rgba(0,0,0,0.8);");
+        HBox.setHgrow(fileTitle, Priority.ALWAYS);
+
+        fileCountLabel = createCountBadge("0", "rgba(245,158,11,0.1)", "#d97706");
+        fileArrowLabel = new Label("\u25B6");
+        fileArrowLabel.setStyle("-fx-font-size: 9px; -fx-text-fill: rgba(0,0,0,0.3);");
+        fileArrowLabel.setMinWidth(12);
+
+        fileRow.getChildren().addAll(fileIcon, fileTitle, fileCountLabel, fileArrowLabel);
         fileRow.setOnMouseClicked(e -> openFilePopup());
-        // hover
         fileRow.setOnMouseEntered(e -> fileRow.setStyle("-fx-background-color: rgba(0,0,0,0.02);"));
         fileRow.setOnMouseExited(e -> fileRow.setStyle("-fx-background-color: transparent;"));
 
-        // ===== 分隔线 =====
+        // 分隔线
         Region sep = new Region();
         sep.setPrefHeight(1);
         sep.setMaxHeight(1);
         sep.setStyle("-fx-background-color: rgba(0,0,0,0.05);");
         sep.setPadding(new Insets(0, 14, 0, 14));
 
-        // ===== 下行：任务进度 =====
-        HBox todoRow = createRow(
-                "\uD83D\uDCCB",                              // 📋
-                "rgba(59,130,246,0.12)",                     // blue bg
-                "任务进度",
-                todoCountLabel = createCountBadge("0/0", "rgba(59,130,246,0.1)", "#2563eb"),
-                todoArrowLabel = new Label("\u25B6")
-        );
+        // 任务进度行
+        HBox todoRow = new HBox(10);
+        todoRow.setAlignment(Pos.CENTER_LEFT);
+        todoRow.setPadding(new Insets(9, 14, 9, 14));
         todoRow.setCursor(Cursor.HAND);
+
+        Label todoIcon = iconCircle("\uD83D\uDCCB", "rgba(59,130,246,0.12)");   // 📋
+        Label todoTitle = new Label("任务进度");
+        todoTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: rgba(0,0,0,0.8);");
+        HBox.setHgrow(todoTitle, Priority.ALWAYS);
+
+        todoCountLabel = createCountBadge("0/0", "rgba(59,130,246,0.1)", "#2563eb");
+        todoArrowLabel = new Label("\u25B6");
+        todoArrowLabel.setStyle("-fx-font-size: 9px; -fx-text-fill: rgba(0,0,0,0.3);");
+        todoArrowLabel.setMinWidth(12);
+
+        todoRow.getChildren().addAll(todoIcon, todoTitle, todoCountLabel, todoArrowLabel);
         todoRow.setOnMouseClicked(e -> openTodoPopup());
         todoRow.setOnMouseEntered(e -> todoRow.setStyle("-fx-background-color: rgba(0,0,0,0.02);"));
         todoRow.setOnMouseExited(e -> todoRow.setStyle("-fx-background-color: transparent;"));
 
-        getChildren().addAll(fileRow, sep, todoRow);
+        // 收起提示行
+        HBox collapseHintRow = new HBox();
+        collapseHintRow.setAlignment(Pos.CENTER_RIGHT);
+        collapseHintRow.setPadding(new Insets(2, 14, 4, 14));
+        Label collapseHint = new Label("\u25B6 收起");
+        collapseHint.setStyle("-fx-font-size: 9px; -fx-text-fill: rgba(0,0,0,0.3); -fx-cursor: hand;");
+        collapseHint.setOnMouseClicked(e -> collapse());
+        collapseHintRow.getChildren().add(collapseHint);
+
+        panel.getChildren().addAll(fileRow, sep, todoRow, collapseHintRow);
+        return panel;
     }
 
-    // ===== 工厂方法 =====
+    // ===== 构建折叠面板 =====
 
-    private HBox createRow(String emoji, String iconBgColor, String title, Label countBadge, Label arrow) {
-        HBox row = new HBox(10);
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(11, 14, 11, 14));
+    private VBox buildCollapsedTab() {
+        VBox tab = new VBox(6);
+        tab.setAlignment(Pos.CENTER);
+        tab.setPadding(new Insets(10, 4, 10, 4));
+        tab.setStyle("-fx-background-color: white;"
+                + " -fx-background-radius: 12px;"
+                + " -fx-border-color: rgba(0,0,0,0.08);"
+                + " -fx-border-width: 1px;");
+        tab.setCursor(Cursor.HAND);
+        tab.setOnMouseClicked(e -> {
+            e.consume();
+            expand();
+        });
 
-        // 图标圆
-        Label iconCircle = new Label(emoji);
-        iconCircle.setStyle("-fx-background-color: " + iconBgColor + ";"
+        // 文件行：图标 + 数字
+        HBox cFileRow = new HBox(4);
+        cFileRow.setAlignment(Pos.CENTER);
+        Label cFileIcon = new Label("\uD83D\uDCDD");
+        cFileIcon.setStyle("-fx-font-size: 13px;");
+        collapsedFileCount = new Label("0");
+        collapsedFileCount.setStyle("-fx-font-size: 11px; -fx-font-weight: 700; -fx-text-fill: #d97706;");
+        cFileRow.getChildren().addAll(cFileIcon, collapsedFileCount);
+
+        // 分隔线
+        Region cSep = new Region();
+        cSep.setPrefHeight(1);
+        cSep.setMaxHeight(1);
+        cSep.setMinWidth(28);
+        cSep.setStyle("-fx-background-color: rgba(0,0,0,0.08);");
+
+        // 任务行：图标 + 进度
+        HBox cTodoRow = new HBox(4);
+        cTodoRow.setAlignment(Pos.CENTER);
+        Label cTodoIcon = new Label("\uD83D\uDCCB");
+        cTodoIcon.setStyle("-fx-font-size: 13px;");
+        collapsedTodoCount = new Label("0/0");
+        collapsedTodoCount.setStyle("-fx-font-size: 10px; -fx-font-weight: 700; -fx-text-fill: #2563eb;");
+        cTodoRow.getChildren().addAll(cTodoIcon, collapsedTodoCount);
+
+        // 展开箭头
+        Label expandArrow = new Label("\u25C0");
+        expandArrow.setStyle("-fx-font-size: 8px; -fx-text-fill: rgba(0,0,0,0.25);");
+
+        tab.getChildren().addAll(cFileRow, cSep, cTodoRow, expandArrow);
+        return tab;
+    }
+
+    // ===== 展开 / 折叠 =====
+
+    private void expand() {
+        if (isExpanded) return;
+        isExpanded = true;
+        // 先展示展开面板（clip 44px，仅露出右边缘），开始动画
+        expandedPanel.setVisible(true);
+        expandedPanel.setManaged(true);
+        clipRect.setWidth(COLLAPSED_WIDTH);
+        animateClip(COLLAPSED_WIDTH, BADGE_WIDTH, () -> {
+            collapsedTab.setVisible(false);
+            collapsedTab.setManaged(false);
+        });
+    }
+
+    private void collapse() {
+        if (!isExpanded) return;
+        isExpanded = false;
+        collapsedTab.setVisible(true);
+        collapsedTab.setManaged(true);
+        animateClip(BADGE_WIDTH, COLLAPSED_WIDTH, () -> {
+            expandedPanel.setVisible(false);
+            expandedPanel.setManaged(false);
+        });
+    }
+
+    private void animateClip(double from, double to, Runnable onFinished) {
+        if (currentAnimation != null) {
+            currentAnimation.stop();
+            currentAnimation = null;
+        }
+        clipRect.setWidth(from);
+        currentAnimation = new Timeline(
+                new KeyFrame(Duration.millis(250),
+                        new KeyValue(clipRect.widthProperty(), to, Interpolator.EASE_BOTH))
+        );
+        currentAnimation.setOnFinished(e -> {
+            currentAnimation = null;
+            if (onFinished != null) onFinished.run();
+        });
+        currentAnimation.play();
+    }
+
+    private boolean isInsideBadge(double sceneX, double sceneY) {
+        try {
+            javafx.geometry.Bounds bounds;
+            if (isExpanded) {
+                bounds = expandedPanel.localToScene(expandedPanel.getBoundsInLocal());
+            } else {
+                bounds = collapsedTab.localToScene(collapsedTab.getBoundsInLocal());
+            }
+            return bounds.contains(sceneX, sceneY);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    // ===== 静态工厂方法 =====
+
+    private static Label iconCircle(String emoji, String bgColor) {
+        Label icon = new Label(emoji);
+        icon.setStyle("-fx-background-color: " + bgColor + ";"
                 + " -fx-background-radius: 50%; -fx-pref-width: 22px; -fx-pref-height: 22px;"
                 + " -fx-alignment: center; -fx-font-size: 11px; -fx-text-fill: rgba(0,0,0,0.6);");
-        iconCircle.setMinSize(22, 22);
-
-        // 标题
-        Label titleLabel = new Label(title);
-        titleLabel.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: rgba(0,0,0,0.8);");
-        HBox.setHgrow(titleLabel, Priority.ALWAYS);
-
-        // 箭头
-        arrow.setStyle("-fx-font-size: 9px; -fx-text-fill: rgba(0,0,0,0.3);");
-        arrow.setMinWidth(12);
-
-        row.getChildren().addAll(iconCircle, titleLabel, countBadge, arrow);
-        return row;
+        icon.setMinSize(22, 22);
+        return icon;
     }
 
     private static Label createCountBadge(String text, String bg, String textColor) {
@@ -195,7 +376,7 @@ public class FileDiffBadge extends VBox {
             fileIndex.add(filePath);
         }
         if (this.backupManager == null && entry != null) {
-            // backupManager 通过 setBackupManager 注入，这里做个保护
+            // backupManager 通过 setBackupManager 注入
         }
         refreshFileCount();
     }
@@ -258,7 +439,11 @@ public class FileDiffBadge extends VBox {
                     .filter(t -> "completed".equals(t.get("status")))
                     .count();
 
-            Platform.runLater(() -> todoCountLabel.setText(todoCompleted + "/" + todoTotal));
+            Platform.runLater(() -> {
+                String todoText = todoCompleted + "/" + todoTotal;
+                todoCountLabel.setText(todoText);
+                collapsedTodoCount.setText(todoText);
+            });
         } catch (Exception e) {
             System.err.println("[FileDiffBadge] Todo 解析失败: " + e.getMessage());
         }
@@ -268,7 +453,11 @@ public class FileDiffBadge extends VBox {
 
     private void refreshFileCount() {
         int total = (int) fileMap.values().stream().mapToLong(List::size).sum();
-        Platform.runLater(() -> fileCountLabel.setText(String.valueOf(total)));
+        Platform.runLater(() -> {
+            String text = String.valueOf(total);
+            fileCountLabel.setText(text);
+            collapsedFileCount.setText(text);
+        });
     }
 
     // ===== 文件弹窗（中间 Stage，防重复） =====

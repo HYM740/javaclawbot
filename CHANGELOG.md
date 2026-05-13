@@ -4,12 +4,17 @@ All notable changes to NexusAI will be documented in this file.
 
 ## [2.3.5] - 2026-05-13
 
+### Added
+- **右下角浮标折叠/展开交互**：`FileDiffBadge` 从始终展开 210px 重构为默认折叠 48px 竖条（显示 📝文件数 / 📋任务进度 / ◀），点击向左滑出完整 210px 面板。展开态增加"▶ 收起"按钮，支持点击外部区域自动折叠。250ms clip 动画 + 快速连点中断保护。
+
 ### Fixed
 - **菜单栏中文化**：侧栏导航项（Chat/Models/Agents/Channels/Skills/MCP/Databases/Cron Tasks→对话/模型/代理/通道/技能/MCP/数据库/定时任务）及底部菜单（Settings/Dev Console/Help→设置/开发者控制台/帮助）全面中文化，新增 `pageKey` 字段保持路由不变
 - **历史对话取消横向滚动条**：侧栏历史区域 ScrollPane 添加 `setHbarPolicy(NEVER)` 彻底禁用横向滚动条
 - **Settings 自动更新报错 `this.input is null`**：`UpdateService.checkForUpdates()` 增加服务端返回的 `version` 和 `url` 字段空值校验，缺失时抛出明确 IOException 而非 NPE；`SettingsPage.startDownload()` 增加 `pendingUpdate.getUrl()` 空值前置检查
 - **`/memory` 命令 LLM 回复未发送到 GUI**："⏳ 正在整理记忆..." 消息缺少 `_progress` 元数据，被 BackendBridge 误当作"最终回复"消费了 `currentResponseCallback`，导致后续真正的 LLM 回复无回调可用。修复：添加 `Map.of("_progress", true)` 元数据，确保走进度回调通道
 - **备份文件被「新对话」自动清除**：`FileDiffBadge.clearFiles()` 内部调用 `backupManager.clearAll()` 删除所有持久化备份，而 `clearFiles()` 被 `ChatPage.clearMessages()` 在「新对话」时调用 → 每次开新对话自动清空上一轮备份。修复：拆分 `clearFiles()`（仅清 UI）与 `clearFilesAndBackups()`（清 UI + 删除备份），后者仅由用户手动点击弹窗「🗑 清除全部」按钮触发
+- **设置页更新检查报"下载地址无效"**：服务端 JSON 将 JAR 下载 URL 嵌套在 `jar.url` 中，但 `UpdateInfo` 类只映射顶层 `url` 字段 → Jackson 反序列化后 `getUrl()` 返回 null → 校验失败。修复：新增 `UpdateInfo.JarInfo` 嵌套类映射 `jar` 对象，`getUrl()`/`getSize()` 优先读取 `jar.*`，回退顶层字段保持向下兼容
+- **开发者模式右下角显示非开发者界面**：`ProjectStatusBadge` 按注册表中项目数量判断显示模式，但 `newSession()` 会清空注册表 → badge 退化显示工作空间路径而非项目绑定界面。修复：新增 `developerMode` 字段，开发者模式下始终显示项目绑定入口（无项目时显示"📁 绑定项目"提示 + 齿轮图标），且禁止弹出"打开文件夹"菜单
 
 ## [2.3.4] - 2026-05-12
 

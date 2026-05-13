@@ -9,7 +9,6 @@ import gui.ui.components.ChatInput;
 import gui.ui.components.MessageBubble;
 import gui.ui.components.ProjectPopover;
 import gui.ui.components.ProjectStatusBadge;
-import gui.ui.components.TodoFloatBadge;
 import gui.ui.components.ToolCallCard;
 import gui.ui.components.FileDiffBadge;
 import gui.ui.components.DiffViewerPopup;
@@ -55,9 +54,7 @@ public class ChatPage extends VBox {
     private double lastVvalue = 1.0;
     private double lastContentHeight = 0;
 
-    /** 悬浮 Todo 进度浮标 */
-    private final TodoFloatBadge todoFloatBadge;
-    /** 文件差异回滚浮标 */
+    /** 连体状态浮标：文件变更 + 任务进度，常驻展示 */
     private final FileDiffBadge fileDiffBadge;
     /** 思考中占位气泡 */
     private HBox thinkingPlaceholder;
@@ -96,8 +93,7 @@ public class ChatPage extends VBox {
         setSpacing(0);
         setStyle("-fx-background-color: #f1ede1;");
 
-        // 悬浮
-        todoFloatBadge = new TodoFloatBadge();
+        // 连体状态浮标（常驻右下角）
         fileDiffBadge = new FileDiffBadge();
 
         // 消息区域
@@ -143,17 +139,16 @@ public class ChatPage extends VBox {
             lastContentHeight = contentHeight;
         });
 
-        // 消息滚动区域 + 悬浮按钮（Todo 浮标、文件变更浮标、回到底部）
+        // 消息滚动区域 + 悬浮按钮（回到底部）
         scrollStack = new StackPane();
-        scrollStack.getChildren().addAll(scrollPane, fileDiffBadge, todoFloatBadge, scrollToBottomBtn);
+        scrollStack.getChildren().addAll(scrollPane, scrollToBottomBtn);
         StackPane.setAlignment(scrollToBottomBtn, Pos.BOTTOM_RIGHT);
         StackPane.setMargin(scrollToBottomBtn, new Insets(0, 24, 12, 0));
-        // FileDiffBadge 在右下方、TodoFloatBadge 上方
+
+        // 连体状态浮标（右下角，折叠态贴右侧边缘）
+        scrollStack.getChildren().add(fileDiffBadge);
         StackPane.setAlignment(fileDiffBadge, Pos.BOTTOM_RIGHT);
-        StackPane.setMargin(fileDiffBadge, new Insets(0, 16, 58, 0));
-        // TodoFloatBadge 在右下底部
-        StackPane.setAlignment(todoFloatBadge, Pos.BOTTOM_RIGHT);
-        StackPane.setMargin(todoFloatBadge, new Insets(0, 16, 16, 0));
+        StackPane.setMargin(fileDiffBadge, new Insets(0, 8, 16, 0));
 
         // 输入区域
         chatInput = new ChatInput();
@@ -694,10 +689,6 @@ public class ChatPage extends VBox {
         });
     }
 
-    public TodoFloatBadge getTodoFloatBadge() {
-        return todoFloatBadge;
-    }
-
     public FileDiffBadge getFileDiffBadge() {
         return fileDiffBadge;
     }
@@ -719,7 +710,6 @@ public class ChatPage extends VBox {
 
     public void clearMessages() {
         messageContainer.getChildren().clear();
-        todoFloatBadge.setVisible(false);
         fileDiffBadge.clearFiles();
         thinkingPlaceholder = null;
         lastStreamingBubble = null;
@@ -737,72 +727,104 @@ public class ChatPage extends VBox {
         if (history == null) return;
 
         java.util.Map<String, ToolCallCard> cardById = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> filePathByCallId = new java.util.LinkedHashMap<>();
+        int msgIndex = 0;
 
         for (java.util.Map<String, Object> msg : history) {
-            String role = String.valueOf(msg.getOrDefault("role", ""));
+            msgIndex++;
+            try {
+                String role = String.valueOf(msg.getOrDefault("role", ""));
 
-            if ("system".equals(role)) continue;
+                if ("system".equals(role)) continue;
 
-            if ("user".equals(role)) {
-                String text = extractTextContent(msg.get("content"));
-                if (text != null && !text.isBlank()) {
-                    addUserMessage(text);
-                }
-            } else if ("assistant".equals(role)) {
-                cardById.clear();
-
-                String content = extractTextContent(msg.get("content"));
-                String reasoning = msg.get("reasoning_content") instanceof String s && !s.isBlank() ? s : null;
-                @SuppressWarnings("unchecked")
-                java.util.List<java.util.Map<String, Object>> toolCalls =
-                    (java.util.List<java.util.Map<String, Object>>) msg.get("tool_calls");
-                boolean hasToolCalls = toolCalls != null && !toolCalls.isEmpty();
-
-                if (reasoning != null && !hasToolCalls) {
-                    if (content != null && !content.isBlank()) {
-                        addAssistantMessageWithReasoning(reasoning, content);
-                    } else {
-                        addReasoningBlock(reasoning);
+                if ("user".equals(role)) {
+                    String text = extractTextContent(msg.get("content"));
+                    if (text != null && !text.isBlank()) {
+                        addUserMessage(text);
                     }
-                } else if (hasToolCalls) {
-                    // 推理（先于文本，与 live chat 顺序一致）
-                    if (reasoning != null) {
-                        addReasoningBlock(reasoning);
-                    }
-                    // 伴随工具调用的文本
-                    if (content != null && !content.isBlank()) {
+                } else if ("assistant".equals(role)) {
+                    cardById.clear();
+
+                    String content = extractTextContent(msg.get("content"));
+                    String reasoning = msg.get("reasoning_content") instanceof String s && !s.isBlank() ? s : null;
+                    @SuppressWarnings("unchecked")
+                    java.util.List<java.util.Map<String, Object>> toolCalls =
+                        (java.util.List<java.util.Map<String, Object>>) msg.get("tool_calls");
+                    boolean hasToolCalls = toolCalls != null && !toolCalls.isEmpty();
+
+                    if (reasoning != null && !hasToolCalls) {
+                        if (content != null && !content.isBlank()) {
+                            addAssistantMessageWithReasoning(reasoning, content);
+                        } else {
+                            addReasoningBlock(reasoning);
+                        }
+                    } else if (hasToolCalls) {
+                        // 推理（先于文本，与 live chat 顺序一致）
+                        if (reasoning != null) {
+                            addReasoningBlock(reasoning);
+                        }
+                        // 伴随工具调用的文本
+                        if (content != null && !content.isBlank()) {
+                            addAssistantMessage(content);
+                        }
+                        // 工具卡片
+                        filePathByCallId.clear();
+                        for (var tc : toolCalls) {
+                            String tn = extractToolName(tc);
+                            String params = formatToolParams(tn, tc);
+                            ToolCallCard card = addToolCallCard(tn, "running", params, false);
+                            String callId = (String) tc.get("id");
+                            cardById.put(callId, card);
+                            // 从参数提取 file_path（比解析结果文本更可靠）
+                            if ("edit_file".equals(tn) || "write_file".equals(tn)) {
+                                String fp = extractFilePathFromArgs(tc);
+                                if (fp != null) filePathByCallId.put(callId, fp);
+                            }
+                        }
+                    } else if (content != null && !content.isBlank()) {
                         addAssistantMessage(content);
                     }
-                    // 工具卡片
-                    for (var tc : toolCalls) {
-                        String tn = extractToolName(tc);
-                        String params = formatToolParams(tn, tc);
-                        ToolCallCard card = addToolCallCard(tn, "running", params, false);
-                        cardById.put((String) tc.get("id"), card);
-                    }
-                } else if (content != null && !content.isBlank()) {
-                    addAssistantMessage(content);
-                }
-            } else if ("tool".equals(role)) {
-                String tcId = msg.get("tool_call_id") instanceof String s ? s : null;
-                String toolName = msg.get("name") instanceof String s ? s : null;
-                String result = extractTextContent(msg.get("content"));
-                if (tcId != null && result != null) {
-                    ToolCallCard card = cardById.get(tcId);
-                    if (card != null) {
-                        card.setStatus("completed");
-                        if ("TodoWrite".equals(toolName)) {
-                            todoFloatBadge.updateFromJson(result);
-                            card.addStructuredContent(
-                                gui.ui.components.TodoResultView.build(result));
-                        } else if ("AskUserQuestion".equals(toolName) && result.contains("\"questions\"")) {
-                            card.addStructuredContent(
-                                gui.ui.components.AskQuestionResultView.build(result));
-                        } else {
-                            card.addResult(result);
+                } else if ("tool".equals(role)) {
+                    String tcId = msg.get("tool_call_id") instanceof String s ? s : null;
+                    String toolName = msg.get("name") instanceof String s ? s : null;
+                    String result = extractTextContent(msg.get("content"));
+                    if (tcId != null && result != null) {
+                        ToolCallCard card = cardById.get(tcId);
+                        if (card != null) {
+                            card.setStatus("completed");
+                            // edit_file/write_file: 恢复时也显示结构化对比/回滚按钮
+                            if (("edit_file".equals(toolName) || "write_file".equals(toolName))
+                                    && result != null && !result.isBlank()) {
+                                String filePath = extractFilePath(result);
+                                // 结果中没提取到时，回退到工具调用参数中的 file_path
+                                if (filePath == null || filePath.isBlank()) {
+                                    filePath = filePathByCallId.get(tcId);
+                                }
+                                if (filePath != null && !filePath.isBlank()) {
+                                    agent.tool.file.FileBackupManager fbm = fileDiffBadge.getBackupManager();
+                                    int[] stats = parseDiff(result);
+                                    card.setFileEditResult(filePath, stats[0], stats[1], fbm, null);
+                                } else {
+                                    card.addResult(result);
+                                }
+                            } else if ("TodoWrite".equals(toolName)) {
+                                fileDiffBadge.updateTodoFromJson(result);
+                                card.addStructuredContent(
+                                    gui.ui.components.TodoResultView.build(result));
+                            } else if ("AskUserQuestion".equals(toolName) && result.contains("\"questions\"")) {
+                                card.addStructuredContent(
+                                    gui.ui.components.AskQuestionResultView.build(result));
+                            } else {
+                                card.addResult(result);
+                            }
                         }
                     }
                 }
+            } catch (Exception e) {
+                // 单条消息恢复失败不阻断整个历史加载流程
+                // （如 JavaFX 内部文本布局异常等不可控错误）
+                System.err.println("[ChatPage] 跳过第 " + msgIndex + " 条消息 (role="
+                    + msg.get("role") + "): " + e);
             }
         }
         Platform.runLater(() -> scrollPane.setVvalue(1.0));
@@ -895,6 +917,63 @@ public class ChatPage extends VBox {
         return args.length() > 100 ? args.substring(0, 100) + "..." : args;
     }
 
+    /** 从 tool 结果文本中提取文件路径 */
+    private static String extractFilePath(String result) {
+        if (result == null || result.isBlank()) return null;
+        // write_file: "Wrote contents to D:\path\to\file"
+        // edit_file: "Replace file succeeded, the file D:\path has been updated"
+        for (String line : result.split("\n")) {
+            line = line.trim();
+            if (line.startsWith("Wrote contents to ")) {
+                return line.substring("Wrote contents to ".length()).trim();
+            }
+            if (line.startsWith("Wrote to ")) {
+                return line.substring("Wrote to ".length()).trim();
+            }
+            if (line.contains("the file ") && line.contains(" has been updated")) {
+                int s = line.indexOf("the file ") + 9;
+                int e = line.indexOf(" has been updated");
+                return line.substring(s, e).trim();
+            }
+            // diff header with absolute path
+            if (line.startsWith("+++ b/")) {
+                String p = line.substring(6).trim();
+                if (p.length() > 2 && p.charAt(1) == ':') return p;
+            }
+            if (line.startsWith("--- a/")) {
+                String p = line.substring(6).trim();
+                if (p.length() > 2 && p.charAt(1) == ':') return p;
+            }
+        }
+        return null;
+    }
+
+    /** 从工具调用参数中提取 file_path */
+    private static String extractFilePathFromArgs(java.util.Map<String, Object> tc) {
+        Object fn = tc.get("function");
+        if (!(fn instanceof java.util.Map<?, ?> f)) return null;
+        Object argsObj = f.get("arguments");
+        if (!(argsObj instanceof String args) || args.isBlank()) return null;
+        try {
+            com.google.gson.Gson gson = new com.google.gson.Gson();
+            java.util.Map<String, Object> m = gson.fromJson(args, java.util.Map.class);
+            Object fp = m.get("file_path");
+            if (fp instanceof String s && !s.isBlank()) return s;
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    /** 解析 unified diff 统计 [added, removed] */
+    private static int[] parseDiff(String result) {
+        int added = 0, removed = 0;
+        if (result == null || result.isBlank()) return new int[]{added, removed};
+        for (String line : result.split("\n")) {
+            if (line.startsWith("+") && !line.startsWith("+++")) added++;
+            else if (line.startsWith("-") && !line.startsWith("---")) removed++;
+        }
+        return new int[]{added, removed};
+    }
+
     private ProjectPopover projectPopover;
     private ProjectRegistry projectRegistry;
     private Path workspacePath;
@@ -916,10 +995,25 @@ public class ChatPage extends VBox {
 
         chatInput.setProjectRegistry(registry, workspacePath);
 
+        // 检测开发者模式
+        boolean devMode = backendBridge != null
+            && backendBridge.getConfig() != null
+            && backendBridge.getConfig().getAgents().getDefaults().isDevelopment();
+
         ProjectStatusBadge badge = chatInput.getProjectBadge();
+        badge.setDeveloperMode(devMode);
+
         badge.setOnClick(() -> {
             if (projectPopover.isShowing()) {
                 projectPopover.hide();
+                return;
+            }
+
+            // 开发者模式：始终弹出项目绑定 Popover（不允许打开文件夹）
+            if (badge.isDeveloperMode()) {
+                projectPopover.show(badge, this.projectRegistry, () -> {
+                    chatInput.refreshProjectBadge(this.projectRegistry, this.workspacePath);
+                });
                 return;
             }
 
