@@ -162,7 +162,8 @@ public class SessionMemoryService {
 
             // 异步执行提取
             CompletableFuture<ForkAgentExecutor.ForkResult> future =
-                    forkAgentExecutor.execute(sessionId, forkContext, subagentContext, canUseTool);
+                    forkAgentExecutor.execute(sessionId, forkContext, subagentContext, canUseTool,
+                        null, null, null);
 
             // 设置完成回调
             future.whenComplete((result, ex) -> {

@@ -363,7 +363,8 @@ public class AgentLoop {
             },
             appState,
             appState.setter(),
-            new agent.tool.CompositeToolView(sharedTools));
+            new agent.tool.CompositeToolView(sharedTools),
+            bus);
 
         // 初始化 Session Memory 服务
         config.agent.SessionMemoryConfig smConfig = currentConfig().getAgents().getDefaults().getSessionMemory();
@@ -1842,7 +1843,8 @@ public class AgentLoop {
             try {
                 // 执行 fork
                 CompletableFuture<ForkAgentExecutor.ForkResult> future =
-                        forkAgentExecutor.execute(sessionId, forkContext, subagentContext);
+                        forkAgentExecutor.execute(sessionId, forkContext, subagentContext,
+                            null, channel, chatId);
 
                 // 设置完成回调 - 发送结果给用户
                 future.whenComplete((result, ex) -> {

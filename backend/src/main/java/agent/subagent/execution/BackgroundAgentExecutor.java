@@ -155,8 +155,7 @@ public class BackgroundAgentExecutor {
                 // Set context for this thread
                 // ToolUseContextHolder.setCurrent(isolatedContext);
 
-                try {
-                    // Mark task as running
+                // Mark task as running
                     AppState.updateTaskState(taskId, setAppState, (LocalAgentTaskState t) -> {
                         t.setStatus(TaskStatus.RUNNING);
                         t.setStartTime(Instant.now());
@@ -205,8 +204,6 @@ public class BackgroundAgentExecutor {
 
                     // Publish completed event
                     publishSubagentProgress(taskId, "completed", null, null, null, null, 0);
-
-                }
 
             } catch (CancellationException e) {
                 handleCancellation(taskId, resultFuture);

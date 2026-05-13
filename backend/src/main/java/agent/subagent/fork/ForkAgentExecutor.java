@@ -6,6 +6,8 @@ import agent.subagent.task.local.LocalAgentTaskState;
 import agent.subagent.task.AppState;
 import agent.subagent.task.TaskStatus;
 import agent.tool.ToolView;
+import bus.MessageBus;
+import bus.OutboundMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import providers.LLMProvider;
@@ -71,6 +73,10 @@ public class ForkAgentExecutor {
 
     private final ExecutorService executor;
 
+    private final MessageBus messageBus;
+
+    private final ConcurrentHashMap<String, Long> lastPublishTime = new ConcurrentHashMap<>();
+
     public ForkAgentExecutor(
             LLMProvider provider,
             Path workspace,
@@ -78,9 +84,10 @@ public class ForkAgentExecutor {
             ForkCompletionCallback completionCallback,
             AppState appState,
             AppState.Setter setAppState,
-            ToolView toolView
+            ToolView toolView,
+            MessageBus messageBus
     ) {
-        this(provider, workspace, sessionsDir, DEFAULT_MAX_ITERATIONS, completionCallback, appState, setAppState, toolView);
+        this(provider, workspace, sessionsDir, DEFAULT_MAX_ITERATIONS, completionCallback, appState, setAppState, toolView, messageBus);
     }
 
     public ForkAgentExecutor(
@@ -91,7 +98,8 @@ public class ForkAgentExecutor {
             ForkCompletionCallback completionCallback,
             AppState appState,
             AppState.Setter setAppState,
-            ToolView toolView
+            ToolView toolView,
+            MessageBus messageBus
     ) {
         this.provider = provider;
         this.workspace = workspace;
@@ -101,6 +109,7 @@ public class ForkAgentExecutor {
         this.appState = appState;
         this.setAppState = setAppState;
         this.toolView = toolView;
+        this.messageBus = messageBus;
         this.executor = Executors.newCachedThreadPool(r -> {
             Thread t = new Thread(r);
             t.setName("fork-executor-" + t.getId());
@@ -119,8 +128,9 @@ public class ForkAgentExecutor {
      * @param subagentContext 子代理上下文
      * @return CompletableFuture<ForkResult> - 允许调用者追踪结果
      */
-    public CompletableFuture<ForkResult> execute(String sessionId, ForkContext forkContext, SubagentContext subagentContext) {
-        return execute(sessionId, forkContext, subagentContext, null);
+    public CompletableFuture<ForkResult> execute(String sessionId, ForkContext forkContext, SubagentContext subagentContext,
+                                                  String parentToolCallId, String channel, String chatId) {
+        return execute(sessionId, forkContext, subagentContext, null, parentToolCallId, channel, chatId);
     }
 
     /**
@@ -142,7 +152,8 @@ public class ForkAgentExecutor {
             String sessionId,
             ForkContext forkContext,
             SubagentContext subagentContext,
-            java.util.function.Function<String, Boolean> canUseTool) {
+            java.util.function.Function<String, Boolean> canUseTool,
+            String parentToolCallId, String channel, String chatId) {
         String runId = UUID.randomUUID().toString().substring(0, 8);
 
         // 创建终止信号
@@ -181,6 +192,9 @@ public class ForkAgentExecutor {
                     return t;
                 });
 
+                publishSubagentProgress(runId, "running", null, null, null, null, 0,
+                    parentToolCallId, channel, chatId);
+
                 // 构建 Fork 消息
                 List<Map<String, Object>> messages = ForkAgentDefinition.buildForkedMessages(
                         forkContext.getDirective(),
@@ -212,8 +226,12 @@ public class ForkAgentExecutor {
                         terminateSignal,
                         progressTracker,
                         forkContext,
-                        canUseTool
+                        canUseTool,
+                        parentToolCallId, channel, chatId
                 );
+
+                publishSubagentProgress(runId, "completed", null, null, null, null, 0,
+                    parentToolCallId, channel, chatId);
 
                 // 计算工具使用次数
                 long toolUseCount = progressTracker.getToolUseCount();
@@ -290,7 +308,8 @@ public class ForkAgentExecutor {
             AtomicBoolean terminateSignal,
             ProgressTracker progressTracker,
             ForkContext forkContext,
-            java.util.function.Function<String, Boolean> canUseTool
+            java.util.function.Function<String, Boolean> canUseTool,
+            String parentToolCallId, String channel, String chatId
     ) {
         String model = provider.getDefaultModel();
 
@@ -328,8 +347,19 @@ public class ForkAgentExecutor {
                 for (var tc : response.getToolCalls()) {
                     if (terminateSignal.get()) break;
 
+                    publishSubagentProgress(runId, "tool_call", tc.getName(),
+                        safeTruncate(toJson(tc.getArguments()), 500), null, tc.getId(),
+                        i, parentToolCallId, channel, chatId);
+
                     // 执行工具 - 复用 RunAgent 的工具执行逻辑
                     String result = executeTool(tc.getName(), tc.getArguments(), canUseTool);
+
+                    String truncatedResult = result != null && result.length() > 10240
+                        ? result.substring(0, 10240) + "... [truncated]"
+                        : result;
+                    publishSubagentProgress(runId, "tool_result", tc.getName(), null,
+                        truncatedResult, tc.getId(),
+                        i, parentToolCallId, channel, chatId);
 
                     messages.add(buildToolResultMessage(tc.getId(), tc.getName(), result));
                 }
@@ -352,6 +382,38 @@ public class ForkAgentExecutor {
         // javaclawbot: 不需要 - javaclawbot 没有 transcript 系统
 
         return "Max iterations reached";
+    }
+
+    private void publishSubagentProgress(String runId, String status, String toolName,
+                                          String toolParams, String toolResult,
+                                          String toolCallId, int iteration,
+                                          String parentToolCallId, String channel, String chatId) {
+        if (messageBus == null) return;
+        // 200ms throttling: skip same status within 200ms
+        String throttleKey = runId + ":" + status;
+        long now = System.currentTimeMillis();
+        Long last = lastPublishTime.get(throttleKey);
+        if (last != null && (now - last) < 200) return;
+        lastPublishTime.put(throttleKey, now);
+        Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("_progress", true);
+        metadata.put("_subagent_progress", true);
+        metadata.put("_subagent_task_id", runId);
+        metadata.put("_subagent_type", "fork");
+        metadata.put("_subagent_status", status);
+        metadata.put("_subagent_iteration", iteration);
+        if (parentToolCallId != null) metadata.put("_parent_tool_call_id", parentToolCallId);
+        if (toolName != null) metadata.put("_subagent_tool_name", toolName);
+        if (toolParams != null) metadata.put("_subagent_tool_params", toolParams);
+        if (toolResult != null) metadata.put("_subagent_tool_result", toolResult);
+        if (toolCallId != null) metadata.put("_subagent_tool_call_id", toolCallId);
+        messageBus.publishOutbound(new OutboundMessage(channel, chatId, "", List.of(), metadata));
+    }
+
+    private String safeTruncate(String s, int maxLen) {
+        if (s == null) return null;
+        if (s.length() <= maxLen) return s;
+        return s.substring(0, maxLen) + "...";
     }
 
     /**

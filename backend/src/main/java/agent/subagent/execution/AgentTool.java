@@ -318,7 +318,8 @@ public class AgentTool extends Tool {
             if (background) {
                 // Async: 立即返回任务ID，后台执行
                 CompletableFuture<ForkAgentExecutor.ForkResult> future =
-                        forkExecutor.execute(sessionId, forkContext, subagentContext);
+                        forkExecutor.execute(sessionId, forkContext, subagentContext,
+                            null, null, null);
 
                 String forkId = java.util.UUID.randomUUID().toString().substring(0, 8);
                 future.whenComplete((result, ex) -> {
@@ -330,7 +331,8 @@ public class AgentTool extends Tool {
                         forkId, escapeJson(prompt));
             } else {
                 // Sync: 阻塞等待结果
-                ForkAgentExecutor.ForkResult result = forkExecutor.execute(sessionId, forkContext, subagentContext)
+                ForkAgentExecutor.ForkResult result = forkExecutor.execute(sessionId, forkContext, subagentContext,
+                        null, null, null)
                         .toCompletableFuture().join();
                 return result.toJson();
             }
