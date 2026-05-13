@@ -13,13 +13,12 @@ import java.util.concurrent.CompletableFuture;
  * CLI Agent 工具 - 让主代理能够管理 CLI Agent (Claude Code / OpenCode)
  *
  * 支持操作:
- * - bind: 绑定项目
- * - unbind: 解绑项目
- * - projects: 列出所有项目
- * - run: 运行 CLI Agent
- * - status: 查看状态
- * - stop: 停止 Agent
- * - stopall: 停止所有 Agent
+ * - run: 在指定项目上运行 CLI Agent
+ * - status: 查看运行状态
+ * - stop: 停止指定项目的 Agent
+ * - stopall: 停止所有 CLI Agent
+ *
+ * 注意：项目绑定/解绑/列表请使用 ProjectTool (project 工具)
  */
 @Slf4j
 public class CliAgentTool extends Tool {
@@ -41,9 +40,6 @@ public class CliAgentTool extends Tool {
                 使用第三方工具 (Claude Code / OpenCode)完成子任务。
 
                 支持的操作:
-                - bind: 绑定项目路径到项目名称
-                - unbind: 解绑项目
-                - projects: 列出所有绑定的项目
                 - run: 在指定项目上运行 CLI Agent
                 - status: 查看运行状态
                 - stop: 停止指定项目的 Agent
@@ -51,6 +47,7 @@ public class CliAgentTool extends Tool {
 
                 注意：
                 - 此工具仅在开发者模式下可用
+                - 项目绑定/解绑/列表请使用 project 工具
                 - CLI Agent 对话历史存储在独立文件中，不污染主代理上下文
                 - 存放路径: {workspace}/sessions/cliagent/
                 - 文件命名: {channel}_{chatId}_{project}_{agentType}_{sessionId}.jsonl
@@ -68,16 +65,12 @@ public class CliAgentTool extends Tool {
     public Map<String, Object> parameters() {
         Map<String, Object> action = new java.util.LinkedHashMap<>();
         action.put("type", "string");
-        action.put("enum", List.of("bind", "unbind", "projects", "run", "status", "stop", "stopall"));
+        action.put("enum", List.of("run", "status", "stop", "stopall"));
         action.put("description", "操作类型");
 
         Map<String, Object> project = new java.util.LinkedHashMap<>();
         project.put("type", "string");
-        project.put("description", "项目名称 (bind/unbind/run/status/stop 时使用)");
-
-        Map<String, Object> path = new java.util.LinkedHashMap<>();
-        path.put("type", "string");
-        path.put("description", "项目路径 (bind 时使用)");
+        project.put("description", "项目名称 (run/status/stop 时使用)");
 
         Map<String, Object> agentType = new java.util.LinkedHashMap<>();
         agentType.put("type", "string");
@@ -88,17 +81,11 @@ public class CliAgentTool extends Tool {
         prompt.put("type", "string");
         prompt.put("description", "提示词 (run 时使用)");
 
-        Map<String, Object> main = new java.util.LinkedHashMap<>();
-        main.put("type", "boolean");
-        main.put("description", "是否设为主项目 (bind 时使用，默认 false)");
-
         Map<String, Object> props = new java.util.LinkedHashMap<>();
         props.put("action", action);
         props.put("project", project);
-        props.put("path", path);
         props.put("agent_type", agentType);
         props.put("prompt", prompt);
-        props.put("main", main);
 
         Map<String, Object> schema = new java.util.LinkedHashMap<>();
         schema.put("type", "object");
@@ -116,86 +103,15 @@ public class CliAgentTool extends Tool {
         }
 
         return switch (action.toLowerCase()) {
-            case "bind" -> handleBind(args);
-            case "unbind" -> handleUnbind(args);
-            case "projects" -> handleProjects();
             case "run" -> handleRun(args);
             case "status" -> handleStatus(args);
             case "stop" -> handleStop(args);
             case "stopall" -> handleStopAll();
-            default -> CompletableFuture.completedFuture("错误: 未知的 action: " + action);
+            default -> CompletableFuture.completedFuture("错误: 未知的 action: " + action + "。可用: run, status, stop, stopall。项目绑定请使用 project 工具。");
         };
     }
 
     // ==================== 各操作处理 ====================
-
-    private CompletableFuture<String> handleBind(Map<String, Object> args) {
-        String project = (String) args.get("project");
-        String path = (String) args.get("path");
-        Boolean main = args.containsKey("main") && Boolean.TRUE.equals(args.get("main"));
-
-        if (project == null || project.isBlank()) {
-            return CompletableFuture.completedFuture("错误: 缺少 project 参数");
-        }
-        if (path == null || path.isBlank()) {
-            return CompletableFuture.completedFuture("错误: 缺少 path 参数");
-        }
-
-        ProjectRegistry registry = cliAgentHandler.getProjectRegistry();
-        boolean success = registry.bind(project, path, main);
-
-        if (success) {
-            String mainHint = main ? " [主项目]" : "";
-            return CompletableFuture.completedFuture(
-                    "✅ 项目已绑定" + mainHint + ": " + project + " → " + path);
-        } else {
-            return CompletableFuture.completedFuture("❌ 绑定失败");
-        }
-    }
-
-    private CompletableFuture<String> handleUnbind(Map<String, Object> args) {
-        String project = (String) args.get("project");
-
-        if (project == null || project.isBlank()) {
-            return CompletableFuture.completedFuture("错误: 缺少 project 参数");
-        }
-
-        ProjectRegistry registry = cliAgentHandler.getProjectRegistry();
-        boolean wasMain = registry.getInfo(project) != null && registry.getInfo(project).isMain();
-        boolean success = registry.unbind(project);
-
-        if (success) {
-            // 停止相关的 Agent
-            cliAgentHandler.getAgentPool().stopAllForProject(project);
-            String mainHint = wasMain ? " (原主项目已清除)" : "";
-            return CompletableFuture.completedFuture("✅ 项目已解绑" + mainHint + ": " + project);
-        } else {
-            return CompletableFuture.completedFuture("❌ 项目不存在: " + project);
-        }
-    }
-
-    private CompletableFuture<String> handleProjects() {
-        ProjectRegistry registry = cliAgentHandler.getProjectRegistry();
-        Map<String, ProjectRegistry.ProjectInfo> projects = registry.listAll();
-
-        if (projects.isEmpty()) {
-            return CompletableFuture.completedFuture("📁 暂无绑定项目");
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("📁 已绑定项目 (").append(projects.size()).append("):\n");
-
-        for (Map.Entry<String, ProjectRegistry.ProjectInfo> entry : projects.entrySet()) {
-            ProjectRegistry.ProjectInfo info = entry.getValue();
-            sb.append("  • ").append(entry.getKey());
-            if (info.isMain()) {
-                sb.append(" ⭐ [主项目]");
-            }
-            sb.append(" → ").append(info.getPath()).append("\n");
-        }
-
-        return CompletableFuture.completedFuture(sb.toString());
-    }
 
     private CompletableFuture<String> handleRun(Map<String, Object> args) {
         String project = (String) args.get("project");

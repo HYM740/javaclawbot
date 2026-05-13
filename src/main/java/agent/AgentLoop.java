@@ -10,6 +10,7 @@ import agent.subagent.fork.ForkContext;
 import agent.subagent.context.SubagentContext;
 import agent.tool.*;
 import agent.tool.cli.CliAgentTool;
+import agent.tool.project.ProjectTool;
 import agent.tool.cron.CronTool;
 import agent.tool.plan.AskUserQuestionTool;
 import agent.tool.task.TodoWriteTool;
@@ -662,6 +663,7 @@ public class AgentLoop {
 
         // CLI Agent 工具（开发者模式下可用）
         if (currentConfig().getAgents().getDefaults().isDevelopment()) {
+            sharedTools.register(new ProjectTool(cliAgentHandler));
             sharedTools.register(new CliAgentTool(cliAgentHandler));
         }
 

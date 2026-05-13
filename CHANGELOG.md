@@ -7,7 +7,11 @@ All notable changes to NexusAI will be documented in this file.
 ### Added
 - **右下角浮标折叠/展开交互**：`FileDiffBadge` 从始终展开 210px 重构为默认折叠 48px 竖条（显示 📝文件数 / 📋任务进度 / ◀），点击向左滑出完整 210px 面板。展开态增加"▶ 收起"按钮，支持点击外部区域自动折叠。250ms clip 动画 + 快速连点中断保护。
 
+### Changed
+- **工具职责分离 — ProjectTool 独立**：`CliAgentTool` 中 `bind`/`unbind`/`projects` 项目绑定操作抽离为独立的 `ProjectTool`（工具名 `project`），`CliAgentTool` 仅保留 `run`/`status`/`stop`/`stopall` CLI Agent 生命周期操作。`AgentLoop` 同步注册两个工具，互不干扰
+
 ### Fixed
+- **`/memory` 命令描述错误**：`CompletionPopup` 中 `/memory` 自动补全描述从"搜索记忆"改为"自我进化"，与记忆系统实际功能对齐
 - **菜单栏中文化**：侧栏导航项（Chat/Models/Agents/Channels/Skills/MCP/Databases/Cron Tasks→对话/模型/代理/通道/技能/MCP/数据库/定时任务）及底部菜单（Settings/Dev Console/Help→设置/开发者控制台/帮助）全面中文化，新增 `pageKey` 字段保持路由不变
 - **历史对话取消横向滚动条**：侧栏历史区域 ScrollPane 添加 `setHbarPolicy(NEVER)` 彻底禁用横向滚动条
 - **Settings 自动更新报错 `this.input is null`**：`UpdateService.checkForUpdates()` 增加服务端返回的 `version` 和 `url` 字段空值校验，缺失时抛出明确 IOException 而非 NPE；`SettingsPage.startDownload()` 增加 `pendingUpdate.getUrl()` 空值前置检查
