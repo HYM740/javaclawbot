@@ -2,6 +2,15 @@
 
 All notable changes to NexusAI will be documented in this file.
 
+## [2.3.7] - 2026-05-14
+
+### Added
+- **记忆主动检索协议**：AGENTS.md / AGENTS_DEV.md 中「记忆说明」段升级为强制检索协议，明确 4 级检索优先级（MEMORY.md → patterns.json → memory_search → 原始日志）和 3 种强制触发时机，LLM 在任务开始前必须主动检索历史模式
+- **系统命令 LocalCommand 全量补全**：`/init` `/bind` `/unbind` `/projects` 等 CLI 命令执行结果回填 LocalCommand 队列，使 LLM 在下一轮对话中可感知命令执行结果；`/init` 从空字符串占位改为 LLM 完成后 `setOutput` 回填真实结果
+
+### Changed
+- **CliAgentCommandHandler 新增 lastReplyText**：`reply()` 每次调用时缓存回复文本，供 AgentLoop 的 `handleSystemCommand` 读取并创建 LocalCommand
+
 ## [2.3.6] - 2026-05-14
 
 ### Added

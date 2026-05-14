@@ -1015,6 +1015,10 @@ public class AgentLoop {
         // 处理开发者模式命令
         if (currentConfig().getAgents().getDefaults().isDevelopment()) {
             if (cliAgentHandler.handleCommand(msg, content)) {
+                String cmdOutput = cliAgentHandler.getLastReplyText();
+                if (cmdOutput != null && !cmdOutput.isBlank()) {
+                    commandManager.addLocalCommand(new LocalCommand(trimmed, cmdOutput));
+                }
                 return true;
             }
         }
@@ -1602,7 +1606,8 @@ public class AgentLoop {
                         Map.of()
                 ));
             }
-            commandManager.addLocalCommand(new LocalCommand(cmd, ""));
+            LocalCommand initCmd = new LocalCommand(cmd, "");
+            commandManager.addLocalCommand(initCmd);
 
             String channel = msg.getChannel();
             String chatId = msg.getChatId();
@@ -1634,6 +1639,7 @@ public class AgentLoop {
             return runAgentLoop(msg, initialMessages, requestTools, true, progress).thenApply(rr -> {
                 String finalContent = (rr != null && rr.finalContent != null && !rr.finalContent.isBlank())
                         ? rr.finalContent : "✅ 项目初始化完成";
+                initCmd.setOutput(finalContent);
                 return new OutboundMessage(
                         channel, chatId, finalContent, List.of(),
                         Map.of("_system_command", true)

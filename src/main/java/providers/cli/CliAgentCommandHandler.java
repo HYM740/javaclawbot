@@ -2,6 +2,7 @@ package providers.cli;
 
 import bus.InboundMessage;
 import bus.OutboundMessage;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import providers.cli.model.FileAttachment;
 import providers.cli.model.ImageAttachment;
@@ -595,10 +596,15 @@ public class CliAgentCommandHandler {
     /** CLI Agent 命令回复的元数据（标记为系统命令，避免触发标题生成等非预期逻辑） */
     private static final Map<String, Object> SYSTEM_COMMAND_META = Map.of("_system_command", true);
 
+    /** 最后一次 reply 的文本，供 AgentLoop 回填 LocalCommand */
+    @Getter
+    private String lastReplyText;
+
     /**
      * 回复消息
      */
     private void reply(InboundMessage msg, String content) {
+        this.lastReplyText = content;
         // 优先使用带元数据的回调；所有命令回复都标记为 _system_command，
         // 避免 BackendBridge 将其误判为普通最终回复而触发标题生成
         if (sendToChannelWithMeta != null) {
