@@ -584,21 +584,38 @@ public class AgentLoop {
     }
 
     /**
-     * 计算当前上下文比例（使用真实 token 数据，不再估算）
+     * 计算当前上下文比例（基于当前 messages 实时估算，避免迭代间陈旧数据问题）
+     *
+     * 修复说明：
+     * - 旧实现：有 API 数据时用 usageAcc.getContextSize()（上次调用的 prompt_tokens），
+     *   但工具执行后新增的 tool results 未计入，导致迭代间上下文比例被低估，
+     *   使得裁剪/压缩条件判断不准确，有概率跳过裁剪直接引发 context overflow。
+     * - 新实现：始终用当前 messages 做字符估算（新鲜数据），
+     *   当有 API 数据时取字符估算与 API 报告的较大值，确保不会因陈旧数据漏触发。
      *
      * @param usageAcc   Usage 累积器
-     * @param messages   当前消息列表（仅在第一轮无真实数据时使用）
+     * @param messages   当前消息列表
      * @return 上下文比例 (0.0 ~ 1.0)
      */
     public double getContextRatioByUsage(UsageAccumulator usageAcc, List<Map<String, Object>> messages) {
-        // 如果有真实数据（后续轮次），用真实的 prompt_tokens，不再乘系数
+        // 始终从当前 messages 做字符估算（新鲜数据，包含新加的 tool results）
+        int estimatedChars = ContextPruner.estimateContextChars(messages);
+        double charBasedRatio = currentContextWindowChars() > 0
+                ? (double) estimatedChars / currentContextWindowChars()
+                : 0;
+
+        // 有 API 报告数据时，取字符估算与 API 报告的较大值
+        // API 数据精确但可能陈旧（不含迭代间新增的 tool results）
+        // 字符估算新鲜但粗略，取 max 确保不低估
         if (usageAcc != null && usageAcc.hasData()) {
             long promptTokens = usageAcc.getContextSize();
-            return contextWindow > 0 ? (double) promptTokens / (double) contextWindow : 0;
+            double apiBasedRatio = contextWindow > 0
+                    ? (double) promptTokens / (double) contextWindow
+                    : 0;
+            return Math.max(apiBasedRatio, charBasedRatio);
         }
-        // 第一轮没有数据，用字符估算（只是粗估，用于第一次发送前判断）
-        int estimatedChars = ContextPruner.estimateContextChars(messages);
-        return currentContextWindowChars() > 0 ? (double) estimatedChars / currentContextWindowChars() : 0;
+
+        return charBasedRatio;
     }
 
 
@@ -2058,8 +2075,8 @@ public class AgentLoop {
                         String.format("%.1f", softTrimThreshold * 100), softThresholdStr);
 
                 // 执行上下文修剪（软裁剪，只裁剪过大的内容）
-                // 如果 usageAcc 没有数据（刚完成压缩），跳过软修剪
-                if (isContextPress && usageAcc.hasData() && (contextRatio > consolidateThreshold || contextRatio > softTrimThreshold )) {
+                // getContextRatioByUsage 始终基于当前 messages 实时估算，不再依赖 usageAcc 是否含数据
+                if (isContextPress && (contextRatio > consolidateThreshold || contextRatio > softTrimThreshold)) {
                     var session = sessions.getOrCreate(msg.getSessionKey());
                     List<Map<String, Object>> prunedMessages = ContextPruner.pruneContextMessages(
                             messages, pruningSettings, contextWindow,
