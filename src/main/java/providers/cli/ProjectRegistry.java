@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import utils.GsonFactory;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -108,6 +109,9 @@ public class ProjectRegistry {
 
         projects.put(normalizedName, new ProjectInfo(normalizedPath, main));
         save();
+
+        // 复制初始化模板文件到项目根目录（存在则跳过，异常不影响绑定）
+        copyInitTemplates(normalizedPath);
 
         log.info("Project bound: {} -> {} (main={})", normalizedName, normalizedPath, main);
         return true;
@@ -345,6 +349,34 @@ public class ProjectRegistry {
     public void clear() {
         projects.clear();
         save();
+    }
+
+    /**
+     * 将初始化模板文件复制到项目根目录。
+     * 目标文件已存在则跳过，异常不影响绑定流程。
+     */
+    private void copyInitTemplates(String projectPath) {
+        String[] templates = {"AGENTS.md", "CHANGELOG.md", "CLAUDE.md", "GUARDRAILS.md", ".gitnexusignore"};
+        Path projectRoot = Path.of(projectPath);
+
+        for (String template : templates) {
+            String resourcePath = "/templates/init/" + template;
+            try (InputStream is = ProjectRegistry.class.getResourceAsStream(resourcePath)) {
+                if (is == null) {
+                    log.warn("Init template not found on classpath: {}", resourcePath);
+                    continue;
+                }
+                Path targetFile = projectRoot.resolve(template);
+                if (Files.exists(targetFile)) {
+                    log.info("Init template already exists, skipping: {}", targetFile);
+                    continue;
+                }
+                Files.copy(is, targetFile);
+                log.info("Init template copied: {}", targetFile);
+            } catch (IOException e) {
+                log.warn("Failed to copy init template {}: {}", template, e.getMessage());
+            }
+        }
     }
 
     /**
