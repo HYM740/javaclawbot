@@ -45,3 +45,5 @@ docs/plans/*
 docs/zjkycode/*
 installer/*
 /installer/
+maven-compiled.log
+maven-compiled.tmp
