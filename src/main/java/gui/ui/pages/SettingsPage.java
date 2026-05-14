@@ -900,8 +900,14 @@ public class SettingsPage extends VBox {
                 updateContentBox.getChildren().addAll(dlLabel, progressBar);
             }
             case READY -> {
-                Label readyLabel = new Label("更新已就绪，请重启应用以使用新版本"
-                    + (pendingUpdate != null ? " v" + pendingUpdate.getVersion() : ""));
+                String readyMsg = "更新已就绪，请重启应用以使用新版本"
+                    + (pendingUpdate != null ? " v" + pendingUpdate.getVersion() : "");
+                boolean isWin = System.getProperty("os.name").toLowerCase()
+                    .contains("win");
+                if (isWin) {
+                    readyMsg += "\n\n提示: 重启时启动脚本将自动应用更新。";
+                }
+                Label readyLabel = new Label(readyMsg);
                 readyLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #22c55e; -fx-font-weight: 500;");
                 readyLabel.setWrapText(true);
                 updateContentBox.getChildren().add(readyLabel);
@@ -920,9 +926,16 @@ public class SettingsPage extends VBox {
         }
     }
 
+    /**
+     * 仅刷新更新区域内容，不影响页面其他部分和滚动位置。
+     */
+    private void refreshUpdateSection() {
+        buildUpdateContent();
+    }
+
     private void startCheckForUpdates() {
         updateState = UpdateState.CHECKING;
-        Platform.runLater(this::refresh);
+        Platform.runLater(this::refreshUpdateSection);
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -934,13 +947,13 @@ public class SettingsPage extends VBox {
                     } else {
                         updateState = UpdateState.UP_TO_DATE;
                     }
-                    refresh();
+                    refreshUpdateSection();
                 });
             } catch (Exception e) {
                 Platform.runLater(() -> {
                     updateErrorMessage = e.getMessage();
                     updateState = UpdateState.ERROR;
-                    refresh();
+                    refreshUpdateSection();
                 });
             }
         });
@@ -951,11 +964,11 @@ public class SettingsPage extends VBox {
         if (pendingUpdate.getUrl() == null || pendingUpdate.getUrl().isBlank()) {
             updateErrorMessage = "下载地址无效";
             updateState = UpdateState.ERROR;
-            Platform.runLater(this::refresh);
+            Platform.runLater(this::refreshUpdateSection);
             return;
         }
         updateState = UpdateState.DOWNLOADING;
-        Platform.runLater(this::refresh);
+        Platform.runLater(this::refreshUpdateSection);
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -976,13 +989,13 @@ public class SettingsPage extends VBox {
                 updateService.downloadAndReplace(pendingUpdate, progressCb);
                 Platform.runLater(() -> {
                     updateState = UpdateState.READY;
-                    refresh();
+                    refreshUpdateSection();
                 });
             } catch (Exception e) {
                 Platform.runLater(() -> {
                     updateErrorMessage = "下载失败: " + e.getMessage();
                     updateState = UpdateState.ERROR;
-                    refresh();
+                    refreshUpdateSection();
                 });
             }
         });

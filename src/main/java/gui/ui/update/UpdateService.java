@@ -148,12 +148,33 @@ public class UpdateService {
             log.debug("下载完成: {} bytes", Files.size(tempJar));
         }
 
-        // 直接替换当前 JAR（JVM 已映射到内存，磁盘替换不影响运行）
         Path appJar = getAppJarPath();
         if (log.isDebugEnabled()) {
             log.debug("替换 JAR: {} → {}", tempJar, appJar);
         }
-        Files.copy(tempJar, appJar, StandardCopyOption.REPLACE_EXISTING);
+
+        boolean isWindows = System.getProperty("os.name").toLowerCase()
+            .contains("win");
+
+        if (isWindows) {
+            // Windows 会锁定正在运行的 JAR，无法直接覆盖。
+            // 保存为 .new 文件，由启动脚本在下次启动前自动替换。
+            Path newJarPath = appJar.resolveSibling(
+                appJar.getFileName().toString() + ".new");
+            Files.copy(tempJar, newJarPath,
+                StandardCopyOption.REPLACE_EXISTING);
+
+            // 创建 apply-update.bat 辅助脚本
+            createWindowsUpdateScript(appJar, newJarPath);
+            log.info("Windows: 新 JAR 已保存到 {}，请重启应用",
+                newJarPath.getFileName());
+        } else {
+            // Linux/macOS: 可直接替换运行中的 JAR
+            Files.copy(tempJar, appJar,
+                StandardCopyOption.REPLACE_EXISTING);
+            log.info("更新就绪: {} → v{}", appJar.getFileName(),
+                info.getVersion());
+        }
 
         // 清理临时文件
         try {
@@ -161,8 +182,48 @@ public class UpdateService {
         } catch (IOException ignored) {
             // 清理失败不影响主流程
         }
+    }
 
-        log.info("更新就绪: {} → v{}", appJar.getFileName(), info.getVersion());
+    /**
+     * 创建 Windows 更新辅助脚本 apply-update.bat。
+     * 用户停止应用后运行此脚本完成文件替换。
+     */
+    private void createWindowsUpdateScript(Path appJar, Path newJar)
+        throws IOException {
+        Path scriptPath = appJar.resolveSibling("apply-update.bat");
+        String appName = appJar.getFileName().toString();
+        String newName = newJar.getFileName().toString();
+
+        String script = "@echo off\r\n"
+            + "echo ============================================\r\n"
+            + "echo   NexusAI Update Helper\r\n"
+            + "echo ============================================\r\n"
+            + "echo.\r\n"
+            + "echo Current JAR: " + appName + "\r\n"
+            + "echo New JAR:     " + newName + "\r\n"
+            + "echo.\r\n"
+            + "echo Make sure NexusAI is stopped before continuing.\r\n"
+            + "echo.\r\n"
+            + "choice /c YN /m \"Apply update now?\"\r\n"
+            + "if errorlevel 2 goto :end\r\n"
+            + "copy /Y \"%~dp0" + newName
+            + "\" \"%~dp0" + appName + "\"\r\n"
+            + "if not errorlevel 1 (\r\n"
+            + "    echo Update applied successfully!\r\n"
+            + "    del \"%~dp0" + newName + "\"\r\n"
+            + "    del \"%~f0\"\r\n"
+            + ") else (\r\n"
+            + "    echo Failed to apply update - file may be in use.\r\n"
+            + "    echo Stop NexusAI and try again, or manually copy:\r\n"
+            + "    echo   " + newName + " -^> " + appName + "\r\n"
+            + ")\r\n"
+            + ":end\r\n"
+            + "pause\r\n";
+
+        Files.writeString(scriptPath, script);
+        if (log.isDebugEnabled()) {
+            log.debug("已创建更新辅助脚本: {}", scriptPath);
+        }
     }
 
     /**
