@@ -316,24 +316,9 @@ public interface ConfigConvert {
         if ( source == null ) {
             return;
         }
-        // 各 Provider 配置：非空才拷贝
-        updateProviderConfig( source.getByName( "custom" ), target.getByName( "custom" ) );
-        updateProviderConfig( source.getByName( "anthropic" ), target.getByName( "anthropic" ) );
-        updateProviderConfig( source.getByName( "openai" ), target.getByName( "openai" ) );
-        updateProviderConfig( source.getByName( "openrouter" ), target.getByName( "openrouter" ) );
-        updateProviderConfig( source.getByName( "deepseek" ), target.getByName( "deepseek" ) );
-        updateProviderConfig( source.getByName( "groq" ), target.getByName( "groq" ) );
-        updateProviderConfig( source.getByName( "zhipu" ), target.getByName( "zhipu" ) );
-        updateProviderConfig( source.getByName( "dashscope" ), target.getByName( "dashscope" ) );
-        updateProviderConfig( source.getByName( "vllm" ), target.getByName( "vllm" ) );
-        updateProviderConfig( source.getByName( "gemini" ), target.getByName( "gemini" ) );
-        updateProviderConfig( source.getByName( "moonshot" ), target.getByName( "moonshot" ) );
-        updateProviderConfig( source.getByName( "minimax" ), target.getByName( "minimax" ) );
-        updateProviderConfig( source.getByName( "aihubmix" ), target.getByName( "aihubmix" ) );
-        updateProviderConfig( source.getByName( "siliconflow" ), target.getByName( "siliconflow" ) );
-        updateProviderConfig( source.getByName( "volcengine" ), target.getByName( "volcengine" ) );
-        updateProviderConfig( source.getByName( "openaiCodex" ), target.getByName( "openaiCodex" ) );
-        updateProviderConfig( source.getByName( "githubCopilot" ), target.getByName( "githubCopilot" ) );
+        for (String name : source.names()) {
+            updateProviderConfig( source.getByName( name ), target.getByName( name ) );
+        }
     }
 
     /**

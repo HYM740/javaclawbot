@@ -67,39 +67,16 @@ public final class ProviderFactory {
         Objects.requireNonNull(providerName, "providerName");
         Objects.requireNonNull(model, "model");
 
-        // custom：强制走 OpenAI-compatible 直连
-        if ("custom".equals(providerName)) {
-            if (apiBase == null || apiBase.isBlank()) apiBase = "http://localhost:8000/v1";
-            if (apiKey == null || apiKey.isBlank()) apiKey = "no-key";
-            return new CustomProvider(apiKey, apiBase, model, timeoutSeconds);
-        }
-
-        // azure_openai：Azure OpenAI 直连
-        if ("azure_openai".equals(providerName) || "azure".equals(providerName)) {
-            if (apiBase == null || apiBase.isBlank()) {
-                throw new IllegalStateException("Azure OpenAI requires api_base (e.g. https://your-resource.openai.azure.com/)");
-            }
-            if (apiKey == null || apiKey.isBlank()) {
-                throw new IllegalStateException("Azure OpenAI requires api_key");
-            }
-            return new AzureOpenAIProvider(apiKey, apiBase, model);
-        }
-
-        // 其他 provider：使用 CustomProvider（OpenAI 兼容接口）
-        // 从 ProviderRegistry 获取默认 apiBase
-        ProviderRegistry.ProviderSpec spec = ProviderRegistry.findByName(providerName);
-        if (spec != null && spec.getDefaultApiBase() != null && !spec.getDefaultApiBase().isBlank()) {
-            if (apiBase == null || apiBase.isBlank()) {
+        // 默认: openai_compatible → CustomProvider
+        if (apiBase == null || apiBase.isBlank()) {
+            ProviderRegistry.ProviderSpec spec = ProviderRegistry.findByName(providerName);
+            if (spec != null && spec.getDefaultApiBase() != null && !spec.getDefaultApiBase().isBlank()) {
                 apiBase = spec.getDefaultApiBase();
             }
         }
 
-        if (apiBase == null || apiBase.isBlank()) {
-            apiBase = "https://api.openai.com/v1";
-        }
-        if (apiKey == null || apiKey.isBlank()) {
-            apiKey = "no-key";
-        }
+        if (apiBase == null || apiBase.isBlank()) apiBase = "https://api.openai.com/v1";
+        if (apiKey == null || apiKey.isBlank()) apiKey = "no-key";
 
         return new CustomProvider(apiKey, apiBase, model, timeoutSeconds);
     }

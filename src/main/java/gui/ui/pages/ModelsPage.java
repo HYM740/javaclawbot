@@ -87,39 +87,59 @@ public class ModelsPage extends VBox {
         String defaultModel = cfg.getAgents().getDefaults().getModel();
         config.provider.ProvidersConfig provCfg = cfg.getProviders();
 
-        String[] names = {"anthropic", "openai", "deepseek", "openrouter", "groq",
-            "zhipu", "dashscope", "gemini", "moonshot", "minimax", "aihubmix",
-            "siliconflow", "volcengine", "vllm", "githubCopilot"};
-        String[] labels = {"Anthropic", "OpenAI", "DeepSeek", "OpenRouter", "Groq",
-            "智谱 GLM", "阿里云 DashScope", "Google Gemini", "Moonshot", "MiniMax", "AIHubMix",
-            "SiliconFlow", "火山引擎", "vLLM", "GitHub Copilot"};
+        // 添加供应商按钮（珊瑚色）
+        Button addProviderBtn = new Button("+ 添加供应商");
+        addProviderBtn.getStyleClass().add("pill-button");
+        addProviderBtn.setStyle("-fx-background-color: #cc785c; -fx-text-fill: white; -fx-font-weight: 600;"
+            + " -fx-background-radius: 999px; -fx-padding: 8px 20px; -fx-cursor: hand;");
+        addProviderBtn.setOnMouseEntered(e -> addProviderBtn.setStyle(addProviderBtn.getStyle()
+            .replace("-fx-background-color: #cc785c", "-fx-background-color: #a9583e")));
+        addProviderBtn.setOnMouseExited(e -> addProviderBtn.setStyle(addProviderBtn.getStyle()
+            .replace("-fx-background-color: #a9583e", "-fx-background-color: #cc785c")));
+        addProviderBtn.setPrefHeight(40);
+        addProviderBtn.setOnAction(e -> showAddProviderDialog());
+        modelList.getChildren().add(addProviderBtn);
 
-        for (int i = 0; i < names.length; i++) {
-            String n = names[i];
-            String label = labels[i];
+        // 动态获取供应商：内置优先，自定义追加
+        java.util.Set<String> allNames = provCfg.names();
+        java.util.List<String> sortedNames = new java.util.ArrayList<>();
+        for (providers.ProviderRegistry.ProviderSpec spec : providers.ProviderRegistry.PROVIDERS) {
+            if (allNames.contains(spec.getName())) {
+                sortedNames.add(spec.getName());
+            }
+        }
+        for (String name : allNames) {
+            if (!sortedNames.contains(name)) {
+                sortedNames.add(name);
+            }
+        }
+
+        for (String n : sortedNames) {
             ProviderConfig pc = provCfg.getByName(n);
             if (pc == null) continue;
+            String label = n.substring(0, 1).toUpperCase() + n.substring(1);
             boolean isConfigured = pc.getApiKey() != null && !pc.getApiKey().isBlank();
             providers.ProviderRegistry.ProviderSpec spec = providers.ProviderRegistry.findByName(n);
+            boolean isBuiltin = spec != null;
             boolean isOauth = spec != null && spec.isOauth();
             boolean isReady = isConfigured || isOauth;
             boolean isDefault = defaultModel != null && cfg.getProviderName(defaultModel) != null
                 && cfg.getProviderName(defaultModel).equals(n);
-            ModelCard card = new ModelCard(label, n, isDefault, isReady);
-            // 点击卡片编辑
             final String providerName = n;
-            card.setOnMouseClicked(ev -> showModelDialog(providerName));
+            Runnable onDelete = isBuiltin ? null : () -> {
+                provCfg.remove(providerName);
+                try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+                Platform.runLater(this::refresh);
+            };
+            ModelCard card = new ModelCard(label, n, isDefault, isReady, isBuiltin, onDelete);
+            card.setOnMouseClicked(ev -> {
+                if (ev.getTarget() instanceof javafx.scene.control.Button) return; // 不处理删除按钮点击
+                showModelDialog(providerName);
+            });
             card.setStyle(card.getStyle() + "; -fx-cursor: hand;");
             modelList.getChildren().add(card);
         }
     }
-
-    private static final String[] ALL_PROVIDERS = {"openai","anthropic","deepseek","openrouter","groq",
-        "zhipu","dashscope","gemini","moonshot","minimax","aihubmix",
-        "siliconflow","volcengine","vllm","githubCopilot","custom"};
-    private static final String[] ALL_LABELS = {"OpenAI","Anthropic","DeepSeek","OpenRouter","Groq",
-        "智谱 GLM","阿里云 DashScope","Google Gemini","Moonshot","MiniMax","AIHubMix",
-        "SiliconFlow","火山引擎","vLLM","GitHub Copilot","Custom"};
 
     private String fieldStyle() {
         return "-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 12px;"
@@ -167,21 +187,31 @@ public class ModelsPage extends VBox {
         Label providerTitle = new Label("提供商");
         providerTitle.setStyle("-fx-font-size: 13px; -fx-font-weight: 500; -fx-text-fill: rgba(0,0,0,0.5);");
 
+        // 动态获取供应商列表（内置优先）
+        java.util.Set<String> allNames = provCfg.names();
+        java.util.List<String> dynNames = new java.util.ArrayList<>();
+        for (providers.ProviderRegistry.ProviderSpec spec : providers.ProviderRegistry.PROVIDERS) {
+            if (allNames.contains(spec.getName())) dynNames.add(spec.getName());
+        }
+        for (String n : allNames) {
+            if (!dynNames.contains(n)) dynNames.add(n);
+        }
+
         ComboBox<String> providerCombo = new ComboBox<>();
-        for (int i = 0; i < ALL_PROVIDERS.length; i++) {
-            ProviderConfig pc = provCfg.getByName(ALL_PROVIDERS[i]);
+        for (String name : dynNames) {
+            ProviderConfig pc = provCfg.getByName(name);
             String prefix = (pc != null && pc.getApiKey() != null && !pc.getApiKey().isBlank()) ? "✓ " : "  ";
-            providerCombo.getItems().add(prefix + ALL_LABELS[i]);
+            providerCombo.getItems().add(prefix + name);
         }
         providerCombo.setStyle("-fx-background-color: rgba(0,0,0,0.03); -fx-background-radius: 12px;"
             + " -fx-border-color: transparent; -fx-font-size: 13px;");
         providerCombo.setPrefHeight(40);
 
         // 获取初始选中的 provider
-        String[] currentProvider = {providerName != null ? providerName : ALL_PROVIDERS[0]};
+        String[] currentProvider = {providerName != null ? providerName : (dynNames.isEmpty() ? "" : dynNames.get(0))};
         if (providerName != null) {
-            for (int i = 0; i < ALL_PROVIDERS.length; i++) {
-                if (ALL_PROVIDERS[i].equals(providerName)) { providerCombo.getSelectionModel().select(i); break; }
+            for (int i = 0; i < dynNames.size(); i++) {
+                if (dynNames.get(i).equals(providerName)) { providerCombo.getSelectionModel().select(i); break; }
             }
         } else {
             providerCombo.getSelectionModel().select(0);
@@ -200,8 +230,8 @@ public class ModelsPage extends VBox {
         VBox modelsBox = new VBox(8);
         Runnable refreshModelsBox = () -> {
             int idx = providerCombo.getSelectionModel().getSelectedIndex();
-            if (idx < 0) return;
-            String sel = ALL_PROVIDERS[idx];
+            if (idx < 0 || idx >= dynNames.size()) return;
+            String sel = dynNames.get(idx);
             currentProvider[0] = sel;
             ProviderConfig pc = provCfg.getByName(sel);
             if (pc != null) {
@@ -232,8 +262,8 @@ public class ModelsPage extends VBox {
         saveBtn.setPrefHeight(36);
         saveBtn.setOnAction(e -> {
             int idx = providerCombo.getSelectionModel().getSelectedIndex();
-            if (idx < 0) return;
-            String selProvider = ALL_PROVIDERS[idx];
+            if (idx < 0 || idx >= dynNames.size()) return;
+            String selProvider = dynNames.get(idx);
             String apiKey = apiKeyField.getText();
             String baseUrl = baseField.getText();
 
@@ -557,5 +587,76 @@ public class ModelsPage extends VBox {
             newLabel("Extra Body (JSON)"), extraArea,
             btnRow);
         box.getChildren().add(insertIdx, form);
+    }
+
+    private void showAddProviderDialog() {
+        config.Config cfg = backendBridge.getConfig();
+        config.provider.ProvidersConfig provCfg = cfg.getProviders();
+
+        Stage dialog = new Stage();
+        dialog.initStyle(StageStyle.TRANSPARENT);
+        dialog.initModality(Modality.APPLICATION_MODAL);
+
+        VBox root = new VBox(12);
+        root.setPadding(new Insets(24));
+        root.setStyle("-fx-background-color: #f1ede1; -fx-background-radius: 16px;"
+            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 16px; -fx-border-width: 1px;");
+        root.setMinWidth(440);
+
+        Label title = new Label("添加供应商");
+        title.setStyle("-fx-font-family: Georgia; -fx-font-size: 24px; -fx-text-fill: rgba(0,0,0,0.7);");
+
+        TextField nameField = new TextField();
+        nameField.setPromptText("供应商名称 (如: xiaomi, grok)");
+        nameField.setStyle(fieldStyle()); nameField.setPrefHeight(38);
+
+        TextField baseField = new TextField();
+        baseField.setPromptText("API Base URL (如: https://api.xiaomimistral.com/v1)");
+        baseField.setStyle(fieldStyle()); baseField.setPrefHeight(38);
+
+        TextField keyField = new TextField();
+        keyField.setPromptText("API Key (可选，可稍后填写)");
+        keyField.setStyle(fieldStyle()); keyField.setPrefHeight(38);
+
+        Label hintLabel = new Label("类型默认 openai_compatible，适用于绝大多数 API。");
+        hintLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: rgba(0,0,0,0.4);");
+
+        HBox btnRow = new HBox(12);
+        btnRow.setAlignment(Pos.CENTER_RIGHT);
+        Button cancelBtn = new Button("取消");
+        cancelBtn.getStyleClass().add("pill-button");
+        cancelBtn.setPrefHeight(36);
+        cancelBtn.setOnAction(e -> dialog.close());
+
+        Button saveBtn = new Button("保存供应商");
+        saveBtn.getStyleClass().addAll("pill-button", "selected");
+        saveBtn.setPrefHeight(36);
+        saveBtn.setOnAction(e -> {
+            String name = nameField.getText().trim();
+            String base = baseField.getText().trim();
+            String key = keyField.getText().trim();
+            if (name.isEmpty()) return;
+            if (provCfg.getByName(name) != null) return;
+            ProviderConfig newPc = new ProviderConfig(base.isEmpty() ? null : base);
+            if (!key.isEmpty()) newPc.setApiKey(key);
+            newPc.setType("openai_compatible");
+            provCfg.put(name, newPc);
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            dialog.close();
+            Platform.runLater(() -> refresh());
+        });
+
+        btnRow.getChildren().addAll(cancelBtn, saveBtn);
+        root.getChildren().addAll(title,
+            newLabel("供应商名称 *"), nameField,
+            newLabel("API Base URL *"), baseField,
+            newLabel("API Key"), keyField,
+            hintLabel, btnRow);
+
+        Scene scene = new Scene(root);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        dialog.setScene(scene);
+        dialog.sizeToScene();
+        dialog.showAndWait();
     }
 }

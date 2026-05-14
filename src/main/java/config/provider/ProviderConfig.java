@@ -45,7 +45,19 @@ public class ProviderConfig {
     /** 额外请求头 */
     private Map<String, String> extraHeaders = null;
 
+    /** 供应商类型：null/"anthropic"/"openai_compatible"。null 时根据名称推断。 */
+    private String type;
+
     public ProviderConfig(String apiBase) {
         this.apiBase = apiBase;
+    }
+
+    /**
+     * 获取有效类型：有值直接用，无值根据名称推断，都不认识默认 openai_compatible。
+     */
+    public String getEffectiveType(String providerName) {
+        if (type != null && !type.isBlank()) return type;
+        if ("anthropic".equals(providerName)) return "anthropic";
+        return "openai_compatible";
     }
 }

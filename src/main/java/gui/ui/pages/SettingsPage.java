@@ -251,14 +251,22 @@ public class SettingsPage extends VBox {
         sectionTitle.getStyleClass().add("section-title");
 
         // 按提供商分组收集模型
-        String[] providerOrder = {"openai","anthropic","deepseek","openrouter","groq",
-            "zhipu","dashscope","gemini","moonshot","minimax","aihubmix",
-            "siliconflow","volcengine","vllm","githubCopilot","custom"};
-        String[] providerLabels = {"OpenAI","Anthropic","DeepSeek","OpenRouter","Groq",
-            "智谱 GLM","阿里云 DashScope","Google Gemini","Moonshot","MiniMax","AIHubMix",
-            "SiliconFlow","火山引擎","vLLM","GitHub Copilot","Custom"};
-
         config.provider.ProvidersConfig provCfg = cfg.getProviders();
+        java.util.Set<String> allNames = provCfg.names();
+
+        // 动态排序：内置供应商按 ProviderRegistry 顺序优先，自定义追加末尾
+        java.util.List<String> dynOrder = new java.util.ArrayList<>();
+        for (providers.ProviderRegistry.ProviderSpec spec : providers.ProviderRegistry.PROVIDERS) {
+            if (allNames.contains(spec.getName())) {
+                dynOrder.add(spec.getName());
+            }
+        }
+        for (String name : allNames) {
+            if (!dynOrder.contains(name)) {
+                dynOrder.add(name);
+            }
+        }
+
         java.util.List<ModelItem> items = new java.util.ArrayList<>();
 
         // 当前模型排最前，带提供商前缀
@@ -267,9 +275,8 @@ public class SettingsPage extends VBox {
             : "  " + currentModel + "  (当前)";
         items.add(new ModelItem(currentLabel, currentModel, currentProvider != null ? currentProvider : ""));
 
-        for (int i = 0; i < providerOrder.length; i++) {
-            String pn = providerOrder[i];
-            String pl = providerLabels[i];
+        for (String pn : dynOrder) {
+            String pl = pn.substring(0, 1).toUpperCase() + pn.substring(1);
             config.provider.ProviderConfig pc = provCfg.getByName(pn);
             if (pc == null || pc.getModelConfigs() == null || pc.getModelConfigs().isEmpty()) continue;
 
