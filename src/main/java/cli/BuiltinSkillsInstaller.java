@@ -349,4 +349,291 @@ public final class BuiltinSkillsInstaller {
             throw new RuntimeException("Plugin install failed: " + e.getMessage(), e);
         }
     }
+
+    // ========== Scripts Sync ==========
+
+    private static final String CLASSPATH_SCRIPTS_ROOT = "scripts";
+
+    // ========== Plugins Sync ==========
+
+    private static final String CLASSPATH_PLUGINS_ROOT = "templates/plugins";
+
+    /**
+     * 同步 classpath templates/plugins/ 下的所有插件到 workspace/plugins/
+     *
+     * 与 installAssociatedPlugin 不同，此方法全量同步所有插件文件，
+     * 不依赖技能名称匹配。排除 example.* 示例文件。
+     *
+     * @param workspace 工作区根目录
+     * @param overwrite 是否覆盖已存在的文件
+     * @return 同步结果摘要
+     */
+    public static SyncResult syncPlugins(Path workspace, boolean overwrite) {
+        SyncResult result = new SyncResult();
+        Path targetDir = workspace.resolve("plugins");
+
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = BuiltinSkillsInstaller.class.getClassLoader();
+
+        try {
+            Files.createDirectories(targetDir);
+
+            URL pluginsUrl = cl.getResource(CLASSPATH_PLUGINS_ROOT);
+            if (pluginsUrl == null) {
+                return result;
+            }
+
+            List<FileEntry> entries = scanPluginFiles(pluginsUrl);
+            for (FileEntry entry : entries) {
+                // 排除示例文件
+                if (entry.fileName.startsWith("example.")) {
+                    continue;
+                }
+                Path target = targetDir.resolve(entry.fileName);
+                try {
+                    if (Files.exists(target) && !overwrite) {
+                        result.skipped.add(entry.fileName);
+                        continue;
+                    }
+                    try (InputStream is = cl.getResourceAsStream(entry.classpathPath)) {
+                        if (is != null) {
+                            Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
+                            result.installed.add(entry.fileName);
+                        } else {
+                            result.failed.add(entry.fileName + " (resource not found)");
+                        }
+                    }
+                } catch (Exception e) {
+                    result.failed.add(entry.fileName + " (" + e.getMessage() + ")");
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Plugins sync failed: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 仅同步新增插件（不覆盖已有）
+     */
+    public static SyncResult syncPlugins(Path workspace) {
+        return syncPlugins(workspace, false);
+    }
+
+    private static List<FileEntry> scanPluginFiles(URL url) throws Exception {
+        if (url == null) return List.of();
+        String protocol = url.getProtocol();
+
+        if ("file".equalsIgnoreCase(protocol)) {
+            return scanFileEntries(Paths.get(url.toURI()), "");
+        }
+        if ("jar".equalsIgnoreCase(protocol)) {
+            URI uri = url.toURI();
+            String uriStr = uri.toString();
+            int sep = uriStr.indexOf("!/");
+            if (sep < 0) return List.of();
+            URI jarUri = URI.create(uriStr.substring(0, sep));
+            try (FileSystem fs = openOrGetJarFileSystem(jarUri)) {
+                Path root = fs.getPath("/" + CLASSPATH_PLUGINS_ROOT);
+                return scanFileEntries(root, "");
+            }
+        }
+        return List.of();
+    }
+
+    /**
+     * 通用文件扫描 + 结果类（plugins / scripts 共用）
+     */
+
+    public static final class SyncResult {
+        private final List<String> installed = new ArrayList<>();
+        private final List<String> skipped = new ArrayList<>();
+        private final List<String> failed = new ArrayList<>();
+
+        public List<String> getInstalled() { return installed; }
+        public List<String> getSkipped() { return skipped; }
+        public List<String> getFailed() { return failed; }
+        public boolean hasInstalled() { return !installed.isEmpty(); }
+    }
+
+    private static List<FileEntry> scanFileEntries(Path dir, String prefix) throws IOException {
+        List<FileEntry> result = new ArrayList<>();
+        if (!Files.isDirectory(dir)) return result;
+
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
+            for (Path p : ds) {
+                String name = p.getFileName().toString();
+                String relPath = prefix.isEmpty() ? name : prefix + "/" + name;
+
+                if (Files.isDirectory(p)) {
+                    result.addAll(scanFileEntries(p, relPath));
+                } else if (Files.isRegularFile(p)) {
+                    result.add(new FileEntry(name, CLASSPATH_PLUGINS_ROOT + "/" + relPath));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static final class FileEntry {
+        final String fileName;
+        final String classpathPath;
+
+        FileEntry(String fileName, String classpathPath) {
+            this.fileName = fileName;
+            this.classpathPath = classpathPath;
+        }
+    }
+
+    /**
+     * 同步 classpath scripts/ 下的所有脚本到 workspace/scripts/
+     *
+     * 用途：将项目内置脚本（如 install-gitnexus.js）部署到工作空间，
+     * 方便用户在运行时直接调用。
+     *
+     * 行为：
+     * - 扫描 classpath 上 scripts/ 目录
+     * - 将每个文件复制到 workspace/scripts/，保留相对路径结构
+     * - 已存在的文件默认跳过（不覆盖），避免破坏用户修改
+     *
+     * @param workspace 工作区根目录
+     * @param overwrite 是否覆盖已存在的文件
+     * @return 同步结果摘要
+     */
+    public static SyncScriptsResult syncScripts(Path workspace, boolean overwrite) {
+        SyncScriptsResult result = new SyncScriptsResult();
+        Path targetDir = workspace.resolve("scripts");
+
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = BuiltinSkillsInstaller.class.getClassLoader();
+
+        try {
+            Files.createDirectories(targetDir);
+
+            URL scriptsUrl = cl.getResource(CLASSPATH_SCRIPTS_ROOT);
+            if (scriptsUrl == null) {
+                // 没有内置 scripts 目录，正常情况
+                return result;
+            }
+
+            List<ScriptEntry> entries = scanScriptsFromUrl(scriptsUrl);
+            for (ScriptEntry entry : entries) {
+                Path target = targetDir.resolve(entry.relativePath);
+                try {
+                    if (Files.exists(target) && !overwrite) {
+                        result.skipped.add(entry.relativePath);
+                        continue;
+                    }
+                    Files.createDirectories(target.getParent());
+                    try (InputStream is = cl.getResourceAsStream(entry.classpathPath)) {
+                        if (is != null) {
+                            Files.copy(is, target, StandardCopyOption.REPLACE_EXISTING);
+                            result.installed.add(entry.relativePath);
+                        } else {
+                            result.failed.add(entry.relativePath + " (resource not found)");
+                        }
+                    }
+                } catch (Exception e) {
+                    result.failed.add(entry.relativePath + " (" + e.getMessage() + ")");
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("Scripts sync failed: " + e.getMessage());
+        }
+
+        return result;
+    }
+
+    /**
+     * 仅同步新增脚本（不覆盖已有）
+     */
+    public static SyncScriptsResult syncScripts(Path workspace) {
+        return syncScripts(workspace, false);
+    }
+
+    private static List<ScriptEntry> scanScriptsFromUrl(URL url) throws Exception {
+        if (url == null) return List.of();
+        String protocol = url.getProtocol();
+
+        if ("file".equalsIgnoreCase(protocol)) {
+            return scanScriptFiles(Paths.get(url.toURI()), "");
+        }
+        if ("jar".equalsIgnoreCase(protocol)) {
+            URI uri = url.toURI();
+            String uriStr = uri.toString();
+            int sep = uriStr.indexOf("!/");
+            if (sep < 0) return List.of();
+            URI jarUri = URI.create(uriStr.substring(0, sep));
+            try (FileSystem fs = openOrGetJarFileSystem(jarUri)) {
+                Path root = fs.getPath("/" + CLASSPATH_SCRIPTS_ROOT);
+                return scanScriptFiles(root, "");
+            }
+        }
+        return List.of();
+    }
+
+    private static List<ScriptEntry> scanScriptFiles(Path dir, String prefix) throws IOException {
+        List<ScriptEntry> result = new ArrayList<>();
+        if (!Files.isDirectory(dir)) return result;
+
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
+            for (Path p : ds) {
+                String name = p.getFileName().toString();
+                String relPath = prefix.isEmpty() ? name : prefix + "/" + name;
+
+                if (Files.isDirectory(p)) {
+                    result.addAll(scanScriptFiles(p, relPath));
+                } else if (Files.isRegularFile(p)) {
+                    result.add(new ScriptEntry(
+                        relPath,
+                        CLASSPATH_SCRIPTS_ROOT + "/" + relPath
+                    ));
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 打印 scripts 同步结果
+     */
+    public static void printScriptsSyncResult(SyncScriptsResult result) {
+        if (result.installed.isEmpty() && result.skipped.isEmpty() && result.failed.isEmpty()) {
+            return; // 没有任何脚本，静默
+        }
+
+        System.out.println();
+        System.out.println("Built-in scripts sync result:");
+        for (String s : result.installed) {
+            System.out.println("  ✓ Script installed: " + s);
+        }
+        for (String s : result.skipped) {
+            System.out.println("  - Script skipped (exists): " + s);
+        }
+        for (String s : result.failed) {
+            System.out.println("  ✗ Script failed: " + s);
+        }
+    }
+
+    public static final class SyncScriptsResult {
+        private final List<String> installed = new ArrayList<>();
+        private final List<String> skipped = new ArrayList<>();
+        private final List<String> failed = new ArrayList<>();
+
+        public List<String> getInstalled() { return installed; }
+        public List<String> getSkipped() { return skipped; }
+        public List<String> getFailed() { return failed; }
+        public boolean hasInstalled() { return !installed.isEmpty(); }
+    }
+
+    private static final class ScriptEntry {
+        final String relativePath;
+        final String classpathPath;
+
+        ScriptEntry(String relativePath, String classpathPath) {
+            this.relativePath = relativePath;
+            this.classpathPath = classpathPath;
+        }
+    }
 }

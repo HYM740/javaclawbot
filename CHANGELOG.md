@@ -2,6 +2,16 @@
 
 All notable changes to NexusAI will be documented in this file.
 
+## [2.3.6] - 2026-05-14
+
+### Added
+- **插件/脚本全量同步机制**：新增 `syncPlugins()` + `syncScripts()` 到 `BuiltinSkillsInstaller`，GUI/CLI 启动时自动将 `templates/plugins/` 和 `scripts/` 下所有文件同步到工作空间（排除 example.* 示例），不再依赖技能名称匹配
+- **GitNexus 安装脚本**：`scripts/install-gitnexus.js`，一键安装 gitnexus npm 包 + 同步 skills + 更新 config.json
+
+### Changed
+- **插件加载解耦**：移除 `BackendBridge` 中硬编码的 zjkycode.js 安装补丁（15 行），改为 `syncPlugins()` 全量同步
+- **工作空间目录扩展**：`ensureWorkspaceStructure()` 新增 `scripts/` 目录创建
+
 ## [2.3.5] - 2026-05-13
 
 ### Added

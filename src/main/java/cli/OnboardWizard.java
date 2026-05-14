@@ -135,6 +135,12 @@ public final class OnboardWizard {
             // 7) 配置完成后，再创建/补齐模板文件
             createWorkspaceTemplates(workspace);
 
+            // 7.5) 同步内置脚本到 workspace/scripts/
+            BuiltinSkillsInstaller.syncScripts(workspace);
+
+            // 7.6) 同步内置插件到 workspace/plugins/（全量，排除 example.*）
+            BuiltinSkillsInstaller.syncPlugins(workspace);
+
             // 8) 保存配置
             ConfigIO.saveConfig(cfg, null);
 
@@ -576,6 +582,11 @@ public final class OnboardWizard {
 
         try {
             Files.createDirectories(workspace.resolve("plugins"));
+        } catch (IOException ignored) {
+        }
+
+        try {
+            Files.createDirectories(workspace.resolve("scripts"));
         } catch (IOException ignored) {
         }
 

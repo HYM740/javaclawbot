@@ -1073,7 +1073,6 @@ public class BackendBridge {
     private void ensureSkillsInitialized() {
         Path workspacePath = this.config.getWorkspacePath();
         Path skillsDir = workspacePath.resolve("skills");
-        Path pluginsDir = workspacePath.resolve("plugins");
 
         // 检查 skills 目录是否已有内容
         boolean skillsExist = Files.exists(skillsDir) && Files.isDirectory(skillsDir);
@@ -1100,26 +1099,18 @@ public class BackendBridge {
             log.info("已安装技能: " + String.join(", ", summary.getInstalled()));
         }
 
-        // 额外确保 zjkycode.js 插件存在（技能自带 installAssociatedPlugin，
-        // 但如果 zjkycode 技能未被安装则单独处理）
-        String pluginResource = BuiltinSkillsInstaller.findAssociatedPlugin("zjkycode");
-        if (pluginResource != null) {
-            Path targetFile = pluginsDir.resolve("zjkycode.js");
-            if (!Files.exists(targetFile)) {
-                try {
-                    Files.createDirectories(pluginsDir);
-                    ClassLoader cl = Thread.currentThread().getContextClassLoader();
-                    if (cl == null) cl = BuiltinSkillsInstaller.class.getClassLoader();
-                    try (InputStream is = cl.getResourceAsStream(pluginResource)) {
-                        if (is != null) {
-                            Files.copy(is, targetFile, StandardCopyOption.REPLACE_EXISTING);
-                            log.info("已初始化插件: zjkycode.js");
-                        }
-                    }
-                } catch (IOException e) {
-                    log.warn("初始化 zjkycode.js 失败: " + e.getMessage());
-                }
-            }
+        // 同步内置插件到 workspace/plugins/（全量，排除 example.*）
+        BuiltinSkillsInstaller.SyncResult pluginsResult =
+            BuiltinSkillsInstaller.syncPlugins(workspacePath);
+        if (pluginsResult.hasInstalled()) {
+            log.info("已同步插件: " + String.join(", ", pluginsResult.getInstalled()));
+        }
+
+        // 同步内置脚本到 workspace/scripts/
+        BuiltinSkillsInstaller.SyncScriptsResult scriptsResult =
+            BuiltinSkillsInstaller.syncScripts(workspacePath);
+        if (scriptsResult.hasInstalled()) {
+            log.info("已同步脚本: " + String.join(", ", scriptsResult.getInstalled()));
         }
     }
 
