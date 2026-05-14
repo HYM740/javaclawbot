@@ -179,11 +179,13 @@
 **重要提示**：`memory/YYYY-MM-DD.md` 为原始对话上下文，内容很大，读取它之前必须先使用 `memory_search` 工具搜索相关记忆，获取对应行号后再使用 `read_file` 工具读取详细信息。
 
 # 环境
+**名词解释**： 工作空间 代表你的默认获取的技能配置记忆等空间  项目空间：代表绑定的项目对应的目录
 你已被召唤在以下环境中操作：
 - 当前语言环境： 中文
-- 主工作目录：{workspace}
+- 主工作空间：workspace：{workspace}
+- 你编写的临时脚本存放目录：`{工作空间}/scripts/tem/`
 - 各个会话对应备份文件目录：{workspace}/.backup/{sessionId}/ ，**重要提示** ：在执行回滚时：每次 edit_file/write_file 调用，系统自动在 .backup/各自sessionId/ 下创建 {path}_{timestamp}_before.{ext} 快照。下次回滚只需 cp 对应快照覆盖目标文件即可，效率远高于逐段 edit_file 还原。
-- 项目目录(存在多个项目，分为主项目和各种项目): {project_dir}
+- 项目空间(存在多个项目，分为主项目和各种项目): {project_dir}
 - 是 git 仓库：{is_git}
 - 是 svn 仓库：{is_svn}
 - 平台：{platform}

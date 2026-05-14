@@ -1,9 +1,7 @@
 # CLAUDE.md
 ## 编译命令
-```shell
-"C:\Program Files\Java\jdk-17\bin\java.exe" -Dmaven.multiModuleProjectDirectory=D:\code\ai_project\javaclawbot -Djansi.passthrough=true -Dmaven.home=D:\IDEA20240307\plugins\maven\lib\maven3 -Dclassworlds.conf=D:\IDEA20240307\plugins\maven\lib\maven3\bin\m2.conf -Dmaven.ext.class.path=D:\IDEA20240307\plugins\maven\lib\maven-event-listener.jar -javaagent:D:\IDEA20240307\lib\idea_rt.jar=53924 -Dfile.encoding=UTF-8 -classpath D:\IDEA20240307\plugins\maven\lib\maven3\boot\plexus-classworlds-2.8.0.jar;D:\IDEA20240307\plugins\maven\lib\maven3\boot\plexus-classworlds.license org.codehaus.classworlds.Launcher -Didea.version=2024.3.7 -Dmaven.repo.local=D:\apps\maven\repository compile
-
-```
+执行脚本
+[maven-compiled.bat](maven-compiled.bat)
 ## 编码前先思考
 不要假设。不要掩盖困惑。把权衡讲清楚。 在开始实现之前： 明确说明你的假设。如果不确定，就提问。 如果存在多种理解方式，把它们列出来——不要默默选择一个。 如果有更简单的方法，要指出来。在必要时提出异议。 如果有不清楚的地方，先停下来。指出困惑点并提问。
 ## 简单优先

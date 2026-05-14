@@ -350,6 +350,79 @@ public final class BuiltinSkillsInstaller {
         }
     }
 
+    // ========== Skill Update Detection ==========
+
+    /**
+     * 检测哪些内置技能有更新（内置版本比已安装版本多了文件/文件夹）。
+     *
+     * @param workspace 工作区根目录
+     * @return 有更新的技能名称列表
+     */
+    public static List<String> detectSkillUpdates(Path workspace) {
+        List<String> updated = new ArrayList<>();
+        Path skillsRoot = Helpers.getSkillsPath(workspace);
+
+        List<SkillResource> builtinSkills = discoverBuiltinSkills();
+        for (SkillResource skill : builtinSkills) {
+            Path installedDir = skillsRoot.resolve(skill.getName());
+            if (!Files.isDirectory(installedDir)) {
+                continue; // 未安装的跳过，由 installSelectedSkills 处理
+            }
+            try {
+                Set<String> builtinFiles = listClasspathDirectoryFiles(skill.getClasspathDir());
+                Set<String> installedFiles = listDirectoryFiles(installedDir);
+                // 如果内置版本有已安装版本没有的文件 → 有更新
+                if (!installedFiles.containsAll(builtinFiles)) {
+                    updated.add(skill.getName());
+                }
+            } catch (Exception e) {
+                System.err.println("检测技能更新失败 " + skill.getName() + ": " + e.getMessage());
+            }
+        }
+        return updated;
+    }
+
+    /**
+     * 列出 classpath 目录下所有文件的相对路径集合（递归）。
+     */
+    public static Set<String> listClasspathDirectoryFiles(String classpathDir) throws Exception {
+        ClassLoader cl = Thread.currentThread().getContextClassLoader();
+        if (cl == null) cl = BuiltinSkillsInstaller.class.getClassLoader();
+
+        URL url = cl.getResource(classpathDir);
+        if (url == null) return Set.of();
+
+        String protocol = url.getProtocol();
+        if ("file".equalsIgnoreCase(protocol)) {
+            return listDirectoryFiles(Paths.get(url.toURI()));
+        }
+        if ("jar".equalsIgnoreCase(protocol)) {
+            URI uri = url.toURI();
+            String uriStr = uri.toString();
+            int sep = uriStr.indexOf("!/");
+            if (sep < 0) return Set.of();
+            URI jarUri = URI.create(uriStr.substring(0, sep));
+            try (FileSystem fs = openOrGetJarFileSystem(jarUri)) {
+                Path root = fs.getPath("/" + classpathDir);
+                return listDirectoryFiles(root);
+            }
+        }
+        return Set.of();
+    }
+
+    /**
+     * 列出本地目录下所有文件的相对路径集合（递归）。
+     */
+    private static Set<String> listDirectoryFiles(Path dir) throws IOException {
+        if (!Files.isDirectory(dir)) return Set.of();
+        Set<String> files = new HashSet<>();
+        try (Stream<Path> stream = Files.walk(dir)) {
+            stream.filter(Files::isRegularFile)
+                  .forEach(p -> files.add(dir.relativize(p).toString().replace('\\', '/')));
+        }
+        return files;
+    }
+
     // ========== Scripts Sync ==========
 
     private static final String CLASSPATH_SCRIPTS_ROOT = "scripts";

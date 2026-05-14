@@ -16,6 +16,8 @@ import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import config.mcp.MCPServerConfig;
 import corn.CronService;
 import javafx.application.Platform;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import lombok.extern.slf4j.Slf4j;
 import providers.CustomProvider;
 import providers.LLMProvider;
@@ -1068,45 +1070,144 @@ public class BackendBridge {
 
     /**
      * 首次 GUI 启动时自动初始化内置技能到工作区。
-     * 仅在 workspace/skills 目录为空或不存在时执行。
+     * 仅在 workspace/skills 目录为空或不存在时安装技能。
+     * 脚本和插件同步独立于技能安装，每次启动都执行。
      */
     private void ensureSkillsInitialized() {
         Path workspacePath = this.config.getWorkspacePath();
-        Path skillsDir = workspacePath.resolve("skills");
 
-        // 检查 skills 目录是否已有内容
-        boolean skillsExist = Files.exists(skillsDir) && Files.isDirectory(skillsDir);
-        if (skillsExist) {
-            try (var ds = Files.newDirectoryStream(skillsDir)) {
-                if (ds.iterator().hasNext()) return;
-            } catch (IOException e) {
-                // 读取失败也继续初始化
-            }
-        }
+        // ── 技能安装：仅在 skills 目录为空时执行 ──
+        installBuiltinSkillsIfNeeded(workspacePath);
+
+        // ── 插件和脚本同步：每次启动都执行（不依赖技能状态）──
+        syncBuiltinPlugins(workspacePath);
+        syncBuiltinScripts(workspacePath);
+    }
+
+    /**
+     * 增量同步内置技能到工作区。
+     *
+     * - 首次启动（skills 目录为空）：直接安装全部内置技能，无需弹窗。
+     * - 后续启动：检测内置技能是否有更新（新增文件/文件夹），
+     *   如有则弹窗询问用户是否覆盖更新。
+     */
+    private void installBuiltinSkillsIfNeeded(Path workspacePath) {
+        Path skillsDir = workspacePath.resolve("skills");
 
         // 发现所有内置技能
         List<BuiltinSkillsInstaller.SkillResource> allSkills =
             BuiltinSkillsInstaller.discoverBuiltinSkills();
         if (allSkills.isEmpty()) return;
 
-        log.info("首次启动，初始化 " + allSkills.size() + " 个内置技能到工作区...");
-
-        // 全部安装（不覆盖已有）
-        BuiltinSkillsInstaller.InstallSummary summary =
-            BuiltinSkillsInstaller.installSelectedSkills(workspacePath, allSkills, false);
-
-        if (!summary.getInstalled().isEmpty()) {
-            log.info("已安装技能: " + String.join(", ", summary.getInstalled()));
+        // 判断是否首次启动（skills 目录为空）
+        boolean skillsEmpty = !Files.exists(skillsDir) || !Files.isDirectory(skillsDir);
+        if (!skillsEmpty) {
+            try (var ds = Files.newDirectoryStream(skillsDir)) {
+                skillsEmpty = !ds.iterator().hasNext();
+            } catch (IOException e) {
+                // 读取失败视为非空，继续走增量检测逻辑
+            }
         }
 
-        // 同步内置插件到 workspace/plugins/（全量，排除 example.*）
+        if (skillsEmpty) {
+            // ── 首次启动：直接安装全部内置技能 ──
+            log.info("首次启动，初始化 " + allSkills.size() + " 个内置技能到工作区...");
+            BuiltinSkillsInstaller.InstallSummary summary =
+                BuiltinSkillsInstaller.installSelectedSkills(workspacePath, allSkills, false);
+            if (!summary.getInstalled().isEmpty()) {
+                log.info("已安装技能: " + String.join(", ", summary.getInstalled()));
+            }
+            if (!summary.getFailed().isEmpty()) {
+                log.warn("技能安装失败: " + String.join(", ", summary.getFailed()));
+            }
+            return;
+        }
+
+        // ── 后续启动：检测技能更新 ──
+        List<String> updatedSkills = BuiltinSkillsInstaller.detectSkillUpdates(workspacePath);
+        if (updatedSkills.isEmpty()) {
+            return; // 无更新，静默跳过
+        }
+
+        log.info("检测到 " + updatedSkills.size() + " 个内置技能有更新: "
+            + String.join(", ", updatedSkills));
+
+        // 弹窗询问用户是否覆盖更新
+        boolean userConfirmed = showSkillUpdateDialog(updatedSkills);
+        if (!userConfirmed) {
+            log.info("用户取消技能更新");
+            return;
+        }
+
+        // 用户确认：覆盖更新有变动的技能
+        List<BuiltinSkillsInstaller.SkillResource> toUpdate = allSkills.stream()
+            .filter(s -> updatedSkills.contains(s.getName()))
+            .collect(java.util.stream.Collectors.toList());
+
+        BuiltinSkillsInstaller.InstallSummary summary =
+            BuiltinSkillsInstaller.installSelectedSkills(workspacePath, toUpdate, true); // overwrite=true
+        if (!summary.getOverwritten().isEmpty()) {
+            log.info("已覆盖更新技能: " + String.join(", ", summary.getOverwritten()));
+        }
+        if (!summary.getFailed().isEmpty()) {
+            log.warn("技能更新失败: " + String.join(", ", summary.getFailed()));
+        }
+    }
+
+    /**
+     * 在 JavaFX 线程中弹出确认对话框，询问用户是否覆盖更新技能。
+     *
+     * @return true 表示用户同意更新
+     */
+    private boolean showSkillUpdateDialog(List<String> updatedSkills) {
+        // 如果已是 JavaFX 线程，直接显示
+        if (Platform.isFxApplicationThread()) {
+            return showUpdateDialogDirectly(updatedSkills);
+        }
+
+        // 否则派发到 JavaFX 线程并等待结果
+        java.util.concurrent.FutureTask<Boolean> task =
+            new java.util.concurrent.FutureTask<>(() -> showUpdateDialogDirectly(updatedSkills));
+        Platform.runLater(task);
+        try {
+            return task.get();
+        } catch (Exception e) {
+            log.warn("技能更新弹窗异常: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private boolean showUpdateDialogDirectly(List<String> updatedSkills) {
+        String skillList = String.join("\n  • ", updatedSkills);
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("内置技能更新");
+        alert.setHeaderText("检测到以下内置技能有更新：");
+        alert.setContentText("  \u2022 " + skillList + "\n\n是否覆盖更新？\n（选择「否」将保留当前版本，下次启动仍会提示）");
+
+        ButtonType btnYes = new ButtonType("是，覆盖更新");
+        ButtonType btnNo = new ButtonType("否，保留当前版本");
+        alert.getButtonTypes().setAll(btnYes, btnNo);
+
+        return alert.showAndWait().orElse(btnNo) == btnYes;
+    }
+
+    /**
+     * 同步内置插件到 workspace/plugins/（全量，排除 example.*）。
+     * 每次启动都执行，确保新增插件被部署。
+     */
+    private void syncBuiltinPlugins(Path workspacePath) {
         BuiltinSkillsInstaller.SyncResult pluginsResult =
             BuiltinSkillsInstaller.syncPlugins(workspacePath);
         if (pluginsResult.hasInstalled()) {
             log.info("已同步插件: " + String.join(", ", pluginsResult.getInstalled()));
         }
+    }
 
-        // 同步内置脚本到 workspace/scripts/
+    /**
+     * 同步内置脚本到 workspace/scripts/。
+     * 每次启动都执行，确保新增脚本（如 install-gitnexus.js）被部署。
+     */
+    private void syncBuiltinScripts(Path workspacePath) {
         BuiltinSkillsInstaller.SyncScriptsResult scriptsResult =
             BuiltinSkillsInstaller.syncScripts(workspacePath);
         if (scriptsResult.hasInstalled()) {

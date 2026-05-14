@@ -29,6 +29,147 @@ description: "基于浏览器的伙伴，用于在头脑风暴期间展示模型
 
 关于 UI 主题的问题不自动是视觉问题。"你想要什么样的向导？" 是概念问题 — 使用终端。"这些向导布局哪个感觉对？" 是视觉问题 — 使用浏览器。
 
+## 设计风格系统（DESIGN.md 集成）
+
+视觉伴侣集成了 [awesome-design-md](https://github.com/VoltAgent/awesome-design-md) 品牌设计系统库 — 71+ 个知名品牌（Stripe、Linear、Apple、Claude 等）的设计规范，可直接应用到 UI mockup 生成中。
+
+### 什么是 DESIGN.md
+
+DESIGN.md 是一个纯文本设计系统文档，包含 YAML front matter（颜色 tokens、排版层级、间距尺度、组件样式）+ Markdown 正文（设计哲学、使用规则、反模式）。AI agent 读取后即可按该品牌风格生成 UI。
+
+每个 DESIGN.md 包含：
+- **colors** — 语义化颜色 tokens（primary、ink、canvas、hairline 等）
+- **typography** — 完整排版层级表（size / weight / lineHeight / letterSpacing）
+- **rounded** — 圆角尺度
+- **spacing** — 间距尺度
+- **components** — 按钮 / 卡片 / 输入框等组件样式（含多状态）
+- **设计叙事** — 品牌哲学、色彩策略、排版原则、Do's and Don'ts
+
+### 设计风格库路径
+
+设计风格库已内置在技能目录中，无需额外下载：
+
+```
+{技能目录}/design-md/
+├── stripe/DESIGN.md          # 靛蓝 + 渐变网格
+├── linear.app/DESIGN.md      # 纯黑画布 + 薰衣草蓝
+├── apple/DESIGN.md           # 极简留白 + SF Pro
+├── claude/DESIGN.md          # 奶油底色 + 珊瑚橙
+├── tesla/DESIGN.md           # 彻底减法 + 全屏影像
+├── notion/DESIGN.md          # 温暖极简 + 衬线标题
+├── nvidia/DESIGN.md          # 绿黑能量 + 技术力量
+├── spotify/DESIGN.md         # 鲜绿暗底 + 粗体排版
+├── ... (共 71 个品牌)
+```
+
+读取时的相对路径：`{技能目录}/design-md/{品牌名}/DESIGN.md`
+
+### 工作流
+
+**第 1 步：展示风格选项** — 在生成任何 UI mockup 之前，先在终端按分类列出可用风格：
+
+```
+可用设计风格（按领域）：
+
+AI & 开发者工具：
+  Claude | Cursor | Vercel | Warp | Raycast | Ollama
+
+生产力 & SaaS：
+  Linear | Notion | Intercom | Zapier | Resend
+
+金融科技：
+  Stripe | Coinbase | Revolut | Wise | Binance
+
+电商 & 零售：
+  Shopify | Airbnb | Nike | Starbucks
+
+消费科技 & 媒体：
+  Apple | Spotify | NVIDIA | IBM | PlayStation | Pinterest
+
+汽车：
+  Tesla | BMW | Ferrari | Bugatti
+
+... (完整列表见 design-md/ 目录)
+```
+
+询问用户：「你想用哪个品牌的设计风格？」
+
+**第 2 步：加载 DESIGN.md** — 用户选定后，读取对应 `design-md/{品牌}/DESIGN.md`：
+
+```
+read_file design-md/{品牌}/DESIGN.md
+```
+
+**第 3 步：提取设计 tokens** — 从 YAML front matter 中提取关键值：
+- `{colors.primary}` → 主色 / CTA 按钮色
+- `{colors.canvas}` → 页面背景色
+- `{colors.ink}` → 正文文字色
+- `{typography.display-xxl}` → 最大标题样式
+- `{typography.body-md}` → 正文样式
+- `{rounded.lg}` / `{rounded.pill}` → 卡片 / 按钮圆角
+- `{spacing.*}` → 间距系统
+- 组件样式（button-primary、card-feature 等）
+
+**第 4 步：生成风格匹配的 mockup HTML** — 将 tokens 转换为 CSS 变量，注入到 HTML 内容片段中：
+
+```html
+<style>
+  :root {
+    --color-primary: #533afd;        /* {colors.primary} */
+    --color-canvas: #ffffff;         /* {colors.canvas} */
+    --color-ink: #0d253d;            /* {colors.ink} */
+    --color-hairline: #e3e8ee;       /* {colors.hairline} */
+    --font-display: sohne-var, 'SF Pro Display', sans-serif;
+    --font-body: sohne-var, 'SF Pro Display', sans-serif;
+    --rounded-card: 12px;            /* {rounded.lg} */
+    --rounded-button: 9999px;        /* {rounded.pill} */
+    --spacing-lg: 24px;
+    --spacing-xl: 32px;
+  }
+</style>
+
+<div class="mockup" style="background: var(--color-canvas); color: var(--color-ink); font-family: var(--font-body);">
+  <!-- mockup content using design tokens -->
+  <h2 style="font-family: var(--font-display); font-size: 48px; font-weight: 300; letter-spacing: -0.96px;">
+    {标题}
+  </h2>
+  <button style="background: var(--color-primary); border-radius: var(--rounded-button); padding: 8px 16px; color: white;">
+    {CTA 文字}
+  </button>
+</div>
+```
+
+**第 5 步：后续迭代** — 用户反馈后，继续使用同一套设计 tokens 生成修改版本。风格在会话期间保持一致。
+
+### 设计 tokens → CSS 速查
+
+| DESIGN.md Token | CSS 属性 |
+|-----------------|----------|
+| `{colors.primary}` | `background` (按钮), `color` (链接), `border-color` (焦点环) |
+| `{colors.canvas}` | `background` (页面) |
+| `{colors.ink}` | `color` (正文) |
+| `{colors.hairline}` | `border` (卡片, 分割线) |
+| `{colors.surface-1}` | `background` (卡片, 面板) |
+| `{typography.display-xxl.fontSize}` | `font-size` (最大标题) |
+| `{typography.display-xxl.fontWeight}` | `font-weight` |
+| `{typography.display-xxl.lineHeight}` | `line-height` |
+| `{typography.display-xxl.letterSpacing}` | `letter-spacing` |
+| `{typography.display-xxl.fontFamily}` | `font-family` (带 fallback) |
+| `{typography.body-md.*}` | `font-size/weight/lineHeight` (正文) |
+| `{rounded.pill}` = 9999px | `border-radius` (药丸按钮) |
+| `{rounded.lg}` | `border-radius` (卡片) |
+| `{spacing.xl}` | `padding`, `margin`, `gap` |
+
+### 注意事项
+
+- **字体 fallback**：专有字体（Sohne、Linear Display 等）不可公开使用，DESIGN.md 中已注明开源替代（Inter、Geist Sans 等），生成 HTML 时使用 fallback
+- **优先片段模式**：使用 `<style>` 块 + 内容片段，由框架模板包装，不写完整 HTML 文档
+- **保持一致性**：同一会话中选定风格后保持一致，不混用多个 DESIGN.md
+- **风格库未找到时**：如果 design-md/ 目录不存在，提示用户 clone：
+  ```
+  git clone https://github.com/VoltAgent/awesome-design-md.git
+  ```
+
 ## 工作原理
 
 服务器监视目录中的 HTML 文件，并将最新的文件提供给浏览器。你将 HTML 内容写入 `screen_dir`，用户在浏览器中看到它并可以点击选择选项。选择记录到 `state_dir/events`，你在下一轮读取它。
