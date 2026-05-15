@@ -2,6 +2,15 @@
 
 All notable changes to NexusAI will be documented in this file.
 
+## [2.3.8] - 2026-05-15
+
+### Fixed
+- **技能菜单页面不实时刷新**：切换到技能管理页时侧栏监听器未触发 `SkillsPage.refresh()`，手动添加/删除技能文件后菜单不更新。修复：`MainStage.pageChangeListener` 增加 `SkillsPage` 刷新调用；`SkillsPage.refresh()` 可见性改为 `public`
+- **GUI 长时间运行后卡顿（根因三连修）**：
+  1. **消息窗口化**：`ChatPage` 新增 `MAX_VISIBLE_NODES=200` 上限 + `trimToWindow()` 方法，每条消息添加后自动从头部移除超出节点，防止 WebView 内存无限累积（100+ 条消息 = 5-10GB 本机内存）
+  2. **宽度监听器泄漏**：`MessageBubble` 的 `sceneProperty` 监听器在节点脱离场景时未移除 `scene.widthProperty` 监听器，200 条消息 = 200 个监听器在每次窗口 resize 时全部触发导致级联布局重算。修复：监听器在 `oldScene != null` 时主动 `removeListener`
+  3. **流式气泡替换已有防护**：`addAssistantMessage(replacePrevious=true)` 替换旧 WebView 避免流式输出期间累积（已在上版本实现，本次加强窗口化联动）
+
 ## [2.3.7] - 2026-05-14
 
 ### Added

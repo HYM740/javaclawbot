@@ -332,6 +332,7 @@ public class MainStage {
                 javafx.scene.Node pageNode = pages.get(page.replace(" ", "").toLowerCase());
                 if (pageNode instanceof ModelsPage p) p.refresh();
                 else if (pageNode instanceof AgentsPage p) p.refresh();
+                else if (pageNode instanceof SkillsPage p) p.refresh();
                 else if (pageNode instanceof DatabasesPage p) p.refresh();
                 else if (pageNode instanceof SettingsPage p) p.refresh();
             }

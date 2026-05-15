@@ -202,7 +202,7 @@ public class SkillsPage extends VBox {
         refresh();
     }
 
-    private void refresh() {
+    public void refresh() {
         if (backendBridge == null) return;
         skillGrid.getChildren().clear();
 

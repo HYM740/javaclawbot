@@ -530,7 +530,14 @@ public final class EditTool extends Tool {
             System.arraycopy(contentBytes, 0, fullBytes, bomBytes.length, contentBytes.length);
             Files.write(path, fullBytes, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         } else {
-            Files.writeString(path, content, charset, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            try {
+                Files.writeString(path, content, charset, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            } catch (java.nio.charset.CharacterCodingException e) {
+                log.warn("字符集 {} 无法编码文件内容，回退到 UTF-8: {} (原因: {})",
+                        charset.name(), path.getFileName(), e.getMessage());
+                Files.writeString(path, content, StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            }
         }
     }
 }

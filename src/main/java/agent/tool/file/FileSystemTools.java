@@ -870,31 +870,45 @@ public final class FileSystemTools {
 
 
     /**
-     * Detect the dominant line ending in the given text.
-     * Returns "\r\n" if CRLF is found, "\n" otherwise.
+     * Detect the dominant line ending via majority vote (aligned with
+     * Open-ClaudeCode's {@code detectLineEndingsForString}).
+     * <p>
+     * Counts CRLF ({@code \r\n}) vs bare LF occurrences in the first
+     * 4096 code units, then returns the majority winner. Tie goes to LF.
      */
     public static String detectLineEnding(String text) {
-        if (text == null || text.isEmpty()) return System.lineSeparator();
-        boolean hasCRLF = text.contains("\r\n");
-        if (hasCRLF) return "\r\n";
-        if (text.indexOf('\n') >= 0) return "\n";
-        // No newlines at all - use system default
-        return System.lineSeparator();
+        if (text == null || text.isEmpty()) return "\n";
+        int crlfCount = 0;
+        int lfCount = 0;
+        int limit = Math.min(text.length(), 4096);
+        for (int i = 0; i < limit; i++) {
+            if (text.charAt(i) == '\n') {
+                if (i > 0 && text.charAt(i - 1) == '\r') {
+                    crlfCount++;
+                } else {
+                    lfCount++;
+                }
+            }
+        }
+        if (crlfCount == 0 && lfCount == 0) return "\n";
+        return crlfCount > lfCount ? "\r\n" : "\n";
     }
 
     /**
      * Normalize all line endings in text to the specified target.
-     * Handles \r\n -> target, bare \n -> target, bare \r -> \n -> target.
+     * Uses split-join pattern (aligned with Open-ClaudeCode) to avoid
+     * double-encoding: first normalizes all {@code \r\n} to {@code \n},
+     * then converts to target.
      */
     public static String normalizeLineEndings(String text, String targetLineEnding) {
         if (text == null || text.isEmpty()) return text;
-        if (targetLineEnding == null) targetLineEnding = System.lineSeparator();
-        // First normalize everything to bare LF, then convert to target
+        // First normalize everything to bare LF
         String normalized = text.replace("\r\n", "\n").replace("\r", "\n");
         if ("\r\n".equals(targetLineEnding)) {
-            return normalized.replace("\n", "\r\n");
+            // split-join: prevents \r\r\n when content already contains \r\n
+            return String.join("\r\n", normalized.split("\n", -1));
         }
-        return normalized; // target is \n, already normalized
+        return normalized;
     }
     /** 按行切分，但保留每行末尾的 \n（最后一行可能没有） */
     public static List<String> splitLinesPreserveNewline(String s) {
@@ -1068,27 +1082,24 @@ public final class FileSystemTools {
     }
 
     /**
-     * 检测文件编码（优先 BOM，再尝试 UTF-8/GBK）
+     * 检测文件编码 — 仅 BOM，其余默认 UTF-8（对齐 Open-ClaudeCode 的
+     * {@code detectEncodingForResolvedPath}）。
+     * <p>
+     * 不尝试 GBK 等老旧编码回退。现代 Java 源码、配置文件均为 UTF-8，
+     * 启发式回退引入的误判风险远大于收益。
      */
     static Charset detectCharset(byte[] bytes) {
         if (bytes == null || bytes.length == 0) {
-            return StandardCharsets.UTF_8;  // 默认 UTF-8（无 BOM）
+            return StandardCharsets.UTF_8;
         }
 
-        // 优先检测 BOM
         BomResult bom = detectBom(bytes);
         if (bom != null) {
             return bom.charset;
         }
 
-        // 无 BOM：尝试 UTF-8，失败则回退 GBK
-        String utf8 = new String(bytes, StandardCharsets.UTF_8);
-        if (!containsReplacementChar(utf8, bytes)) {
-            return StandardCharsets.UTF_8;
-        }
-
-        // 回退到 GBK（Windows 中文默认编码）
-        return Charset.forName("GBK");
+        // 无 BOM → 一切皆 UTF-8
+        return StandardCharsets.UTF_8;
     }
 
     /**
@@ -1122,47 +1133,21 @@ public final class FileSystemTools {
     }
 
     /**
-     * 智能解码：优先 BOM，再 UTF-8，最后 GBK
-     *
-     * 解决 Windows 上中文编码问题：
-     * - BOM 标记文件：直接使用对应编码
-     * - UTF-8 无 BOM：正常解码
-     * - GBK 文件：回退解码
+     * 智能解码 — 仅 BOM，其余 UTF-8（对齐 Open-ClaudeCode 的
+     * {@code readFileSyncWithMetadata}）。
      */
     static String smartDecode(byte[] bytes) {
         if (bytes == null || bytes.length == 0) return "";
 
-        // 优先检测 BOM
         BomResult bom = detectBom(bytes);
         if (bom != null) {
-            // 使用 BOM 指定的编码，跳过 BOM 字节
             byte[] contentBytes = new byte[bytes.length - bom.bomLength];
             System.arraycopy(bytes, bom.bomLength, contentBytes, 0, contentBytes.length);
             return new String(contentBytes, bom.charset);
         }
 
-        // 无 BOM：尝试 UTF-8
-        String utf8 = new String(bytes, StandardCharsets.UTF_8);
-        if (!containsReplacementChar(utf8, bytes)) {
-            return utf8;
-        }
-
-        // 回退到 GBK（Windows 中文默认编码）
-        return new String(bytes, Charset.forName("GBK"));
-    }
-
-    /**
-     * 检测 UTF-8 解码是否产生了替换字符（说明原始字节不是有效的 UTF-8）
-     */
-    public static boolean containsReplacementChar(String decoded, byte[] original) {
-        // 如果解码结果包含替换字符，说明 UTF-8 解码失败，可能是 GBK
-        if (decoded.contains("\uFFFD")) {
-            return true;
-        }
-        // 注意：不能通过检测 0x81-0xFE 字节来判断 GBK，因为 UTF-8 多字节编码
-        // 的后续字节（0x80-0xBF）也落在这个范围内，会导致 UTF-8 中文文件被误判为 GBK。
-        // 正确的做法是只依赖替换字符检测：UTF-8 解码器遇到非法字节会插入 \uFFFD
-        return false;
+        // 无 BOM → 一切皆 UTF-8
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     /**

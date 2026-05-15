@@ -63,6 +63,11 @@ public class ChatPage extends VBox {
     /** 流式输出期间的进度消息气泡（每次更新替换而非追加，避免 WebView 累积卡死 GUI） */
     private javafx.scene.Node lastStreamingBubble;
 
+    /** 渲染节点数上限：超出后移除最旧节点，防止 WebView 内存堆积导致 GUI 卡顿 */
+    private static final int MAX_VISIBLE_NODES = 200;
+    private int nodesTrimmed = 0;
+    private boolean welcomeVisible = true;
+
     private static final Parser REASONING_PARSER;
     private static final HtmlRenderer REASONING_RENDERER;
     private static final String REASONING_HTML_TEMPLATE;
@@ -224,6 +229,7 @@ public class ChatPage extends VBox {
 
         welcomeBox.getChildren().addAll(title, subtitle, quickActions);
         messageContainer.getChildren().add(welcomeBox);
+        welcomeVisible = true;
     }
 
     public void addUserMessage(String content) {
@@ -661,6 +667,25 @@ public class ChatPage extends VBox {
             && messageContainer.getChildren().get(0) instanceof VBox) {
             messageContainer.getChildren().clear();
         }
+        welcomeVisible = false;
+    }
+
+    /**
+     * 渲染节点数窗口化：超出 MAX_VISIBLE_NODES 上限时从头部移除最旧节点，
+     * 防止 WebView 累积导致内存爆炸和 GUI 卡顿。
+     */
+    private void trimToWindow() {
+        var children = messageContainer.getChildren();
+        int total = children.size();
+        if (total <= MAX_VISIBLE_NODES) return;
+
+        int remove = total - MAX_VISIBLE_NODES;
+        int startIdx = welcomeVisible ? 1 : 0; // 跳过欢迎消息
+        if (startIdx >= children.size()) return;
+
+        int endIdx = Math.min(startIdx + remove, children.size());
+        children.remove(startIdx, endIdx);
+        nodesTrimmed += (endIdx - startIdx);
     }
 
     /**
@@ -674,6 +699,7 @@ public class ChatPage extends VBox {
                 programmaticScroll = false;
             });
         }
+        trimToWindow();
     }
 
     /**
@@ -710,6 +736,7 @@ public class ChatPage extends VBox {
 
     public void clearMessages() {
         messageContainer.getChildren().clear();
+        nodesTrimmed = 0;
         fileDiffBadge.clearFiles();
         thinkingPlaceholder = null;
         lastStreamingBubble = null;
@@ -827,7 +854,10 @@ public class ChatPage extends VBox {
                     + msg.get("role") + "): " + e);
             }
         }
-        Platform.runLater(() -> scrollPane.setVvalue(1.0));
+        Platform.runLater(() -> {
+            scrollPane.setVvalue(1.0);
+            trimToWindow();
+        });
     }
 
     private static String extractTextContent(Object contentObj) {

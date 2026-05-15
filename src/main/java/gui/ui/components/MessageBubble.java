@@ -244,15 +244,22 @@ public class MessageBubble extends HBox {
                 javafx.event.Event.fireEvent(bubble, e.copyFor(bubble, bubble));
             });
 
-            // 延迟加载：等进入场景后加载，确保宽度已确定
+            // 延迟加载：等进入场景后加载，确保宽度已确定。
+            // 同时处理场景脱离：移除 width 监听器避免泄漏累积导致 GUI 卡顿。
+            final javafx.beans.value.ChangeListener<Number>[] widthListenerHolder = new javafx.beans.value.ChangeListener[1];
             sceneProperty().addListener((obs, o, s) -> {
+                if (o != null && widthListenerHolder[0] != null) {
+                    o.widthProperty().removeListener(widthListenerHolder[0]);
+                    widthListenerHolder[0] = null;
+                }
                 if (s != null) {
                     updateBubbleWidth(webView, bubble, s.getWidth(), content);
                     Platform.runLater(() -> webView.getEngine().load(toDataUri(html)));
-                    s.widthProperty().addListener((wObs, wOld, wNew) -> {
+                    widthListenerHolder[0] = (wObs, wOld, wNew) -> {
                         updateBubbleWidth(webView, bubble, wNew.doubleValue(), content);
                         Platform.runLater(() -> adjustWebViewHeight(webView));
-                    });
+                    };
+                    s.widthProperty().addListener(widthListenerHolder[0]);
                 }
             });
 
@@ -319,14 +326,21 @@ public class MessageBubble extends HBox {
             });
 
             // 宽度根据可用空间自适应。先确定宽度再加载内容，避免窄宽度下测出错误高度。
+            // 同时处理场景脱离：移除 width 监听器避免泄漏累积导致 GUI 卡顿。
+            final javafx.beans.value.ChangeListener<Number>[] widthListenerHolder2 = new javafx.beans.value.ChangeListener[1];
             sceneProperty().addListener((obs, o, s) -> {
+                if (o != null && widthListenerHolder2[0] != null) {
+                    o.widthProperty().removeListener(widthListenerHolder2[0]);
+                    widthListenerHolder2[0] = null;
+                }
                 if (s != null) {
                     updateBubbleWidth(webView, bubble, s.getWidth(), content);
                     Platform.runLater(() -> webView.getEngine().load(toDataUri(html)));
-                    s.widthProperty().addListener((wObs, wOld, wNew) -> {
+                    widthListenerHolder2[0] = (wObs, wOld, wNew) -> {
                         updateBubbleWidth(webView, bubble, wNew.doubleValue(), content);
                         Platform.runLater(() -> adjustWebViewHeight(webView));
-                    });
+                    };
+                    s.widthProperty().addListener(widthListenerHolder2[0]);
                 }
             });
         }
