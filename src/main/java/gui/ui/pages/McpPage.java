@@ -138,7 +138,7 @@ public class McpPage extends VBox {
         };
     }
 
-    private void refresh() {
+    public void refresh() {
         if (backendBridge == null) return;
         serverList.getChildren().clear();
 

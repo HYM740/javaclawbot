@@ -41,7 +41,10 @@ public final class ConfigReloader {
 
     public Config getCurrentConfig() {
         Config cfg = currentConfig;
-        return cfg != null ? cfg : new Config();
+        if (cfg != null) return cfg;
+        Config fallback = new Config();
+        fallback.getProviders().applyDefaults();
+        return fallback;
     }
 
     public long getVersion() {

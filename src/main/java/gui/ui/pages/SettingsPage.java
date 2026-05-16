@@ -7,13 +7,13 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.Line;
 import javafx.stage.Modality;
@@ -23,62 +23,81 @@ import javafx.stage.StageStyle;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+/**
+ * 设置页面 - Claude 风格设计
+ */
 public class SettingsPage extends VBox {
 
     private VBox settingsContainer;
+    private ScrollPane scrollPane;
     private gui.ui.BackendBridge backendBridge;
     private Consumer<String> onModelChanged;
 
     // ---- 自动更新相关 ----
     private final UpdateService updateService = new UpdateService();
     private VBox updateContentBox;
-    private enum UpdateState { IDLE, CHECKING, UP_TO_DATE, UPDATE_AVAILABLE, DOWNLOADING, READY, ERROR }
-    private UpdateState updateState = UpdateState.IDLE;
     private UpdateInfo pendingUpdate;
     private String updateErrorMessage;
 
+    // 更新弹窗引用
+    private Stage updateDialog;
+    private VBox updateDialogContent;
+    private ProgressBar updateDialogProgress;
+
+    // ---- Claude 风格颜色常量 ----
+    private static final String COLOR_CANVAS = "#faf9f5";
+    private static final String COLOR_SURFACE_CARD = "#efe9de";
+    private static final String COLOR_SURFACE_SOFT = "#f5f0e8";
+    private static final String COLOR_PRIMARY = "#cc785c";
+    private static final String COLOR_PRIMARY_ACTIVE = "#a9583e";
+    private static final String COLOR_INK = "#141413";
+    private static final String COLOR_MUTED = "#6c6a64";
+    private static final String COLOR_MUTED_SOFT = "#8e8b82";
+    private static final String COLOR_HAIRLINE = "#e6dfd8";
+    private static final String COLOR_HAIRLINE_SOFT = "#ebe6df";
+    private static final String COLOR_SUCCESS = "#5db872";
+    private static final String COLOR_ON_PRIMARY = "#ffffff";
+    private static final String COLOR_SURFACE_CREAM_STRONG = "#e8e0d2";
+    private static final String COLOR_SURFACE_DARK = "#181715";
+    private static final String COLOR_ON_DARK = "#faf9f5";
+
+    // 当前选中的提供者
+    private String selectedProvider = null;
+
     public SettingsPage() {
         setSpacing(0);
-        setStyle("-fx-background-color: #f1ede1;");
+        setStyle("-fx-background-color: " + COLOR_CANVAS + ";");
 
-        ScrollPane scrollPane = new ScrollPane();
-        scrollPane.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
+        scrollPane = new ScrollPane();
+        scrollPane.setStyle("-fx-background: " + COLOR_CANVAS + "; -fx-background-color: transparent; -fx-border-color: transparent;");
         scrollPane.setFitToWidth(true);
+        scrollPane.setFitToHeight(true);
 
-        VBox content = new VBox(48);
-        content.setPadding(new Insets(40, 24, 24, 24));
+        VBox content = new VBox(32);
+        content.setPadding(new Insets(48, 32, 32, 32));
         content.setAlignment(Pos.TOP_CENTER);
 
-        // 页面标题
+        // 页面标题 - 使用衬线风格
         Label title = new Label("设置");
-        title.getStyleClass().add("page-title");
+        title.setStyle("-fx-font-family: 'Georgia', 'Times New Roman', serif; -fx-font-size: 36px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + "; -fx-letter-spacing: -0.5px;");
 
         Label subtitle = new Label("管理你的应用配置和偏好");
-        subtitle.setStyle("-fx-font-size: 17px; -fx-text-fill: rgba(0, 0, 0, 0.5); -fx-font-weight: 500;");
+        subtitle.setStyle("-fx-font-size: 15px; -fx-text-fill: " + COLOR_MUTED + "; -fx-font-weight: 400;");
 
         VBox titleBox = new VBox(8);
         titleBox.setAlignment(Pos.CENTER);
         titleBox.getChildren().addAll(title, subtitle);
 
         // 设置容器
-        settingsContainer = new VBox(32);
-        settingsContainer.setMaxWidth(800);
-
-        // 模型设置
-        settingsContainer.getChildren().add(createModelSection());
-        settingsContainer.getChildren().add(createSeparator());
-
-        // Gateway 状态
-        settingsContainer.getChildren().add(createGatewaySection());
-        settingsContainer.getChildren().add(createSeparator());
-
-        // 通道设置
-        settingsContainer.getChildren().add(createChannelsSection());
+        settingsContainer = new VBox(16);
+        settingsContainer.setMaxWidth(680);
 
         content.getChildren().addAll(titleBox, settingsContainer);
 
@@ -89,17 +108,15 @@ public class SettingsPage extends VBox {
 
     private VBox createModelSection() {
         VBox section = new VBox(16);
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 12px; -fx-padding: 24px;");
 
-        Label sectionTitle = new Label("模型");
-        sectionTitle.getStyleClass().add("section-title");
+        Label sectionTitle = new Label("模型配置");
+        sectionTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-transform: uppercase; -fx-letter-spacing: 1.5px;");
 
         // 默认模型
-        HBox modelRow = createSettingRow("默认模型", "选择用于对话的 AI 模型", "claude-sonnet-4 \u25BE");
+        HBox modelRow = createSettingRow("默认模型", "选择用于对话的 AI 模型", "claude-sonnet-4 ▸");
 
-        // API Key
-        HBox apiKeyRow = createSettingRow("API 密钥", "用于认证模型服务", "sk-\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022");
-
-        section.getChildren().addAll(sectionTitle, modelRow, apiKeyRow);
+        section.getChildren().addAll(sectionTitle, modelRow);
         return section;
     }
 
@@ -109,13 +126,13 @@ public class SettingsPage extends VBox {
 
         VBox infoBox = new VBox(4);
         Label titleLabel = new Label(titleText);
-        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500;");
+        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
         Label descLabel = new Label(desc);
-        descLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
+        descLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED_SOFT + ";");
         infoBox.getChildren().addAll(titleLabel, descLabel);
 
         Label valueLabel = new Label(value);
-        valueLabel.setStyle("-fx-background-color: rgba(0, 0, 0, 0.03); -fx-background-radius: 12px; -fx-padding: 0 16px; -fx-pref-height: 40px; -fx-alignment: center; -fx-font-family: monospace; -fx-font-size: 13px;");
+        valueLabel.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 8px; -fx-padding: 0 16px; -fx-pref-height: 40px; -fx-alignment: center; -fx-font-family: 'JetBrains Mono', 'SF Mono', monospace; -fx-font-size: 13px; -fx-text-fill: " + COLOR_INK + "; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px;");
 
         row.getChildren().addAll(infoBox, valueLabel);
         HBox.setHgrow(infoBox, Priority.ALWAYS);
@@ -125,79 +142,86 @@ public class SettingsPage extends VBox {
 
     private VBox createGatewaySection() {
         VBox section = new VBox(16);
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 12px; -fx-padding: 24px;");
 
         Label sectionTitle = new Label("Gateway 状态");
-        sectionTitle.getStyleClass().add("section-title");
-
-        VBox statusCard = new VBox(12);
-        statusCard.setStyle("-fx-background-color: rgba(0, 0, 0, 0.02); -fx-background-radius: 12px; -fx-border-color: rgba(0, 0, 0, 0.05); -fx-border-radius: 12px; -fx-border-width: 1px;");
-        statusCard.setPadding(new Insets(16));
+        sectionTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-transform: uppercase; -fx-letter-spacing: 1.5px;");
 
         HBox statusRow = new HBox(12);
         statusRow.setAlignment(Pos.CENTER_LEFT);
 
-        Label dot = new Label("\u25CF");
-        dot.setStyle("-fx-text-fill: #22c55e; -fx-font-size: 8px;");
+        // 状态指示器 - 默认关闭
+        Label dot = new Label("●");
+        dot.setStyle("-fx-text-fill: " + COLOR_MUTED_SOFT + "; -fx-font-size: 10px;");
 
         VBox infoBox = new VBox(2);
-        Label statusLabel = new Label("Gateway 运行中");
-        statusLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500;");
-        Label detailLabel = new Label("端口: 18789 · 延迟: 12ms");
-        detailLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
+        Label statusLabel = new Label("Gateway 已关闭");
+        statusLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+        Label detailLabel = new Label("点击启动以开启服务");
+        detailLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED_SOFT + ";");
         infoBox.getChildren().addAll(statusLabel, detailLabel);
 
         HBox actionBox = new HBox(8);
         actionBox.setAlignment(Pos.CENTER_RIGHT);
         HBox.setHgrow(actionBox, Priority.ALWAYS);
 
-        Button restartBtn = new Button("重启");
-        restartBtn.getStyleClass().add("pill-button");
-        restartBtn.setPrefHeight(32);
+        // 启动按钮 - 点击弹窗提示功能未开放
+        Button startBtn = new Button("启动");
+        startBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;");
+        startBtn.setOnMouseEntered(e -> startBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY_ACTIVE + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;"));
+        startBtn.setOnMouseExited(e -> startBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;"));
+        startBtn.setOnAction(e -> showFeatureNotAvailableDialog());
 
+        // 停止按钮 - 禁用状态
         Button stopBtn = new Button("停止");
-        stopBtn.getStyleClass().add("pill-button");
-        stopBtn.setPrefHeight(32);
+        stopBtn.setStyle("-fx-background-color: " + COLOR_HAIRLINE_SOFT + "; -fx-text-fill: " + COLOR_MUTED + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: not-allowed;");
+        stopBtn.setDisable(true);
 
-        actionBox.getChildren().addAll(restartBtn, stopBtn);
+        actionBox.getChildren().addAll(startBtn, stopBtn);
         statusRow.getChildren().addAll(dot, infoBox, actionBox);
 
-        statusCard.getChildren().add(statusRow);
-        section.getChildren().addAll(sectionTitle, statusCard);
+        section.getChildren().addAll(sectionTitle, statusRow);
         return section;
     }
 
     private VBox createChannelsSection() {
         VBox section = new VBox(16);
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 12px; -fx-padding: 24px;");
 
         Label sectionTitle = new Label("通道");
-        sectionTitle.getStyleClass().add("section-title");
+        sectionTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-transform: uppercase; -fx-letter-spacing: 1.5px;");
 
-        VBox channelsBox = new VBox(12);
+        VBox channelsBox = new VBox(8);
 
         String[][] channels = {
-            {"\uD83D\uDCF1", "Telegram", "已配置"},
-            {"\uD83D\uDCAC", "飞书", "未配置"}
+            {"📱", "Telegram", "即时通讯机器人", "true"},
+            {"💬", "飞书", "企业协作平台", "false"},
+            {"📧", "Email", "电子邮件通知", "true"}
         };
 
         for (String[] ch : channels) {
-            HBox row = new HBox(12);
+            HBox row = new HBox(14);
             row.setAlignment(Pos.CENTER_LEFT);
-            row.setPadding(new Insets(12));
-            row.setStyle("-fx-background-color: rgba(0, 0, 0, 0.02); -fx-background-radius: 12px;");
+            row.setPadding(new Insets(14, 16, 14, 16));
+            row.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 8px;");
 
             Label icon = new Label(ch[0]);
-            icon.setStyle("-fx-font-size: 20px;");
+            icon.setStyle("-fx-font-size: 18px; -fx-background-color: " + COLOR_SURFACE_SOFT + "; -fx-background-radius: 8px; -fx-padding: 8px;");
 
             VBox infoBox = new VBox(2);
             Label nameLabel = new Label(ch[1]);
-            nameLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500;");
-            Label statusLabel = new Label(ch[2]);
-            statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
-            infoBox.getChildren().addAll(nameLabel, statusLabel);
-
-            row.getChildren().addAll(icon, infoBox);
+            nameLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+            Label descLabel = new Label(ch[2]);
+            descLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: " + COLOR_MUTED_SOFT + ";");
+            infoBox.getChildren().addAll(nameLabel, descLabel);
             HBox.setHgrow(infoBox, Priority.ALWAYS);
 
+            Label statusLabel = new Label("true".equals(ch[3]) ? "已配置" : "未配置");
+            String statusColor = "true".equals(ch[3]) ? COLOR_SUCCESS : COLOR_MUTED;
+            String statusBg = "true".equals(ch[3]) ? "rgba(93, 184, 114, 0.1)" : COLOR_SURFACE_SOFT;
+            statusLabel.setStyle("-fx-background-color: " + statusBg + "; -fx-background-radius: 9999px; -fx-padding: 4px 12px; -fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + statusColor + ";");
+
+            row.getChildren().addAll(icon, infoBox, statusLabel);
             channelsBox.getChildren().add(row);
         }
 
@@ -207,8 +231,9 @@ public class SettingsPage extends VBox {
 
     private Line createSeparator() {
         Line line = new Line();
-        line.setEndX(800);
-        line.setStyle("-fx-stroke: rgba(0, 0, 0, 0.05);");
+        line.setEndX(680);
+        line.setStyle("-fx-stroke: " + COLOR_HAIRLINE_SOFT + ";");
+        line.setVisible(false);
         return line;
     }
 
@@ -219,26 +244,16 @@ public class SettingsPage extends VBox {
 
     public void refresh() {
         if (backendBridge == null) return;
+        // 保存滚动位置
+        double savedVvalue = scrollPane.getVvalue();
         settingsContainer.getChildren().clear();
         settingsContainer.getChildren().add(buildModelSection());
-        settingsContainer.getChildren().add(createSeparator());
-        settingsContainer.getChildren().add(createGatewaySection());
-        settingsContainer.getChildren().add(createSeparator());
+        settingsContainer.getChildren().add(buildGatewaySection());
         settingsContainer.getChildren().add(buildChannelsSection());
-        settingsContainer.getChildren().add(createSeparator());
         settingsContainer.getChildren().add(buildUpdateSection());
-    }
-
-    /** ComboBox 条目类型：模型名 或 提供商分隔标题 */
-    private static class ModelItem {
-        final String text;
-        final String modelName;     // null 代表是标题
-        final String providerName;  // 提供商名（标题用）或该模型所属的 provider
-        ModelItem(String text, String model, String provider) {
-            this.text = text; this.modelName = model; this.providerName = provider;
-        }
-        boolean isHeader() { return modelName == null; }
-        @Override public String toString() { return text; }
+        // 恢复滚动位置（延迟到布局完成后，避免 vvalue 被 clamp）
+        final double restoreVvalue = savedVvalue;
+        Platform.runLater(() -> scrollPane.setVvalue(restoreVvalue));
     }
 
     private VBox buildModelSection() {
@@ -246,15 +261,30 @@ public class SettingsPage extends VBox {
         String currentModel = cfg.getAgents().getDefaults().getModel();
         String currentProvider = cfg.getProviderName(currentModel);
 
+        // 初始化选中的提供者
+        if (selectedProvider == null && currentProvider != null) {
+            selectedProvider = currentProvider;
+        }
+
         VBox section = new VBox(16);
-        Label sectionTitle = new Label("模型");
-        sectionTitle.getStyleClass().add("section-title");
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 12px; -fx-padding: 24px;");
+
+        Label sectionTitle = new Label("模型配置");
+        sectionTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-transform: uppercase; -fx-letter-spacing: 1.5px;");
+
+        // 默认模型标题
+        VBox modelHeader = new VBox(4);
+        Label modelTitle = new Label("默认模型");
+        modelTitle.setStyle("-fx-font-size: 15px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+        Label modelDesc = new Label("选择用于对话的 AI 模型");
+        modelDesc.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED_SOFT + ";");
+        modelHeader.getChildren().addAll(modelTitle, modelDesc);
 
         // 按提供商分组收集模型
         config.provider.ProvidersConfig provCfg = cfg.getProviders();
         java.util.Set<String> allNames = provCfg.names();
 
-        // 动态排序：内置供应商按 ProviderRegistry 顺序优先，自定义追加末尾
+        // 动态排序
         java.util.List<String> dynOrder = new java.util.ArrayList<>();
         for (providers.ProviderRegistry.ProviderSpec spec : providers.ProviderRegistry.PROVIDERS) {
             if (allNames.contains(spec.getName())) {
@@ -267,357 +297,284 @@ public class SettingsPage extends VBox {
             }
         }
 
-        java.util.List<ModelItem> items = new java.util.ArrayList<>();
-
-        // 当前模型排最前，带提供商前缀
-        String currentLabel = (currentProvider != null && !currentProvider.isBlank())
-            ? "  " + currentProvider + "/" + currentModel + "  (当前)"
-            : "  " + currentModel + "  (当前)";
-        items.add(new ModelItem(currentLabel, currentModel, currentProvider != null ? currentProvider : ""));
+        // 提供者标签
+        TilePane providerTabs = new TilePane();
+        providerTabs.setHgap(6);
+        providerTabs.setVgap(6);
+        providerTabs.setPrefColumns(4);
 
         for (String pn : dynOrder) {
-            String pl = pn.substring(0, 1).toUpperCase() + pn.substring(1);
             config.provider.ProviderConfig pc = provCfg.getByName(pn);
             if (pc == null || pc.getModelConfigs() == null || pc.getModelConfigs().isEmpty()) continue;
 
-            // 检查此 provider 是否有 API key（标记状态）
-            boolean hasKey = pc.getApiKey() != null && !pc.getApiKey().isBlank();
-            String headerText = "▸ " + pl + (hasKey ? "" : " (未配置 Key)");
-            if (pn.equals(currentProvider)) headerText = "▸ " + pl + " ★";
+            String pl = pn.substring(0, 1).toUpperCase() + pn.substring(1);
+            boolean isSelected = pn.equals(selectedProvider);
 
-            // 添加提供商标题
-            items.add(new ModelItem(headerText, null, pn));
+            Button tab = new Button(isSelected ? pl + " ✓" : pl);
+            // 统一基础样式（所有 tab 都有边框）
+            String baseStyle = "-fx-background-radius: 8px; -fx-border-radius: 8px; -fx-border-width: 1.5px;"
+                + " -fx-padding: 6px 14px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;";
+            String defaultStyle = baseStyle
+                + " -fx-background-color: " + COLOR_CANVAS + "; -fx-text-fill: " + COLOR_MUTED
+                + "; -fx-border-color: " + COLOR_HAIRLINE + ";";
+            String selectedStyle = baseStyle
+                + " -fx-background-color: " + COLOR_SURFACE_CREAM_STRONG + "; -fx-text-fill: " + COLOR_INK
+                + "; -fx-border-color: " + COLOR_PRIMARY + ";";
+            String hoverStyle = baseStyle
+                + " -fx-background-color: " + COLOR_CANVAS + "; -fx-text-fill: " + COLOR_INK
+                + "; -fx-border-color: " + COLOR_MUTED_SOFT + ";";
 
-            for (config.provider.model.ModelConfig mc : pc.getModelConfigs()) {
-                if (mc.getModel() != null && !mc.getModel().isBlank()
-                    && !mc.getModel().equals(currentModel)) {
-                    items.add(new ModelItem("     " + pn + "/" + mc.getModel(), mc.getModel(), pn));
+            tab.setStyle(isSelected ? selectedStyle : defaultStyle);
+
+            // hover 效果：未选中时边框加深
+            if (!isSelected) {
+                tab.setOnMouseEntered(e -> tab.setStyle(hoverStyle));
+                tab.setOnMouseExited(e -> tab.setStyle(defaultStyle));
+            }
+
+            tab.setOnAction(e -> {
+                selectedProvider = pn;
+                refresh();
+            });
+
+            providerTabs.getChildren().add(tab);
+        }
+
+        // 当前选中提供商的模型区域（圆角框 + 提供商名）
+        VBox modelArea = new VBox(6);
+        if (selectedProvider != null) {
+            config.provider.ProviderConfig selectedPc = provCfg.getByName(selectedProvider);
+            if (selectedPc != null && selectedPc.getModelConfigs() != null) {
+                // 提供商小标题
+                String displayName = selectedProvider.substring(0, 1).toUpperCase() + selectedProvider.substring(1);
+                Label providerLabel = new Label("● " + displayName);
+                providerLabel.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-padding: 0 0 4px 0;");
+
+                // 模型卡片网格（带圆角底框）
+                TilePane modelGrid = new TilePane();
+                modelGrid.setHgap(8);
+                modelGrid.setVgap(8);
+                modelGrid.setPrefColumns(2);
+                modelGrid.setStyle("-fx-background-color: " + COLOR_SURFACE_SOFT + "; -fx-background-radius: 8px; -fx-padding: 10px;");
+
+                for (config.provider.model.ModelConfig mc : selectedPc.getModelConfigs()) {
+                    if (mc.getModel() == null || mc.getModel().isBlank()) continue;
+                    boolean isSelected = mc.getModel().equals(currentModel);
+                    VBox card = createModelCard(selectedProvider + "/" + mc.getModel(), mc.getModel(), isSelected);
+                    modelGrid.getChildren().add(card);
                 }
+
+                modelArea.getChildren().addAll(providerLabel, modelGrid);
             }
         }
 
-        // 模型选择行
-        HBox modelRow = new HBox(16);
-        modelRow.setAlignment(Pos.CENTER_LEFT);
+        // 快速模型联动区域
+        VBox fastModelSection = createFastModelSection(cfg, provCfg, currentModel, currentProvider);
 
-        VBox infoBox = new VBox(4);
-        Label titleLabel = new Label("默认模型");
-        titleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500;");
-        Label descLabel = new Label("选择用于对话的 AI 模型");
-        descLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
-        infoBox.getChildren().addAll(titleLabel, descLabel);
-
-        // 保留完整列表供搜索
-        java.util.List<ModelItem> allItems = new java.util.ArrayList<>(items);
-
-        ComboBox<ModelItem> modelCombo = new ComboBox<>();
-        modelCombo.getItems().addAll(items);
-        if (!items.isEmpty()) modelCombo.setValue(items.get(0));
-        modelCombo.setEditable(true);
-        modelCombo.setStyle("-fx-background-color: rgba(0, 0, 0, 0.03); -fx-background-radius: 12px;"
-            + " -fx-border-color: transparent; -fx-font-size: 13px;");
-        modelCombo.setPrefHeight(40);
-        modelCombo.setMaxWidth(350);
-
-        // 自定义单元格渲染：标题项不可选、灰色
-        modelCombo.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
-            @Override protected void updateItem(ModelItem item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) { setText(null); setDisable(false); return; }
-                setText(item.text);
-                if (item.isHeader()) {
-                    setDisable(true);
-                    setStyle("-fx-text-fill: rgba(0,0,0,0.4); -fx-font-weight: 700;"
-                        + " -fx-font-size: 11px; -fx-font-family: sans-serif;");
-                } else {
-                    setDisable(false);
-                    setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
-                }
-            }
-        });
-
-        modelCombo.setButtonCell(new javafx.scene.control.ListCell<>() {
-            @Override protected void updateItem(ModelItem item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) { setText(null); return; }
-                setText(item.modelName != null ? item.modelName : item.text);
-                setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
-            }
-        });
-
-        // ---- 搜索过滤：使用独立 Popup，不修改 ComboBox items 避免 IndexOutOfBounds ----
-        javafx.stage.Popup searchPopup = new javafx.stage.Popup();
-        searchPopup.setAutoHide(true);
-        VBox searchList = new VBox(2);
-        searchList.setStyle("-fx-background-color: rgba(255,255,255,0.97); -fx-background-radius: 10px;"
-            + " -fx-border-color: rgba(0,0,0,0.08); -fx-border-radius: 10px; -fx-border-width: 1px;");
-        searchList.setPadding(new Insets(4));
-        searchPopup.getContent().add(searchList);
-
-        modelCombo.getEditor().textProperty().addListener((obs, old, text) -> {
-            searchPopup.hide();
-            if (text == null || text.isBlank()) return;
-            String lower = text.toLowerCase().trim();
-            if (lower.isEmpty()) return;
-
-            // Filter models
-            java.util.List<ModelItem> filtered = new java.util.ArrayList<>();
-            for (ModelItem mi : allItems) {
-                if (mi.isHeader()) {
-                    filtered.add(mi);
-                } else if (mi.modelName != null && mi.modelName.toLowerCase().contains(lower)) {
-                    filtered.add(mi);
-                }
-            }
-            // Clean orphan headers
-            java.util.List<ModelItem> clean = new java.util.ArrayList<>();
-            for (int i = 0; i < filtered.size(); i++) {
-                ModelItem mi = filtered.get(i);
-                if (mi.isHeader()) {
-                    if (i + 1 < filtered.size() && !filtered.get(i + 1).isHeader()) {
-                        clean.add(mi);
-                    }
-                } else {
-                    clean.add(mi);
-                }
-            }
-            if (clean.isEmpty()) return;
-
-            // Hide native dropdown so it doesn't overlap the search popup
-            modelCombo.hide();
-
-            // Build popup rows
-            searchList.getChildren().clear();
-            for (ModelItem mi : clean) {
-                javafx.scene.control.Label row = new javafx.scene.control.Label(mi.text);
-                row.setPadding(new Insets(4, 10, 4, 10));
-                row.setPrefHeight(24);
-                if (mi.isHeader()) {
-                    row.setStyle("-fx-text-fill: rgba(0,0,0,0.4); -fx-font-weight: 700;"
-                        + " -fx-font-size: 11px; -fx-font-family: sans-serif;");
-                    row.setDisable(true);
-                } else {
-                    row.setStyle("-fx-font-family: monospace; -fx-font-size: 13px;"
-                        + " -fx-cursor: hand;");
-                    row.setOnMouseClicked(ev -> {
-                        searchPopup.hide();
-                        modelCombo.setValue(mi);
-                        modelCombo.getEditor().setText(mi.modelName);
-                    });
-                }
-                searchList.getChildren().add(row);
-            }
-            // Show popup below ComboBox
-            if (!searchList.getChildren().isEmpty()) {
-                var bounds = modelCombo.localToScreen(modelCombo.getBoundsInLocal());
-                searchPopup.show(modelCombo.getScene().getWindow(),
-                    bounds.getMinX(), bounds.getMaxY() + 2);
-            }
-        });
-
-        // Hide search popup when ComboBox dropdown is opened (user clicked arrow)
-        modelCombo.setOnShowing(e -> searchPopup.hide());
-
-        modelCombo.setOnAction(e -> {
-            // editable ComboBox getValue() may return String when user types
-            Object value = modelCombo.getValue();
-            if (!(value instanceof ModelItem)) return;
-            ModelItem selected = (ModelItem) value;
-            if (selected.isHeader()) return;
-            if (selected.modelName.equals(currentModel)) return;
-            String pn = selected.providerName;
-            // 同时更新 model 和 provider
-            cfg.getAgents().getDefaults().setModel(selected.modelName);
-            if (pn != null && !pn.isBlank()) {
-                cfg.getAgents().getDefaults().setProvider(pn);
-            }
-            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
-            if (onModelChanged != null) onModelChanged.accept(selected.modelName);
-            refresh();
-        });
-
-        modelRow.getChildren().addAll(infoBox, modelCombo);
-        HBox.setHgrow(infoBox, Priority.ALWAYS);
-        infoBox.setMinWidth(220);
-
-        // ---- 快速模型选择 ----
-        String currentFast = cfg.getAgents().getDefaults().getFastModel();
-        HBox fastRow = new HBox(16);
-        fastRow.setAlignment(Pos.CENTER_LEFT);
-
-        VBox fastInfoBox = new VBox(4);
-        Label fastTitleLabel = new Label("快速模型");
-        fastTitleLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500;");
-        Label fastDescLabel = new Label("标题生成等轻量级任务，留空则回退到默认模型");
-        fastDescLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
-        fastInfoBox.getChildren().addAll(fastTitleLabel, fastDescLabel);
-
-        // 构建 fast model ComboBox（含 "无 (回退默认)" 选项）
-        // "无" 使用空字符串 modelName，与 null 等效（getFastModel isBlank 检查）
-        java.util.List<ModelItem> fastItems = new java.util.ArrayList<>();
-        fastItems.add(new ModelItem("  无 (使用默认模型)", "", ""));
-        fastItems.addAll(items.stream().filter(mi -> !mi.isHeader() && mi.modelName != null
-            && !mi.modelName.isBlank()).toList());
-
-        // 保留完整列表供搜索
-        java.util.List<ModelItem> allFastItems = new java.util.ArrayList<>(fastItems);
-
-        ComboBox<ModelItem> fastCombo = new ComboBox<>();
-        fastCombo.getItems().addAll(fastItems);
-        // 选中当前 fast model
-        String fastMatch = (currentFast != null && !currentFast.isBlank()) ? currentFast : "";
-        for (ModelItem mi : fastItems) {
-            if (mi.modelName != null && mi.modelName.equals(fastMatch)) {
-                fastCombo.setValue(mi);
-                break;
-            }
-        }
-        if (fastCombo.getValue() == null && !fastItems.isEmpty()) {
-            fastCombo.setValue(fastItems.get(0));
-        }
-        fastCombo.setEditable(true);
-        fastCombo.setStyle("-fx-background-color: rgba(0, 0, 0, 0.03); -fx-background-radius: 12px;"
-            + " -fx-border-color: transparent; -fx-font-size: 13px;");
-        fastCombo.setPrefHeight(40);
-        fastCombo.setMaxWidth(350);
-
-        // 自定义单元格渲染："无" 项特殊样式，提供商标题不可选
-        fastCombo.setCellFactory(lv -> new javafx.scene.control.ListCell<>() {
-            @Override protected void updateItem(ModelItem item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) { setText(null); setDisable(false); return; }
-                setText(item.text);
-                if (item.isHeader()) {
-                    setDisable(true);
-                    setStyle("-fx-text-fill: rgba(0,0,0,0.4); -fx-font-weight: 700;"
-                        + " -fx-font-size: 11px; -fx-font-family: sans-serif;");
-                } else {
-                    setDisable(false);
-                    setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
-                }
-            }
-        });
-
-        fastCombo.setButtonCell(new javafx.scene.control.ListCell<>() {
-            @Override protected void updateItem(ModelItem item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) { setText(null); return; }
-                setText(item.modelName != null && !item.modelName.isEmpty() ? item.modelName : "无");
-                setStyle("-fx-font-family: monospace; -fx-font-size: 13px;");
-            }
-        });
-
-        // ---- 快速模型搜索过滤 Popup ----
-        javafx.stage.Popup fastSearchPopup = new javafx.stage.Popup();
-        fastSearchPopup.setAutoHide(true);
-        VBox fastSearchList = new VBox(2);
-        fastSearchList.setStyle("-fx-background-color: rgba(255,255,255,0.97); -fx-background-radius: 10px;"
-            + " -fx-border-color: rgba(0,0,0,0.08); -fx-border-radius: 10px; -fx-border-width: 1px;");
-        fastSearchList.setPadding(new Insets(4));
-        fastSearchPopup.getContent().add(fastSearchList);
-
-        fastCombo.getEditor().textProperty().addListener((obs, old, text) -> {
-            fastSearchPopup.hide();
-            if (text == null || text.isBlank()) return;
-            String lower = text.toLowerCase().trim();
-            if (lower.isEmpty()) return;
-
-            java.util.List<ModelItem> filtered = new java.util.ArrayList<>();
-            for (ModelItem mi : allFastItems) {
-                if (mi.isHeader()) {
-                    filtered.add(mi);
-                } else if (mi.modelName != null && mi.modelName.toLowerCase().contains(lower)) {
-                    filtered.add(mi);
-                } else if (mi.modelName != null && mi.modelName.isEmpty() && "无".contains(lower)) {
-                    // 搜索"无"时显示"使用默认模型"选项
-                    filtered.add(mi);
-                }
-            }
-            // Clean orphan headers
-            java.util.List<ModelItem> clean = new java.util.ArrayList<>();
-            for (int i = 0; i < filtered.size(); i++) {
-                ModelItem mi = filtered.get(i);
-                if (mi.isHeader()) {
-                    if (i + 1 < filtered.size() && !filtered.get(i + 1).isHeader()) {
-                        clean.add(mi);
-                    }
-                } else {
-                    clean.add(mi);
-                }
-            }
-            if (clean.isEmpty()) return;
-
-            fastCombo.hide();
-
-            fastSearchList.getChildren().clear();
-            for (ModelItem mi : clean) {
-                javafx.scene.control.Label row = new javafx.scene.control.Label(mi.text);
-                row.setPadding(new Insets(4, 10, 4, 10));
-                row.setPrefHeight(24);
-                if (mi.isHeader()) {
-                    row.setStyle("-fx-text-fill: rgba(0,0,0,0.4); -fx-font-weight: 700;"
-                        + " -fx-font-size: 11px; -fx-font-family: sans-serif;");
-                    row.setDisable(true);
-                } else {
-                    row.setStyle("-fx-font-family: monospace; -fx-font-size: 13px;"
-                        + " -fx-cursor: hand;");
-                    row.setOnMouseClicked(ev -> {
-                        fastSearchPopup.hide();
-                        fastCombo.setValue(mi);
-                        fastCombo.getEditor().setText(
-                            mi.modelName != null && !mi.modelName.isEmpty() ? mi.modelName : "无");
-                    });
-                }
-                fastSearchList.getChildren().add(row);
-            }
-            if (!fastSearchList.getChildren().isEmpty()) {
-                var bounds = fastCombo.localToScreen(fastCombo.getBoundsInLocal());
-                fastSearchPopup.show(fastCombo.getScene().getWindow(),
-                    bounds.getMinX(), bounds.getMaxY() + 2);
-            }
-        });
-
-        fastCombo.setOnShowing(e -> fastSearchPopup.hide());
-
-        fastCombo.setOnAction(e -> {
-            Object value = fastCombo.getValue();
-            if (!(value instanceof ModelItem)) return;
-            ModelItem sel = (ModelItem) value;
-            if (sel.isHeader()) return;
-            cfg.getAgents().getDefaults().setFastModel(
-                sel.modelName != null && !sel.modelName.isEmpty() ? sel.modelName : null);
-            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
-            refresh();
-        });
-
-        fastRow.getChildren().addAll(fastInfoBox, fastCombo);
-        HBox.setHgrow(fastInfoBox, Priority.ALWAYS);
-
-        // API Key 显示
-        String apiKey = "";
-        if (currentProvider != null) {
-            config.provider.ProviderConfig pc = cfg.getProviders().getByName(currentProvider);
-            if (pc != null && pc.getApiKey() != null && !pc.getApiKey().isBlank()) {
-                apiKey = pc.getApiKey();
-            }
-        }
-        String maskedKey = apiKey.length() > 4
-            ? apiKey.substring(0, 4) + "\u2022\u2022\u2022\u2022" + apiKey.substring(apiKey.length() - 4)
-            : (apiKey.isBlank() ? "未配置" : "\u2022\u2022\u2022");
-        HBox apiKeyRow = createSettingRow("API 密钥", "用于认证模型服务", maskedKey);
-
-        section.getChildren().addAll(sectionTitle, modelRow, fastRow, apiKeyRow);
-
-        // 打开配置文件 — 内置 JSON 编辑器
-        Button openConfigBtn = new Button("\uD83D\uDCC4 编辑配置文件");
-        openConfigBtn.getStyleClass().add("pill-button");
-        openConfigBtn.setPrefHeight(36);
+        // 编辑配置文件按钮
+        Button openConfigBtn = new Button("📄 编辑配置文件");
+        openConfigBtn.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-text-fill: " + COLOR_INK + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px;");
         openConfigBtn.setOnAction(e -> showEditorChoiceDialog());
         HBox btnBox = new HBox(openConfigBtn);
         btnBox.setAlignment(Pos.CENTER);
-        section.getChildren().add(btnBox);
 
+        section.getChildren().addAll(sectionTitle, modelHeader, providerTabs, modelArea, fastModelSection, btnBox);
         return section;
+    }
+
+    private VBox createModelCard(String fullModelName, String modelName, boolean isSelected) {
+        VBox card = new VBox(4);
+        card.setPadding(new Insets(14, 16, 14, 16));
+
+        String borderColor = isSelected ? COLOR_PRIMARY : "transparent";
+        String style = "-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 8px; -fx-border-color: " + borderColor + "; -fx-border-radius: 8px; -fx-border-width: 1.5px; -fx-cursor: hand;";
+        card.setStyle(style);
+
+        Label nameLabel = new Label(modelName);
+        nameLabel.setStyle("-fx-font-family: 'JetBrains Mono', 'SF Mono', monospace; -fx-font-size: 13px; -fx-font-weight: 400; -fx-text-fill: " + COLOR_INK + ";");
+
+        Label descLabel = new Label(isSelected ? "✓ 当前选择" : "点击选择");
+        descLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: " + (isSelected ? COLOR_PRIMARY : COLOR_MUTED_SOFT) + ";");
+
+        card.getChildren().addAll(nameLabel, descLabel);
+
+        card.setOnMouseClicked(e -> {
+            config.Config cfg = backendBridge.getConfig();
+            cfg.getAgents().getDefaults().setModel(modelName);
+            if (selectedProvider != null && !selectedProvider.isBlank()) {
+                cfg.getAgents().getDefaults().setProvider(selectedProvider);
+            }
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            if (onModelChanged != null) onModelChanged.accept(modelName);
+            refresh();
+        });
+
+        card.setOnMouseEntered(e -> {
+            if (!isSelected) {
+                card.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 8px; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px; -fx-border-width: 1.5px; -fx-cursor: hand;");
+            }
+        });
+
+        card.setOnMouseExited(e -> {
+            if (!isSelected) {
+                card.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 8px; -fx-border-color: transparent; -fx-border-radius: 8px; -fx-border-width: 1.5px; -fx-cursor: hand;");
+            }
+        });
+
+        return card;
+    }
+
+    private VBox createFastModelSection(config.Config cfg, config.provider.ProvidersConfig provCfg, String currentModel, String currentProvider) {
+        VBox section = new VBox(12);
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_SOFT + "; -fx-background-radius: 8px; -fx-padding: 16px;");
+
+        // 标题行
+        HBox header = new HBox(10);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label icon = new Label("⚡");
+        icon.setStyle("-fx-font-size: 14px; -fx-background-color: " + COLOR_SURFACE_DARK + "; -fx-text-fill: " + COLOR_ON_DARK + "; -fx-background-radius: 6px; -fx-padding: 6px;");
+
+        Label title = new Label("快速模型");
+        title.setStyle("-fx-font-size: 14px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+
+        Label badge = new Label("已联动");
+        badge.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 9999px; -fx-padding: 2px 10px; -fx-font-size: 11px; -fx-font-weight: 500; -fx-letter-spacing: 0.5px;");
+
+        header.getChildren().addAll(icon, title, badge);
+
+        // 描述
+        String providerDisplay = selectedProvider != null ? selectedProvider.substring(0, 1).toUpperCase() + selectedProvider.substring(1) : "默认";
+        Label desc = new Label("轻量级任务使用，已自动匹配 " + providerDisplay + " 提供者");
+        desc.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED + ";");
+
+        // 快速模型卡片
+        TilePane fastGrid = new TilePane();
+        fastGrid.setHgap(8);
+        fastGrid.setVgap(8);
+        fastGrid.setPrefColumns(2);
+
+        String currentFast = cfg.getAgents().getDefaults().getFastModel();
+
+        // "无 (使用默认)" 选项
+        VBox noFastCard = createFastModelCard("", "无 (使用默认)", currentFast == null || currentFast.isBlank(), cfg);
+        fastGrid.getChildren().add(noFastCard);
+
+        // 当前提供者的模型
+        if (selectedProvider != null) {
+            config.provider.ProviderConfig selectedPc = provCfg.getByName(selectedProvider);
+            if (selectedPc != null && selectedPc.getModelConfigs() != null) {
+                for (config.provider.model.ModelConfig mc : selectedPc.getModelConfigs()) {
+                    if (mc.getModel() == null || mc.getModel().isBlank()) continue;
+                    boolean isSelected = mc.getModel().equals(currentFast);
+                    VBox card = createFastModelCard(mc.getModel(), mc.getModel(), isSelected, cfg);
+                    fastGrid.getChildren().add(card);
+                }
+            }
+        }
+
+        section.getChildren().addAll(header, desc, fastGrid);
+        return section;
+    }
+
+    private VBox createFastModelCard(String modelName, String displayName, boolean isSelected, config.Config cfg) {
+        VBox card = new VBox(4);
+        card.setPadding(new Insets(14, 16, 14, 16));
+
+        String borderColor = isSelected ? COLOR_PRIMARY : "transparent";
+        String style = "-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 8px; -fx-border-color: " + borderColor + "; -fx-border-radius: 8px; -fx-border-width: 1.5px; -fx-cursor: hand;";
+        card.setStyle(style);
+
+        Label nameLabel = new Label(displayName);
+        nameLabel.setStyle("-fx-font-family: 'JetBrains Mono', 'SF Mono', monospace; -fx-font-size: 13px; -fx-font-weight: 400; -fx-text-fill: " + COLOR_INK + ";");
+
+        Label descLabel = new Label(isSelected ? "✓ 当前选择" : (modelName.isEmpty() ? "回退到默认模型" : "点击选择"));
+        descLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: " + (isSelected ? COLOR_PRIMARY : COLOR_MUTED_SOFT) + ";");
+
+        card.getChildren().addAll(nameLabel, descLabel);
+
+        card.setOnMouseClicked(e -> {
+            cfg.getAgents().getDefaults().setFastModel(modelName.isEmpty() ? null : modelName);
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            refresh();
+        });
+
+        return card;
+    }
+
+    private VBox buildGatewaySection() {
+        VBox section = new VBox(16);
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 12px; -fx-padding: 24px;");
+
+        Label sectionTitle = new Label("Gateway 状态");
+        sectionTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-transform: uppercase; -fx-letter-spacing: 1.5px;");
+
+        HBox statusRow = new HBox(12);
+        statusRow.setAlignment(Pos.CENTER_LEFT);
+
+        // 状态指示器 - 默认关闭
+        Label dot = new Label("●");
+        dot.setStyle("-fx-text-fill: " + COLOR_MUTED_SOFT + "; -fx-font-size: 10px;");
+
+        VBox infoBox = new VBox(2);
+        Label statusLabel = new Label("Gateway 已关闭");
+        statusLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+        Label detailLabel = new Label("点击启动以开启服务");
+        detailLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED_SOFT + ";");
+        infoBox.getChildren().addAll(statusLabel, detailLabel);
+
+        HBox actionBox = new HBox(8);
+        actionBox.setAlignment(Pos.CENTER_RIGHT);
+        HBox.setHgrow(actionBox, Priority.ALWAYS);
+
+        // 启动按钮
+        Button startBtn = new Button("启动");
+        startBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;");
+        startBtn.setOnMouseEntered(e -> startBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY_ACTIVE + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;"));
+        startBtn.setOnMouseExited(e -> startBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;"));
+        startBtn.setOnAction(e -> showFeatureNotAvailableDialog());
+
+        // 停止按钮 - 禁用状态
+        Button stopBtn = new Button("停止");
+        stopBtn.setStyle("-fx-background-color: " + COLOR_HAIRLINE_SOFT + "; -fx-text-fill: " + COLOR_MUTED + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: not-allowed;");
+        stopBtn.setDisable(true);
+
+        actionBox.getChildren().addAll(startBtn, stopBtn);
+        statusRow.getChildren().addAll(dot, infoBox, actionBox);
+
+        section.getChildren().addAll(sectionTitle, statusRow);
+        return section;
+    }
+
+    private void showFeatureNotAvailableDialog() {
+        Stage dialog = new Stage();
+        dialog.initModality(Modality.APPLICATION_MODAL);
+        dialog.initStyle(StageStyle.TRANSPARENT);
+
+        VBox root = new VBox(20);
+        root.setAlignment(Pos.CENTER);
+        root.setPadding(new Insets(32));
+        root.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 16px; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 16px;");
+
+        Label icon = new Label("🚧");
+        icon.setStyle("-fx-font-size: 28px; -fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 50%; -fx-padding: 14px;");
+
+        Label title = new Label("功能未开放");
+        title.setStyle("-fx-font-family: 'Georgia', 'Times New Roman', serif; -fx-font-size: 22px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + "; -fx-letter-spacing: -0.3px;");
+
+        Label desc = new Label("Gateway 功能正在开发中，\n敬请期待后续版本更新");
+        desc.setStyle("-fx-font-size: 14px; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-alignment: center; -fx-wrap-text: true;");
+
+        Button okBtn = new Button("知道了");
+        okBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 10px 32px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand;");
+        okBtn.setOnAction(e -> dialog.close());
+
+        root.getChildren().addAll(icon, title, desc, okBtn);
+
+        Scene scene = new Scene(root);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        dialog.setScene(scene);
+        dialog.showAndWait();
     }
 
     public void setOnModelChanged(Consumer<String> callback) {
@@ -627,41 +584,51 @@ public class SettingsPage extends VBox {
     private VBox buildChannelsSection() {
         config.channel.ChannelsConfig ch = backendBridge.getConfig().getChannels();
         VBox section = new VBox(16);
-        Label sectionTitle = new Label("通道");
-        sectionTitle.getStyleClass().add("section-title");
-        VBox channelsBox = new VBox(12);
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 12px; -fx-padding: 24px;");
 
-        addChannelRow(channelsBox, "\uD83D\uDCF1", "Telegram",
+        Label sectionTitle = new Label("通道");
+        sectionTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-transform: uppercase; -fx-letter-spacing: 1.5px;");
+
+        VBox channelsBox = new VBox(8);
+
+        addChannelRow(channelsBox, "📱", "Telegram", "即时通讯机器人",
             ch.getTelegram().getToken() != null && !ch.getTelegram().getToken().isBlank());
-        addChannelRow(channelsBox, "\uD83D\uDCAC", "飞书",
+        addChannelRow(channelsBox, "💬", "飞书", "企业协作平台",
             ch.getFeishu().getAppId() != null && !ch.getFeishu().getAppId().isBlank());
-        addChannelRow(channelsBox, "\uD83D\uDCE7", "Email",
+        addChannelRow(channelsBox, "📧", "Email", "电子邮件通知",
             ch.getEmail().getSmtpHost() != null && !ch.getEmail().getSmtpHost().isBlank());
 
         section.getChildren().addAll(sectionTitle, channelsBox);
         return section;
     }
 
-    private void addChannelRow(VBox box, String icon, String name, boolean configured) {
-        HBox row = new HBox(12);
+    private void addChannelRow(VBox box, String icon, String name, String desc, boolean configured) {
+        HBox row = new HBox(14);
         row.setAlignment(Pos.CENTER_LEFT);
-        row.setPadding(new Insets(12));
-        row.setStyle("-fx-background-color: rgba(0, 0, 0, 0.02); -fx-background-radius: 12px;");
+        row.setPadding(new Insets(14, 16, 14, 16));
+        row.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 8px;");
 
         Label iconLabel = new Label(icon);
-        iconLabel.setStyle("-fx-font-size: 20px;");
+        iconLabel.setStyle("-fx-font-size: 18px; -fx-background-color: " + COLOR_SURFACE_SOFT + "; -fx-background-radius: 8px; -fx-padding: 8px;");
+
         VBox infoBox = new VBox(2);
         Label nameLabel = new Label(name);
-        nameLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500;");
-        Label statusLabel = new Label(configured ? "已配置" : "未配置");
-        statusLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0, 0, 0, 0.5);");
-        infoBox.getChildren().addAll(nameLabel, statusLabel);
-        row.getChildren().addAll(iconLabel, infoBox);
+        nameLabel.setStyle("-fx-font-size: 14px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+        Label descLabel = new Label(desc);
+        descLabel.setStyle("-fx-font-size: 12px; -fx-text-fill: " + COLOR_MUTED_SOFT + ";");
+        infoBox.getChildren().addAll(nameLabel, descLabel);
         HBox.setHgrow(infoBox, Priority.ALWAYS);
+
+        Label statusLabel = new Label(configured ? "已配置" : "未配置");
+        String statusColor = configured ? COLOR_SUCCESS : COLOR_MUTED;
+        String statusBg = configured ? "rgba(93, 184, 114, 0.1)" : COLOR_SURFACE_SOFT;
+        statusLabel.setStyle("-fx-background-color: " + statusBg + "; -fx-background-radius: 9999px; -fx-padding: 4px 12px; -fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + statusColor + ";");
+
+        row.getChildren().addAll(iconLabel, infoBox, statusLabel);
         box.getChildren().add(row);
     }
 
-    /** 编辑器选择对话框：系统默认编辑器 or 内置编辑器 */
+    /** 编辑器选择对话框 */
     private void showEditorChoiceDialog() {
         Path configPath = config.ConfigIO.getConfigPath();
         if (!Files.exists(configPath)) return;
@@ -673,40 +640,32 @@ public class SettingsPage extends VBox {
         VBox root = new VBox(20);
         root.setPadding(new Insets(28));
         root.setAlignment(Pos.CENTER);
-        root.setStyle("-fx-background-color: #ffffff;"
-            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 12px; -fx-border-width: 1px;");
+        root.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 16px; -fx-border-width: 1px;");
 
-        Label title = new Label("\uD83D\uDCC4 选择编辑器");
-        title.setStyle("-fx-font-family: Georgia; -fx-font-size: 20px; -fx-text-fill: rgba(0,0,0,0.7); -fx-font-weight: 600;");
+        Label title = new Label("📄 选择编辑器");
+        title.setStyle("-fx-font-family: 'Georgia', 'Times New Roman', serif; -fx-font-size: 20px; -fx-text-fill: " + COLOR_INK + "; -fx-font-weight: 500;");
 
         Label desc = new Label("请选择使用哪种编辑器打开配置文件");
-        desc.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.45);");
+        desc.setStyle("-fx-font-size: 14px; -fx-text-fill: " + COLOR_MUTED + ";");
 
-        Button systemBtn = new Button("\uD83D\uDDA5 系统默认编辑器");
-        systemBtn.setStyle("-fx-background-color: #f8f8f8; -fx-text-fill: #333;"
-            + " -fx-background-radius: 10px; -fx-padding: 12px 24px;"
-            + " -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand;"
-            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 10px; -fx-border-width: 1px;");
+        Button systemBtn = new Button("🖥 系统默认编辑器");
+        systemBtn.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-text-fill: " + COLOR_INK + "; -fx-background-radius: 10px; -fx-padding: 12px 24px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 10px; -fx-border-width: 1px;");
         systemBtn.setPrefWidth(240);
         systemBtn.setOnAction(e -> {
             dialog.close();
             try {
                 java.awt.Desktop.getDesktop().edit(configPath.toFile());
             } catch (IOException ex) {
-                // 如果 edit 不支持，回退到 open
                 try {
                     java.awt.Desktop.getDesktop().open(configPath.toFile());
                 } catch (IOException ex2) {
-                    // 最终回退到内置编辑器
                     javafx.application.Platform.runLater(this::showJsonEditor);
                 }
             }
         });
 
-        Button builtinBtn = new Button("\uD83D\uDCDD 本项目内置编辑器");
-        builtinBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white;"
-            + " -fx-background-radius: 10px; -fx-padding: 12px 24px;"
-            + " -fx-font-size: 14px; -fx-font-weight: 600; -fx-cursor: hand;");
+        Button builtinBtn = new Button("📝 本项目内置编辑器");
+        builtinBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 10px; -fx-padding: 12px 24px; -fx-font-size: 14px; -fx-font-weight: 600; -fx-cursor: hand;");
         builtinBtn.setPrefWidth(240);
         builtinBtn.setOnAction(e -> {
             dialog.close();
@@ -714,8 +673,7 @@ public class SettingsPage extends VBox {
         });
 
         Button cancelBtn = new Button("取消");
-        cancelBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: #888;"
-            + " -fx-font-size: 13px; -fx-cursor: hand; -fx-padding: 6px 16px;");
+        cancelBtn.setStyle("-fx-background-color: transparent; -fx-text-fill: " + COLOR_MUTED + "; -fx-font-size: 13px; -fx-cursor: hand; -fx-padding: 6px 16px;");
         cancelBtn.setOnAction(e -> dialog.close());
 
         root.getChildren().addAll(title, desc, systemBtn, builtinBtn, cancelBtn);
@@ -726,7 +684,7 @@ public class SettingsPage extends VBox {
         dialog.showAndWait();
     }
 
-    /** 内置 JSON 编辑对话框：语法高亮 + 格式化 + 保存 */
+    /** 内置 JSON 编辑对话框 */
     private void showJsonEditor() {
         Path configPath = config.ConfigIO.getConfigPath();
         if (!Files.exists(configPath)) return;
@@ -744,19 +702,15 @@ public class SettingsPage extends VBox {
 
         VBox root = new VBox(12);
         root.setPadding(new Insets(20));
-        root.setStyle("-fx-background-color: #ffffff;"
-            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 12px; -fx-border-width: 1px;");
+        root.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 16px; -fx-border-width: 1px;");
         root.setMinWidth(700);
         root.setMinHeight(500);
 
         Label title = new Label("📄 " + configPath.getFileName().toString());
-        title.setStyle("-fx-font-size: 15px; -fx-text-fill: rgba(0,0,0,0.7); -fx-font-weight: 500;");
+        title.setStyle("-fx-font-size: 15px; -fx-text-fill: " + COLOR_INK + "; -fx-font-weight: 500;");
 
         TextArea editor = new TextArea(originalContent);
-        editor.setStyle("-fx-font-family: 'JetBrains Mono','Fira Code',monospace;"
-            + " -fx-font-size: 13px; -fx-text-fill: #333;"
-            + " -fx-background-color: #fafafa; -fx-control-inner-background: #fafafa;"
-            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 8px;");
+        editor.setStyle("-fx-font-family: 'JetBrains Mono','Fira Code',monospace; -fx-font-size: 13px; -fx-text-fill: " + COLOR_INK + "; -fx-background-color: " + COLOR_CANVAS + "; -fx-control-inner-background: " + COLOR_CANVAS + "; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px;");
         editor.setWrapText(false);
         VBox.setVgrow(editor, Priority.ALWAYS);
 
@@ -764,9 +718,7 @@ public class SettingsPage extends VBox {
         btnRow.setAlignment(Pos.CENTER_RIGHT);
 
         Button formatBtn = new Button("格式化");
-        formatBtn.setStyle("-fx-background-color: #f0f0f0; -fx-text-fill: #555;"
-            + " -fx-background-radius: 8px; -fx-padding: 6px 16px; -fx-cursor: hand;"
-            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 8px; -fx-border-width: 1px;");
+        formatBtn.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-text-fill: " + COLOR_MUTED + "; -fx-background-radius: 8px; -fx-padding: 6px 16px; -fx-cursor: hand; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px; -fx-border-width: 1px;");
         formatBtn.setOnAction(e -> {
             try {
                 ObjectMapper mapper = new ObjectMapper();
@@ -779,8 +731,7 @@ public class SettingsPage extends VBox {
         });
 
         Button saveBtn = new Button("保存");
-        saveBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white;"
-            + " -fx-background-radius: 8px; -fx-padding: 6px 20px; -fx-font-weight: 600; -fx-cursor: hand;");
+        saveBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 6px 20px; -fx-font-weight: 600; -fx-cursor: hand;");
         saveBtn.setOnAction(e -> {
             try {
                 new ObjectMapper().readValue(editor.getText(), Object.class);
@@ -789,15 +740,12 @@ public class SettingsPage extends VBox {
                 refresh();
                 dialog.close();
             } catch (Exception ex) {
-                editor.setStyle(editor.getStyle().replace("-fx-control-inner-background: #fafafa;",
-                    "-fx-control-inner-background: #fff0f0;"));
+                editor.setStyle(editor.getStyle().replace("-fx-control-inner-background: " + COLOR_CANVAS + ";", "-fx-control-inner-background: #fff0f0;"));
             }
         });
 
         Button cancelBtn = new Button("取消");
-        cancelBtn.setStyle("-fx-background-color: #f0f0f0; -fx-text-fill: #888;"
-            + " -fx-background-radius: 8px; -fx-padding: 6px 16px; -fx-cursor: hand;"
-            + " -fx-border-color: rgba(0,0,0,0.1); -fx-border-radius: 8px; -fx-border-width: 1px;");
+        cancelBtn.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-text-fill: " + COLOR_MUTED + "; -fx-background-radius: 8px; -fx-padding: 6px 16px; -fx-cursor: hand; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px; -fx-border-width: 1px;");
         cancelBtn.setOnAction(e -> dialog.close());
 
         btnRow.getChildren().addAll(formatBtn, cancelBtn, saveBtn);
@@ -811,21 +759,24 @@ public class SettingsPage extends VBox {
     }
 
     /**
-     * 构建"更新"设置区域，支持多种状态：空闲/检查中/已最新/有更新/下载中/就绪/错误。
+     * 构建"更新"设置区域
      */
     private VBox buildUpdateSection() {
         VBox section = new VBox(16);
+        section.setStyle("-fx-background-color: " + COLOR_SURFACE_CARD + "; -fx-background-radius: 12px; -fx-padding: 24px;");
 
         Label sectionTitle = new Label("更新");
-        sectionTitle.getStyleClass().add("section-title");
+        sectionTitle.setStyle("-fx-font-size: 12px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-text-transform: uppercase; -fx-letter-spacing: 1.5px;");
 
-        // 当前版本行
         HBox versionRow = new HBox(16);
         versionRow.setAlignment(Pos.CENTER_LEFT);
-        Label versionLabel = new Label("当前版本: " + UpdateService.getCurrentVersion());
-        versionLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.6);");
+        Label versionLabel = new Label("当前版本");
+        versionLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+        Label versionValue = new Label("v" + UpdateService.getCurrentVersion());
+        versionValue.setStyle("-fx-font-family: 'JetBrains Mono', 'SF Mono', monospace; -fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED + ";");
+        HBox.setHgrow(versionLabel, Priority.ALWAYS);
+        versionRow.getChildren().addAll(versionLabel, versionValue);
 
-        // 动态内容区域
         updateContentBox = new VBox(12);
         buildUpdateContent();
 
@@ -835,169 +786,220 @@ public class SettingsPage extends VBox {
 
     private void buildUpdateContent() {
         updateContentBox.getChildren().clear();
-
-        switch (updateState) {
-            case IDLE -> {
-                Button checkBtn = new Button("检查更新");
-                checkBtn.getStyleClass().add("pill-button");
-                checkBtn.setPrefHeight(36);
-                checkBtn.setOnAction(e -> startCheckForUpdates());
-                updateContentBox.getChildren().add(checkBtn);
-            }
-            case CHECKING -> {
-                Label checkingLabel = new Label("正在检查更新...");
-                checkingLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.5);");
-                updateContentBox.getChildren().add(checkingLabel);
-            }
-            case UP_TO_DATE -> {
-                Label upToDateLabel = new Label("已是最新版本");
-                upToDateLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #22c55e; -fx-font-weight: 500;");
-                Button recheckBtn = new Button("重新检查");
-                recheckBtn.getStyleClass().add("pill-button");
-                recheckBtn.setPrefHeight(32);
-                recheckBtn.setOnAction(e -> startCheckForUpdates());
-                updateContentBox.getChildren().addAll(upToDateLabel, recheckBtn);
-            }
-            case UPDATE_AVAILABLE -> {
-                if (pendingUpdate == null) break;
-                Label newVerLabel = new Label("新版本 v" + pendingUpdate.getVersion() + " 可用");
-                newVerLabel.setStyle("-fx-font-size: 15px; -fx-font-weight: 600; -fx-text-fill: #3b82f6;");
-
-                String sizeStr = pendingUpdate.getSize() > 0
-                    ? String.format("%.1f MB", pendingUpdate.getSize() / 1_048_576.0) : "未知";
-                Label sizeLabel = new Label("大小: " + sizeStr);
-                sizeLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0,0,0,0.5);");
-
-                VBox infoBox = new VBox(6);
-                infoBox.getChildren().addAll(newVerLabel, sizeLabel);
-
-                if (pendingUpdate.getChangelog() != null
-                    && !pendingUpdate.getChangelog().isBlank()) {
-                    Label changelogLabel = new Label("更新内容: " + pendingUpdate.getChangelog());
-                    changelogLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: rgba(0,0,0,0.6);");
-                    changelogLabel.setWrapText(true);
-                    infoBox.getChildren().add(changelogLabel);
-                }
-
-                Button updateBtn = new Button("立即更新");
-                updateBtn.setStyle("-fx-background-color: #3b82f6; -fx-text-fill: white;"
-                    + " -fx-background-radius: 12px; -fx-padding: 8px 24px;"
-                    + " -fx-font-size: 14px; -fx-font-weight: 600; -fx-cursor: hand;");
-                updateBtn.setPrefHeight(36);
-                updateBtn.setOnAction(e -> startDownload());
-                updateContentBox.getChildren().addAll(infoBox, updateBtn);
-            }
-            case DOWNLOADING -> {
-                Label dlLabel = new Label("正在下载更新...");
-                dlLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: rgba(0,0,0,0.5);");
-
-                ProgressBar progressBar = new ProgressBar(0);
-                progressBar.setPrefWidth(300);
-                progressBar.setStyle("-fx-accent: #3b82f6;");
-                // 用 userData 保存引用以便更新
-                dlLabel.setUserData(progressBar);
-
-                updateContentBox.getChildren().addAll(dlLabel, progressBar);
-            }
-            case READY -> {
-                String readyMsg = "更新已就绪，请重启应用以使用新版本"
-                    + (pendingUpdate != null ? " v" + pendingUpdate.getVersion() : "");
-                boolean isWin = System.getProperty("os.name").toLowerCase()
-                    .contains("win");
-                if (isWin) {
-                    readyMsg += "\n\n提示: 重启时启动脚本将自动应用更新。";
-                }
-                Label readyLabel = new Label(readyMsg);
-                readyLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #22c55e; -fx-font-weight: 500;");
-                readyLabel.setWrapText(true);
-                updateContentBox.getChildren().add(readyLabel);
-            }
-            case ERROR -> {
-                Label errorLabel = new Label("检查失败: " +
-                    (updateErrorMessage != null ? updateErrorMessage : "未知错误"));
-                errorLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: #ef4444;");
-                errorLabel.setWrapText(true);
-                Button retryBtn = new Button("重试");
-                retryBtn.getStyleClass().add("pill-button");
-                retryBtn.setPrefHeight(32);
-                retryBtn.setOnAction(e -> startCheckForUpdates());
-                updateContentBox.getChildren().addAll(errorLabel, retryBtn);
-            }
-        }
+        Button checkBtn = new Button("检查更新");
+        checkBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 7px 16px; -fx-font-size: 13px; -fx-font-weight: 500; -fx-cursor: hand;");
+        checkBtn.setOnAction(e -> showUpdateDialog());
+        updateContentBox.getChildren().add(checkBtn);
     }
 
-    /**
-     * 仅刷新更新区域内容，不影响页面其他部分和滚动位置。
-     */
-    private void refreshUpdateSection() {
-        buildUpdateContent();
-    }
+    // ======================== 更新弹窗 ========================
 
-    private void startCheckForUpdates() {
-        updateState = UpdateState.CHECKING;
-        Platform.runLater(this::refreshUpdateSection);
+    private void showUpdateDialog() {
+        updateDialog = new Stage();
+        updateDialog.initModality(Modality.APPLICATION_MODAL);
+        updateDialog.initStyle(StageStyle.TRANSPARENT);
 
+        VBox root = new VBox(20);
+        root.setAlignment(Pos.TOP_CENTER);
+        root.setPadding(new Insets(32));
+        root.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-background-radius: 16px; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 16px;");
+        root.setMinWidth(420);
+
+        Label title = new Label("检查更新");
+        title.setStyle("-fx-font-family: 'Georgia', 'Times New Roman', serif; -fx-font-size: 22px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + "; -fx-letter-spacing: -0.3px;");
+
+        updateDialogContent = new VBox(12);
+        updateDialogContent.setAlignment(Pos.CENTER);
+
+        // 初始状态：检查中
+        Label checkingLabel = new Label("正在检查更新...");
+        checkingLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: " + COLOR_MUTED + ";");
+        updateDialogContent.getChildren().add(checkingLabel);
+
+        root.getChildren().addAll(title, updateDialogContent);
+
+        Scene scene = new Scene(root);
+        scene.setFill(javafx.scene.paint.Color.TRANSPARENT);
+        updateDialog.setScene(scene);
+        updateDialog.show();
+
+        // 后台检查
         CompletableFuture.runAsync(() -> {
             try {
                 UpdateInfo info = updateService.checkForUpdates();
                 Platform.runLater(() -> {
                     if (info != null) {
                         pendingUpdate = info;
-                        updateState = UpdateState.UPDATE_AVAILABLE;
+                        showDialogUpdateAvailable();
                     } else {
-                        updateState = UpdateState.UP_TO_DATE;
+                        showDialogUpToDate();
                     }
-                    refreshUpdateSection();
                 });
             } catch (Exception e) {
                 Platform.runLater(() -> {
                     updateErrorMessage = e.getMessage();
-                    updateState = UpdateState.ERROR;
-                    refreshUpdateSection();
+                    showDialogError(() -> {
+                        updateDialog.close();
+                        showUpdateDialog();
+                    });
                 });
             }
         });
     }
 
-    private void startDownload() {
+    private void showDialogUpToDate() {
+        updateDialogContent.getChildren().clear();
+
+        Label icon = new Label("✓");
+        icon.setStyle("-fx-font-size: 28px; -fx-text-fill: " + COLOR_SUCCESS + "; -fx-background-color: rgba(93,184,114,0.1); -fx-background-radius: 50%; -fx-padding: 12px 18px;");
+
+        Label label = new Label("已是最新版本");
+        label.setStyle("-fx-font-size: 16px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + ";");
+
+        Label detail = new Label("当前版本 v" + UpdateService.getCurrentVersion());
+        detail.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED + ";");
+
+        Button okBtn = new Button("知道了");
+        okBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 8px 28px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand;");
+        okBtn.setOnAction(e -> updateDialog.close());
+
+        updateDialogContent.getChildren().addAll(icon, label, detail, okBtn);
+        updateDialog.sizeToScene();
+    }
+
+    private void showDialogUpdateAvailable() {
+        updateDialogContent.getChildren().clear();
+        updateDialogContent.setAlignment(Pos.CENTER_LEFT);
+
         if (pendingUpdate == null) return;
-        if (pendingUpdate.getUrl() == null || pendingUpdate.getUrl().isBlank()) {
+
+        // 新版本标题
+        Label newVerLabel = new Label("发现新版本");
+        newVerLabel.setStyle("-fx-font-size: 18px; -fx-font-weight: 600; -fx-text-fill: " + COLOR_PRIMARY + ";");
+
+        Label verValueLabel = new Label("v" + pendingUpdate.getVersion());
+        verValueLabel.setStyle("-fx-font-family: 'JetBrains Mono', 'SF Mono', monospace; -fx-font-size: 15px; -fx-text-fill: " + COLOR_INK + "; -fx-padding: 2px 0 0 0;");
+
+        String sizeStr = pendingUpdate.getSize() > 0
+            ? String.format("%.1f MB", pendingUpdate.getSize() / 1_048_576.0) : "未知";
+        Label sizeLabel = new Label("大小: " + sizeStr);
+        sizeLabel.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED + ";");
+
+        updateDialogContent.getChildren().addAll(newVerLabel, verValueLabel, sizeLabel);
+
+        // 更新内容
+        if (pendingUpdate.getChangelog() != null && !pendingUpdate.getChangelog().isBlank()) {
+            Label changelogTitle = new Label("更新内容");
+            changelogTitle.setStyle("-fx-font-size: 13px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_MUTED + "; -fx-padding: 8px 0 0 0;");
+
+            Label changelogBody = new Label(pendingUpdate.getChangelog());
+            changelogBody.setStyle("-fx-font-size: 13px; -fx-text-fill: " + COLOR_MUTED_SOFT + "; -fx-wrap-text: true; -fx-padding: 0 0 8px 0;");
+
+            updateDialogContent.getChildren().addAll(changelogTitle, changelogBody);
+        }
+
+        updateDialogContent.setAlignment(Pos.CENTER);
+
+        // 按钮行
+        HBox btnRow = new HBox(10);
+        btnRow.setAlignment(Pos.CENTER);
+
+        Button cancelBtn = new Button("稍后再说");
+        cancelBtn.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-text-fill: " + COLOR_MUTED + "; -fx-background-radius: 8px; -fx-padding: 8px 20px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px;");
+        cancelBtn.setOnAction(e -> updateDialog.close());
+
+        Button downloadBtn = new Button("立即更新");
+        downloadBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 8px 24px; -fx-font-size: 14px; -fx-font-weight: 600; -fx-cursor: hand;");
+        downloadBtn.setOnAction(e -> startDialogDownload());
+
+        btnRow.getChildren().addAll(cancelBtn, downloadBtn);
+        updateDialogContent.getChildren().add(btnRow);
+        updateDialog.sizeToScene();
+    }
+
+    private void startDialogDownload() {
+        if (pendingUpdate == null || pendingUpdate.getUrl() == null || pendingUpdate.getUrl().isBlank()) {
             updateErrorMessage = "下载地址无效";
-            updateState = UpdateState.ERROR;
-            Platform.runLater(this::refreshUpdateSection);
+            showDialogError(() -> updateDialog.close());
             return;
         }
-        updateState = UpdateState.DOWNLOADING;
-        Platform.runLater(this::refreshUpdateSection);
+
+        updateDialogContent.getChildren().clear();
+        updateDialogContent.setAlignment(Pos.CENTER);
+
+        Label dlLabel = new Label("正在下载更新...");
+        dlLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: " + COLOR_MUTED + ";");
+
+        updateDialogProgress = new ProgressBar(0);
+        updateDialogProgress.setPrefWidth(320);
+        updateDialogProgress.setStyle("-fx-accent: " + COLOR_PRIMARY + ";");
+
+        updateDialogContent.getChildren().addAll(dlLabel, updateDialogProgress);
+        updateDialog.sizeToScene();
 
         CompletableFuture.runAsync(() -> {
             try {
-                // 进度回调
                 Consumer<Double> progressCb = p -> Platform.runLater(() -> {
-                    if (updateState == UpdateState.DOWNLOADING
-                        && !updateContentBox.getChildren().isEmpty()) {
-                        // 找到 ProgressBar 并更新
-                        for (javafx.scene.Node node : updateContentBox.getChildren()) {
-                            if (node instanceof ProgressBar pb) {
-                                pb.setProgress(p);
-                                break;
-                            }
-                        }
+                    if (updateDialogProgress != null) {
+                        updateDialogProgress.setProgress(p);
                     }
                 });
 
                 updateService.downloadAndReplace(pendingUpdate, progressCb);
-                Platform.runLater(() -> {
-                    updateState = UpdateState.READY;
-                    refreshUpdateSection();
-                });
+                Platform.runLater(this::showDialogReady);
             } catch (Exception e) {
                 Platform.runLater(() -> {
                     updateErrorMessage = "下载失败: " + e.getMessage();
-                    updateState = UpdateState.ERROR;
-                    refreshUpdateSection();
+                    showDialogError(() -> updateDialog.close());
                 });
             }
         });
+    }
+
+    private void showDialogReady() {
+        updateDialogContent.getChildren().clear();
+        updateDialogContent.setAlignment(Pos.CENTER);
+
+        Label icon = new Label("✓");
+        icon.setStyle("-fx-font-size: 28px; -fx-text-fill: " + COLOR_SUCCESS + "; -fx-background-color: rgba(93,184,114,0.1); -fx-background-radius: 50%; -fx-padding: 12px 18px;");
+
+        String readyMsg = "更新已就绪，请重启应用" + (pendingUpdate != null ? " v" + pendingUpdate.getVersion() : "");
+        Label readyLabel = new Label(readyMsg);
+        readyLabel.setStyle("-fx-font-size: 16px; -fx-font-weight: 500; -fx-text-fill: " + COLOR_INK + "; -fx-wrap-text: true;");
+
+        Button okBtn = new Button("知道了");
+        okBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 8px 28px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand;");
+        okBtn.setOnAction(e -> updateDialog.close());
+
+        updateDialogContent.getChildren().addAll(icon, readyLabel, okBtn);
+        updateDialog.sizeToScene();
+    }
+
+    private void showDialogError(Runnable onRetry) {
+        updateDialogContent.getChildren().clear();
+        updateDialogContent.setAlignment(Pos.CENTER);
+
+        Label icon = new Label("✗");
+        icon.setStyle("-fx-font-size: 28px; -fx-text-fill: " + COLOR_PRIMARY + "; -fx-background-color: rgba(204,120,92,0.1); -fx-background-radius: 50%; -fx-padding: 12px 18px;");
+
+        Label errorLabel = new Label(updateErrorMessage != null ? updateErrorMessage : "未知错误");
+        errorLabel.setStyle("-fx-font-size: 14px; -fx-text-fill: " + COLOR_MUTED + "; -fx-wrap-text: true;");
+
+        HBox btnRow = new HBox(10);
+        btnRow.setAlignment(Pos.CENTER);
+
+        Button closeBtn = new Button("关闭");
+        closeBtn.setStyle("-fx-background-color: " + COLOR_CANVAS + "; -fx-text-fill: " + COLOR_MUTED + "; -fx-background-radius: 8px; -fx-padding: 8px 20px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand; -fx-border-color: " + COLOR_HAIRLINE + "; -fx-border-radius: 8px;");
+        closeBtn.setOnAction(e -> updateDialog.close());
+
+        Button retryBtn = new Button("重试");
+        retryBtn.setStyle("-fx-background-color: " + COLOR_PRIMARY + "; -fx-text-fill: " + COLOR_ON_PRIMARY + "; -fx-background-radius: 8px; -fx-padding: 8px 24px; -fx-font-size: 14px; -fx-font-weight: 500; -fx-cursor: hand;");
+        retryBtn.setOnAction(e -> {
+            if (onRetry != null) onRetry.run();
+        });
+
+        btnRow.getChildren().addAll(closeBtn, retryBtn);
+        updateDialogContent.getChildren().addAll(icon, errorLabel, btnRow);
+        updateDialog.sizeToScene();
     }
 }

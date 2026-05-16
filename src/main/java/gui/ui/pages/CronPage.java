@@ -149,7 +149,7 @@ public class CronPage extends VBox {
         refresh();
     }
 
-    private void refresh() {
+    public void refresh() {
         if (backendBridge == null) return;
         taskList.getChildren().clear();
 

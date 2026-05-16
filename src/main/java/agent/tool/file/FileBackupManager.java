@@ -292,7 +292,7 @@ public class FileBackupManager {
                 String tcId = extractJsonValue(item, "toolCallId");
                 if (orig == null || backup == null || ts == null) continue;
 
-                Path origPath = Path.of(orig);
+                Path origPath = Path.of(orig).normalize();
                 Path backupPath = Path.of(backup);
                 long size = 0;
                 try {

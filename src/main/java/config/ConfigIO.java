@@ -111,6 +111,7 @@ public final class ConfigIO {
         // 对齐 Python：文件不存在或读取失败则返回默认配置
         // 首次启动自动创建默认 config.json
         Config defaultConfig = new Config();
+        defaultConfig.getProviders().applyDefaults();
         try {
             saveConfig(defaultConfig, path);
         } catch (IOException e) {

@@ -4,15 +4,19 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class ModelCard extends VBox {
 
     public ModelCard(String name, String provider, boolean isDefault, boolean isReady) {
-        this(name, provider, isDefault, isReady, true, null);
+        this(name, provider, isDefault, isReady, false, null);
     }
 
     /**
@@ -92,7 +96,12 @@ public class ModelCard extends VBox {
             delBtn.setOnMouseExited(e -> delBtn.setStyle(delBtn.getStyle()
                 .replace("-fx-background-color: #c64545", "-fx-background-color: transparent")
                 .replace("-fx-text-fill: white", "-fx-text-fill: #c64545")));
-            delBtn.setOnAction(e -> onDelete.run());
+            // 消费鼠标事件，防止穿透到卡片的 setOnMouseClicked
+            delBtn.addEventFilter(MouseEvent.MOUSE_CLICKED, e -> {
+                e.consume();
+                log.debug("删除按钮点击，触发删除回调");
+                onDelete.run();
+            });
             StackPane.setAlignment(delBtn, Pos.TOP_RIGHT);
             StackPane.setMargin(delBtn, new Insets(8, 8, 0, 0));
             cardWrapper.getChildren().add(delBtn);

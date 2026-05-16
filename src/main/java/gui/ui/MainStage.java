@@ -333,7 +333,10 @@ public class MainStage {
                 if (pageNode instanceof ModelsPage p) p.refresh();
                 else if (pageNode instanceof AgentsPage p) p.refresh();
                 else if (pageNode instanceof SkillsPage p) p.refresh();
+                else if (pageNode instanceof ChannelsPage p) p.refresh();
+                else if (pageNode instanceof McpPage p) p.refresh();
                 else if (pageNode instanceof DatabasesPage p) p.refresh();
+                else if (pageNode instanceof CronPage p) p.refresh();
                 else if (pageNode instanceof SettingsPage p) p.refresh();
             }
             if ("chat".equalsIgnoreCase(page.replace(" ", "")) && backendBridge != null) {

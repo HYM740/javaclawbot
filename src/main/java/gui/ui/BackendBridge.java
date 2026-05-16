@@ -952,6 +952,13 @@ public class BackendBridge {
     // ── Getters ──
 
     public Config getConfig() {
+        // 检测配置文件是否被外部修改（手动编辑等），自动重新加载
+        try {
+            if (config != null && ConfigIO.isConfigChanged(config.getWorkspacePath())) {
+                log.info("检测到 config.json 外部修改，自动重新加载");
+                reloadConfigFromDisk();
+            }
+        } catch (Exception ignored) {}
         return config;
     }
 

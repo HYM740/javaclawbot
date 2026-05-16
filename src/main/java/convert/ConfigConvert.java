@@ -317,7 +317,14 @@ public interface ConfigConvert {
             return;
         }
         for (String name : source.names()) {
-            updateProviderConfig( source.getByName( name ), target.getByName( name ) );
+            ProviderConfig sourcePc = source.getByName( name );
+            ProviderConfig targetPc = target.getByName( name );
+            if ( targetPc == null ) {
+                // 新 provider（如用户自定义供应商）：直接添加到 target
+                target.put( name, sourcePc );
+            } else {
+                updateProviderConfig( sourcePc, targetPc );
+            }
         }
     }
 

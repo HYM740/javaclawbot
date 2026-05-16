@@ -755,10 +755,20 @@ public class ChatPage extends VBox {
 
         java.util.Map<String, ToolCallCard> cardById = new java.util.LinkedHashMap<>();
         java.util.Map<String, String> filePathByCallId = new java.util.LinkedHashMap<>();
-        int msgIndex = 0;
 
+        // 限制加载数量：只加载最后 MAX_VISIBLE_NODES 条非系统消息，避免一次性创建过多 WebView
+        int systemCount = 0;
+        for (var msg : history) {
+            if ("system".equals(String.valueOf(msg.getOrDefault("role", "")))) systemCount++;
+        }
+        int nonSystemTotal = history.size() - systemCount;
+        int startIndex = Math.max(0, history.size() - MAX_VISIBLE_NODES - systemCount);
+        nodesTrimmed = Math.max(0, nonSystemTotal - MAX_VISIBLE_NODES);
+
+        int msgIndex = 0;
         for (java.util.Map<String, Object> msg : history) {
             msgIndex++;
+            if (msgIndex <= startIndex) continue;  // 跳过早期消息
             try {
                 String role = String.valueOf(msg.getOrDefault("role", ""));
 
@@ -856,7 +866,6 @@ public class ChatPage extends VBox {
         }
         Platform.runLater(() -> {
             scrollPane.setVvalue(1.0);
-            trimToWindow();
         });
     }
 

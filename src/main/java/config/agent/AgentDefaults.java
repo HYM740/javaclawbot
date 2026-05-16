@@ -27,7 +27,7 @@ public class AgentDefaults {
     /**
      * 是否开发者
      */
-    private boolean development = false;
+    private boolean development = true;
     private int maxToolIterations = 500;
     private int memoryWindow = 200;
     /**

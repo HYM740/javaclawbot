@@ -22,16 +22,20 @@ import javafx.stage.StageStyle;
 
 import java.util.Map;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class ModelsPage extends VBox {
 
     private VBox modelList;
+    private ScrollPane scrollPane;
     private gui.ui.BackendBridge backendBridge;
 
     public ModelsPage() {
         setSpacing(0);
         setStyle("-fx-background-color: #f1ede1;");
 
-        ScrollPane scrollPane = new ScrollPane();
+        scrollPane = new ScrollPane();
         scrollPane.setStyle("-fx-background-color: transparent; -fx-border-color: transparent;");
         scrollPane.setFitToWidth(true);
 
@@ -55,9 +59,8 @@ public class ModelsPage extends VBox {
         modelList.setMaxWidth(800);
 
         modelList.getChildren().addAll(
-            new ModelCard("Claude Sonnet 4", "anthropic", true, true),
-            new ModelCard("GPT-4o", "openai", false, true),
-            new ModelCard("DeepSeek V3", "deepseek", false, false)
+            new ModelCard("DeepSeek V4 Pro", "deepseek", true, false),
+            new ModelCard("MiniMax-M2.7", "minimax", false, false)
         );
 
         // 添加按钮
@@ -81,6 +84,11 @@ public class ModelsPage extends VBox {
 
     public void refresh() {
         if (backendBridge == null) return;
+
+        // 保存滚动位置
+        double scrollVvalue = scrollPane.getVvalue();
+        final double savedVvalue = scrollVvalue;
+
         modelList.getChildren().clear();
 
         config.Config cfg = backendBridge.getConfig();
@@ -119,26 +127,36 @@ public class ModelsPage extends VBox {
             if (pc == null) continue;
             String label = n.substring(0, 1).toUpperCase() + n.substring(1);
             boolean isConfigured = pc.getApiKey() != null && !pc.getApiKey().isBlank();
-            providers.ProviderRegistry.ProviderSpec spec = providers.ProviderRegistry.findByName(n);
-            boolean isBuiltin = spec != null;
-            boolean isOauth = spec != null && spec.isOauth();
-            boolean isReady = isConfigured || isOauth;
+            boolean isReady = isConfigured;
             boolean isDefault = defaultModel != null && cfg.getProviderName(defaultModel) != null
                 && cfg.getProviderName(defaultModel).equals(n);
             final String providerName = n;
-            Runnable onDelete = isBuiltin ? null : () -> {
+            // 所有供应商均可删除，不再区分内置/自定义
+            Runnable onDelete = () -> {
+                log.info("删除供应商: {}", providerName);
                 provCfg.remove(providerName);
-                try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+                try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ex) {
+                    log.warn("删除供应商配置保存失败: {}", ex.getMessage());
+                }
                 Platform.runLater(this::refresh);
             };
-            ModelCard card = new ModelCard(label, n, isDefault, isReady, isBuiltin, onDelete);
+            ModelCard card = new ModelCard(label, n, isDefault, isReady, false, onDelete);
             card.setOnMouseClicked(ev -> {
-                if (ev.getTarget() instanceof javafx.scene.control.Button) return; // 不处理删除按钮点击
+                // 沿节点树上溯，检查点击是否源自删除按钮（防止穿透触发弹窗）
+                javafx.scene.Node target = (javafx.scene.Node) ev.getTarget();
+                while (target != null && target != card) {
+                    if (target instanceof javafx.scene.control.Button) return;
+                    target = target.getParent();
+                }
                 showModelDialog(providerName);
             });
             card.setStyle(card.getStyle() + "; -fx-cursor: hand;");
             modelList.getChildren().add(card);
         }
+
+        // 恢复滚动位置（延迟到布局完成后，避免 vvalue 被 clamp）
+        final double restoreVvalue = savedVvalue;
+        Platform.runLater(() -> scrollPane.setVvalue(restoreVvalue));
     }
 
     private String fieldStyle() {
@@ -399,13 +417,13 @@ public class ModelsPage extends VBox {
         typeCombo.setStyle(fieldStyle()); typeCombo.setPrefHeight(36);
 
         HBox numRow = new HBox(8);
-        TextField maxTokensField = new TextField("8192");
+        TextField maxTokensField = new TextField("65536");
         maxTokensField.setPromptText("Max Tokens"); maxTokensField.setStyle(fieldStyle()); maxTokensField.setPrefHeight(36); maxTokensField.setPrefWidth(120);
-        TextField tempField = new TextField("");
+        TextField tempField = new TextField("1");
         tempField.setPromptText("Temperature"); tempField.setStyle(fieldStyle()); tempField.setPrefHeight(36); tempField.setPrefWidth(120);
-        TextField topPField = new TextField("");
+        TextField topPField = new TextField("0.95");
         topPField.setPromptText("Top P"); topPField.setStyle(fieldStyle()); topPField.setPrefHeight(36); topPField.setPrefWidth(120);
-        TextField ctxField = new TextField("");
+        TextField ctxField = new TextField("512000");
         ctxField.setPromptText("Context Window"); ctxField.setStyle(fieldStyle()); ctxField.setPrefHeight(36); ctxField.setPrefWidth(140);
         numRow.getChildren().addAll(maxTokensField, tempField, topPField, ctxField);
 
@@ -641,7 +659,9 @@ public class ModelsPage extends VBox {
             if (!key.isEmpty()) newPc.setApiKey(key);
             newPc.setType("openai_compatible");
             provCfg.put(name, newPc);
-            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ignored) {}
+            try { config.ConfigIO.saveConfig(cfg, null); } catch (Exception ex) {
+                log.warn("添加供应商配置保存失败: {}", ex.getMessage());
+            }
             dialog.close();
             Platform.runLater(() -> refresh());
         });
